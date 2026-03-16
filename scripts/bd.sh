@@ -93,6 +93,16 @@ case "$COMMAND" in
         git push origin $(git branch --show-current) || { echo "❌ Push failed."; exit 1; }
         
         echo "✅ Sync complete. Work safely landed."
+        
+        # --- AUTOPILOT V2 HOOK: CICLO DE VIDA EFÍMERO ---
+        echo "💀 Phase 3: Terminating agent session to release resources..."
+        # Si estamos dentro de tmux (el entorno de AO), matamos la ventana para que el agente termine.
+        if [ -n "$TMUX" ]; then
+            tmux kill-window
+        else
+            # Si no estamos en tmux, matamos el proceso padre (el agente) directamente.
+            kill -9 $PPID
+        fi
         ;;
     *)
         echo "Usage: bd [onboard|ready|show <id>|update <id> --status in_progress|close <id>|sync]"

@@ -28,18 +28,18 @@ Reglas inyectadas nativamente a cada agente instanciado por AO mediante la propi
 - Se configuró `agent-orchestrator.yaml` para usar `agent: opencode` (preparado para Gemini/Codex) y enlazar las reglas.
 - Se desarrolló e instaló el script `bd` (`scripts/bd.sh`) localmente.
 
-### 🚧 Fase 2: Autopilot v1 (Guardrails Locales y Pipeline CLI)
-**Estado: PENDIENTE**
+### ✅ Fase 2: Autopilot v1 (Guardrails Locales y Pipeline CLI)
+**Estado: COMPLETADO**
 **Objetivo:** Interceptar el flujo antes del PR para correr validaciones locales según el lenguaje.
 1. Modificar la sección `bd sync` del script `bd.sh`.
 2. Implementar lógica para hacer `git diff --name-only origin/master...HEAD`.
 3. Analizar extensiones de archivos modificados (ej. `.ts` -> `npm test`, `.rs` -> `cargo test`).
 4. Si hay fallos, abortar el push y escupir el error en la terminal para que el agente ejecutor lo arregle en su próximo ciclo de iteración.
 
-### ⏳ Fase 3: Autopilot v2 Parte A (Ciclo de Vida Efímero)
-**Estado: PENDIENTE**
+### ✅ Fase 3: Autopilot v2 Parte A (Ciclo de Vida Efímero)
+**Estado: COMPLETADO**
 **Objetivo:** Matar al agente ejecutor (Opencode/Codex/Gemini CLI) tras la codificación para ahorrar recursos.
-- Modificar la integración del agente en AO para que el proceso termine (`exit 0`) y no se quede en espera (idle) dentro de `tmux` gastando tokens de contexto a lo tonto.
+- Se implementó un "kill switch" en `scripts/bd.sh` que detecta la sesión `$TMUX` y ejecuta `tmux kill-window` tras un `sync` exitoso, forzando la terminación del agente para no gastar tokens en estado inactivo.
 
 ### ⏳ Fase 4: Autopilot v2 Parte B (Snapshot y Resurrección - `/resume -last`)
 **Estado: PENDIENTE**
