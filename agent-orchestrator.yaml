@@ -1,0 +1,21 @@
+dataDir: ~/.agent-orchestrator
+worktreeDir: ~/.worktrees
+port: 3000
+defaults:
+  runtime: tmux
+  agent: claude-code
+  workspace: worktree
+  notifiers:
+    - desktop
+projects:
+  RalphitoRevolution:
+    name: RalphitoRevolution
+    sessionPrefix: rr
+    repo: ComposioHQ/agent-orchestrator # Ejemplo, cámbialo por el tuyo de GitHub
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: main
+    agentRules: |-
+      Always run tests before pushing.
+      Use conventional commits (feat:, fix:, chore:, docs:, refactor:, test:).
+      Link issue numbers in commit messages.
+      Write clear commit messages that explain WHY, not just WHAT.
