@@ -4,10 +4,33 @@
 
 PROJECT=$1
 PROMPT=$2
+LOCKS_FILE="/home/pepu/IAproject/RalphitoRevolution/scripts/tools/.locks.json"
 
 if [ -z "$PROJECT" ] || [ -z "$PROMPT" ]; then
-    echo '{"error": "Faltan argumentos. Uso: tool_spawn_executor <proyecto> <prompt>"}'
+    echo '{"error": "Faltan argumentos. Uso: tool_spawn_executor <proyecto> <prompt_o_spec_path>"}'
     exit 1
+fi
+
+# 1. Intentamos extraer la ruta al archivo .bead.md desde el prompt (si la hay)
+BEAD_FILE=$(echo "$PROMPT" | grep -o 'docs/specs/[^ ]*\.bead\.md' || true)
+
+if [ -n "$BEAD_FILE" ] && [ -f "$BEAD_FILE" ]; then
+    # Extraemos el WRITE_ONLY_GLOBS del archivo
+    WRITE_GLOBS=$(grep '\[WRITE_ONLY_GLOBS\]:' "$BEAD_FILE" | cut -d':' -f2-)
+    
+    if [ -n "$WRITE_GLOBS" ]; then
+        # Normalizamos la cadena para comparar
+        NORMALIZED_GLOBS=$(echo "$WRITE_GLOBS" | tr -d ' ' | tr -d '"' | tr -d '[' | tr -d ']')
+        
+        # Comprobamos el lock
+        if grep -q "\"$NORMALIZED_GLOBS\"" "$LOCKS_FILE" 2>/dev/null; then
+            echo '{"status": "error", "message": "MUTEX COLLISION: Otro Ralphito ya está editando '$NORMALIZED_GLOBS'. Pon este Bead en cola y lanza otro distinto."}'
+            exit 1
+        fi
+        
+        # Registramos el lock (esto es muy básico, en producción usaríamos jq)
+        echo "{\"lock\": \"$NORMALIZED_GLOBS\", \"bead\": \"$BEAD_FILE\"}" >> "$LOCKS_FILE"
+    fi
 fi
 
 echo "🚀 Spawned Ralphito para el proyecto: $PROJECT"
