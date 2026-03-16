@@ -35,9 +35,52 @@ case "$COMMAND" in
     "sync")
         echo "🛫 Landing the plane... Initiating sync sequence."
         
-        # [AUTOPILOT V1 HOOK] - Guardrails
-        echo "⏳ Running pre-sync checks..."
+        # --- AUTOPILOT V1 HOOK: GUARDRAILS LOCALES ---
+        echo "⏳ Running pre-sync guardrails..."
         
+        # 1. Obtener archivos modificados (staged + unstaged)
+        MODIFIED_FILES=$(git diff --name-only HEAD)
+        
+        # Si no hay archivos modificados en working tree, miramos contra el remote origin
+        if [ -z "$MODIFIED_FILES" ]; then
+            MODIFIED_FILES=$(git diff --name-only origin/$(git branch --show-current)...HEAD 2>/dev/null)
+        fi
+
+        HAS_TS=false
+
+        for FILE in $MODIFIED_FILES; do
+            if [[ "$FILE" == *.ts || "$FILE" == *.tsx ]]; then
+                HAS_TS=true
+            fi
+        done
+
+        if [ "$HAS_TS" = true ]; then
+            echo "🔍 TypeScript files detected. Running TS Guardrails..."
+            
+            # Check 1: Typechecking (si existe tsconfig)
+            if [ -f "tsconfig.json" ]; then
+                echo "⚡ Running tsc --noEmit..."
+                npx tsc --noEmit || { echo "❌ Guardrail failed: TypeScript type errors found. Please fix them before syncing."; exit 1; }
+            else
+                echo "⚠️ No tsconfig.json found, skipping typecheck."
+            fi
+
+            # Check 2: Linting (si existe npm run lint)
+            if grep -q '"lint":' package.json 2>/dev/null; then
+                echo "🧹 Running linter..."
+                npm run lint || { echo "❌ Guardrail failed: Linter errors found. Please fix them before syncing."; exit 1; }
+            fi
+            
+            # Check 3: Tests (si existe npm test)
+            if grep -q '"test":' package.json 2>/dev/null; then
+                echo "🧪 Running tests..."
+                npm test || { echo "❌ Guardrail failed: Tests failed. Please fix them before syncing."; exit 1; }
+            fi
+        fi
+        
+        echo "✅ All guardrails passed."
+        # --- FIN GUARDRAILS ---
+
         git pull --rebase origin $(git branch --show-current) || { echo "❌ Rebase failed. Fix conflicts and retry."; exit 1; }
         
         if [[ -n $(git status -s) ]]; then
