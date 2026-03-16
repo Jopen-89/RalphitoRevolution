@@ -41,12 +41,11 @@ Reglas inyectadas nativamente a cada agente instanciado por AO mediante la propi
 **Objetivo:** Matar al agente ejecutor (Opencode/Codex/Gemini CLI) tras la codificación para ahorrar recursos.
 - Se implementó un "kill switch" en `scripts/bd.sh` que detecta la sesión `$TMUX` y ejecuta `tmux kill-window` tras un `sync` exitoso, forzando la terminación del agente para no gastar tokens en estado inactivo.
 
-### ⏳ Fase 4: Autopilot v2 Parte B (Snapshot y Resurrección - `/resume -last`)
-**Estado: PENDIENTE**
+### ✅ Fase 4: Autopilot v2 Parte B (Snapshot y Resurrección - `/resume -last`)
+**Estado: COMPLETADO**
 **Objetivo:** Optimizar tokens recargando solo el contexto necesario.
-- Entender y extraer cómo el agente ejecutor subyacente (ej. Gemini CLI u Opencode) guarda su historial de sesión.
-- Crear un comando (ej. `ao resume <sesion> --inject-error <log_file>`).
-- Enviar el estado previo cacheado (Prompt Caching) junto con el log del guardrail fallido de la Fase 2 para que lo corrija de forma eficiente.
+- Se implementó la generación de `.guardrail_error.log` en el comando `bd sync`.
+- Se creó el script `scripts/resume.sh` que busca el error en el worktree del agente, extrae un resumen y usa `ao send` para resucitar al agente inyectándole el error directamente, permitiendo continuar la sesión (y aprovechar el Context Caching de la API) en lugar de reiniciar un agente desde cero.
 
 ### ⏳ Fase 5: Autopilot v2 Parte C (El Agente Orquestador Maestro)
 **Estado: PENDIENTE**
