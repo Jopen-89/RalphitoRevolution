@@ -1,13 +1,16 @@
 dataDir: ~/.agent-orchestrator
 worktreeDir: ~/.worktrees
 port: 3000
+
 defaults:
   runtime: tmux
   agent: opencode
   workspace: worktree
   notifiers:
     - desktop
+
 projects:
+  # El proyecto global original (por si necesitas un agente todoterreno)
   RalphitoRevolution:
     name: RalphitoRevolution
     sessionPrefix: rr
@@ -15,3 +18,33 @@ projects:
     path: /home/pepu/IAproject/RalphitoRevolution
     defaultBranch: master
     agentRulesFile: .agent-rules.md
+
+  # Perfil para tareas de Backend (APIs, BD, Rust, etc)
+  backend-team:
+    name: Ralphito Backend
+    sessionPrefix: be
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: .agent-rules.md
+    agent: codex # Podrías cambiar esto si prefieres un agente experto en backend
+
+  # Perfil para tareas de Frontend (UI, React, etc)
+  frontend-team:
+    name: Ralphito Frontend
+    sessionPrefix: fe
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: .agent-rules.md
+    agent: opencode # Suele ser muy bueno para frontend
+
+  # Perfil para el Modo [META] (Mejoras del propio sistema)
+  meta-team:
+    name: Ralphito Meta
+    sessionPrefix: meta
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: .agent-rules.md
+    # Aquí en un futuro podrías inyectar reglas adicionales de testing extremo.
