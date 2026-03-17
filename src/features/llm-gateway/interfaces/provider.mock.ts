@@ -1,4 +1,4 @@
-import { ILLMProvider, Provider } from '../interfaces/gateway.types';
+import type { ILLMProvider, Provider } from './gateway.types.js';
 
 export class MockProvider implements ILLMProvider {
   constructor(public name: Provider) {}

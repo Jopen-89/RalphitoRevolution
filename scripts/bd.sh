@@ -272,6 +272,10 @@ case "$COMMAND" in
 
         info "✅ Sync complete. Work safely landed."
 
+        if [ -f "$REPO_ROOT/scripts/notify_telegram.sh" ]; then
+            "$REPO_ROOT/scripts/notify_telegram.sh" "✅ Un agente terminó su tarea (Sync exitoso en rama $(current_branch))" || true
+        fi
+
         info "💀 Phase 3: Terminating agent session to release resources..."
         if [ -n "${TMUX:-}" ]; then
             tmux kill-window
