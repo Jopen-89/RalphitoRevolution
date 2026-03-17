@@ -1,8 +1,14 @@
 #!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/ao-paths.sh"
+
 # Uso: ./tool_get_diff.sh <session_id>
 # Para que Juez vea qué ha hecho el Ralphito
 
-SESSION_ID=$1
+SESSION_ID="${1:-}"
 
 if [ -z "$SESSION_ID" ]; then
     echo '{"error": "Faltan argumentos. Uso: tool_get_diff <session_id>"}'
@@ -10,7 +16,7 @@ if [ -z "$SESSION_ID" ]; then
 fi
 
 # Buscamos el worktree
-WORKTREE_PATH=$(find ~/.agent-orchestrator -type d -path "*/worktrees/$SESSION_ID" | head -n 1)
+WORKTREE_PATH=$(find_ao_worktree "$SESSION_ID")
 
 if [ -z "$WORKTREE_PATH" ]; then
     echo '{"error": "No se encontró el worktree para la sesión '$SESSION_ID'"}'

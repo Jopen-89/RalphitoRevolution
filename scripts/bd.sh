@@ -1,50 +1,229 @@
 #!/bin/bash
 
-COMMAND=$1
-shift
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+info() {
+    printf '%s\n' "$1"
+}
+
+warn() {
+    printf '%s\n' "$1" >&2
+}
+
+die() {
+    warn "$1"
+    exit 1
+}
+
+require_cmd() {
+    local cmd="$1"
+
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        die "❌ Required command not found: $cmd"
+    fi
+}
+
+ensure_git_repo() {
+    git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "❌ Not inside a git repository."
+}
+
+current_branch() {
+    git -C "$REPO_ROOT" branch --show-current
+}
+
+ensure_branch() {
+    local branch
+    branch="$(current_branch)"
+
+    [ -n "$branch" ] || die "❌ Could not determine current git branch."
+}
+
+ensure_sync_preconditions() {
+    require_cmd git
+    require_cmd gh
+    ensure_git_repo
+    ensure_branch
+}
+
+has_staged_changes() {
+    ! git -C "$REPO_ROOT" diff --cached --quiet
+}
+
+has_unstaged_changes() {
+    ! git -C "$REPO_ROOT" diff --quiet
+}
+
+has_untracked_changes() {
+    [ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard)" ]
+}
+
+has_local_commits_ahead() {
+    local upstream
+    upstream="$(resolve_upstream_ref)"
+    [ -n "$(git -C "$REPO_ROOT" rev-list "${upstream}..HEAD" 2>/dev/null || true)" ]
+}
+
+resolve_upstream_ref() {
+    local branch
+    branch="$(current_branch)"
+
+    git -C "$REPO_ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || printf 'origin/%s\n' "$branch"
+}
+
+upstream_remote() {
+    local upstream
+    upstream="$(resolve_upstream_ref)"
+    printf '%s\n' "${upstream%%/*}"
+}
+
+upstream_branch() {
+    local upstream
+    upstream="$(resolve_upstream_ref)"
+    printf '%s\n' "${upstream#*/}"
+}
+
+ensure_remote_ref_exists() {
+    local upstream
+    upstream="$(resolve_upstream_ref)"
+
+    git -C "$REPO_ROOT" rev-parse --verify "$upstream" >/dev/null 2>&1 || git -C "$REPO_ROOT" fetch origin "$(current_branch)" >/dev/null 2>&1 || true
+}
+
+ensure_syncable_worktree() {
+    if has_unstaged_changes; then
+        die "❌ Unstaged changes detected. Stage or commit them before running bd sync."
+    fi
+
+    if has_untracked_changes; then
+        die "❌ Untracked files detected. Stage or remove them before running bd sync."
+    fi
+
+    if ! has_staged_changes && ! has_local_commits_ahead; then
+        info "ℹ️ Nothing to sync. No staged changes or local commits ahead of remote."
+        exit 0
+    fi
+}
+
+guardrail_log_path() {
+    printf '%s/.guardrail_error.log\n' "$REPO_ROOT"
+}
+
+reset_guardrail_log() {
+    rm -f "$(guardrail_log_path)"
+}
+
+record_guardrail_failure() {
+    local message="$1"
+    printf '%s\n' "$message" | tee -a "$(guardrail_log_path)"
+}
+
+has_package_json() {
+    [ -f "$REPO_ROOT/package.json" ]
+}
+
+read_package_script() {
+    local script_name="$1"
+
+    has_package_json || return 0
+    require_cmd node
+
+    node -e "const fs=require('fs'); const pkg=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); const value=pkg.scripts?.[process.argv[2]]; if (typeof value === 'string') process.stdout.write(value);" "$REPO_ROOT/package.json" "$script_name"
+}
+
+has_npm_script() {
+    local script_name="$1"
+    [ -n "$(read_package_script "$script_name")" ]
+}
+
+is_placeholder_test_script() {
+    local test_script
+    test_script="$(read_package_script test)"
+
+    [[ "$test_script" == *"no test specified"* ]]
+}
+
+collect_modified_files() {
+    {
+        git -C "$REPO_ROOT" diff --cached --name-only
+        git -C "$REPO_ROOT" diff --name-only
+        git -C "$REPO_ROOT" ls-files --others --exclude-standard
+    } | sort -u
+}
+
+run_guardrail() {
+    local start_message="$1"
+    local failure_message="$2"
+    shift 2
+
+    info "$start_message"
+    "$@" > "$(guardrail_log_path)" 2>&1 || {
+        record_guardrail_failure "$failure_message"
+        exit 1
+    }
+}
+
+usage() {
+    cat <<'EOF'
+Usage: bd [onboard|ready|show <id>|update <id> --status in_progress|close <id>|sync]
+EOF
+}
+
+COMMAND="${1:-}"
+
+if [ -z "$COMMAND" ]; then
+    usage
+    exit 1
+fi
+
+shift || true
 
 case "$COMMAND" in
     "onboard")
-        echo "✅ Authenticated with GitHub."
-        gh auth status || echo "⚠️ Please run: gh auth login"
-        echo "✅ bd (beads) system initialized for Agent Orchestrator."
+        require_cmd gh
+        info "✅ Authenticated with GitHub."
+        gh auth status || warn "⚠️ Please run: gh auth login"
+        info "✅ bd (beads) system initialized for Agent Orchestrator."
         ;;
     "ready")
-        echo "🔍 Fetching available work (Open Issues)..."
+        require_cmd gh
+        info "🔍 Fetching available work (Open Issues)..."
         gh issue list --state open --limit 10
         ;;
     "show")
-        ISSUE_ID=$1
-        if [ -z "$ISSUE_ID" ]; then echo "❌ Provide an issue ID"; exit 1; fi
+        require_cmd gh
+        ISSUE_ID="${1:-}"
+        [ -n "$ISSUE_ID" ] || die "❌ Provide an issue ID"
         gh issue view "$ISSUE_ID"
         ;;
     "update")
-        ISSUE_ID=$1
-        if [ -z "$ISSUE_ID" ]; then echo "❌ Provide an issue ID"; exit 1; fi
-        echo "🔄 Marking issue #$ISSUE_ID as in_progress..."
+        require_cmd gh
+        ISSUE_ID="${1:-}"
+        [ -n "$ISSUE_ID" ] || die "❌ Provide an issue ID"
+        info "🔄 Marking issue #$ISSUE_ID as in_progress..."
         gh issue edit "$ISSUE_ID" --add-label "in progress" 2>/dev/null || true
         gh issue assign "$ISSUE_ID" --me 2>/dev/null || true
-        echo "✅ Issue updated."
+        info "✅ Issue updated."
         ;;
     "close")
-        ISSUE_ID=$1
-        if [ -z "$ISSUE_ID" ]; then echo "❌ Provide an issue ID"; exit 1; fi
+        require_cmd gh
+        ISSUE_ID="${1:-}"
+        [ -n "$ISSUE_ID" ] || die "❌ Provide an issue ID"
         gh issue close "$ISSUE_ID" --reason completed
-        echo "✅ Issue #$ISSUE_ID closed."
+        info "✅ Issue #$ISSUE_ID closed."
         ;;
     "sync")
-        echo "🛫 Landing the plane... Initiating sync sequence."
-        
+        ensure_sync_preconditions
+        ensure_remote_ref_exists
+        ensure_syncable_worktree
+
+        info "🛫 Landing the plane... Initiating sync sequence."
+        info "⏳ Running pre-sync guardrails..."
+
         # --- AUTOPILOT V1 HOOK: GUARDRAILS LOCALES ---
-        echo "⏳ Running pre-sync guardrails..."
-        
-        # 1. Obtener archivos modificados (staged + unstaged)
-        MODIFIED_FILES=$(git diff --name-only HEAD)
-        
-        # Si no hay archivos modificados en working tree, miramos contra el remote origin
-        if [ -z "$MODIFIED_FILES" ]; then
-            MODIFIED_FILES=$(git diff --name-only origin/$(git branch --show-current)...HEAD 2>/dev/null)
-        fi
+        MODIFIED_FILES="$(collect_modified_files)"
 
         HAS_TS=false
 
@@ -54,58 +233,54 @@ case "$COMMAND" in
             fi
         done
 
+        reset_guardrail_log
+
         if [ "$HAS_TS" = true ]; then
-            echo "🔍 TypeScript files detected. Running TS Guardrails..."
-            
-            # Check 1: Typechecking (si existe tsconfig)
-            if [ -f "tsconfig.json" ]; then
-                echo "⚡ Running tsc --noEmit..."
-                npx tsc --noEmit || { echo "❌ Guardrail failed: TypeScript type errors found. Please fix them before syncing."; exit 1; }
-            else
-                echo "⚠️ No tsconfig.json found, skipping typecheck."
+            info "🔍 TypeScript files detected. Running TS Guardrails..."
+
+            if [ -f "$REPO_ROOT/tsconfig.json" ]; then
+                require_cmd npx
+                run_guardrail "⚡ Running tsc --noEmit..." "❌ Guardrail failed: TypeScript type errors found." npx tsc --noEmit
             fi
 
-            # Check 2: Linting (si existe npm run lint)
-            if grep -q '"lint":' package.json 2>/dev/null; then
-                echo "🧹 Running linter..."
-                npm run lint || { echo "❌ Guardrail failed: Linter errors found. Please fix them before syncing."; exit 1; }
+            if has_npm_script lint; then
+                require_cmd npm
+                run_guardrail "🧹 Running linter..." "❌ Guardrail failed: Linter errors found." npm run lint
             fi
-            
-            # Check 3: Tests (si existe npm test)
-            if grep -q '"test":' package.json 2>/dev/null; then
-                echo "🧪 Running tests..."
-                npm test || { echo "❌ Guardrail failed: Tests failed. Please fix them before syncing."; exit 1; }
+
+            if has_npm_script test; then
+                require_cmd npm
+                if is_placeholder_test_script; then
+                    info "⏭️ Skipping placeholder test script in package.json."
+                else
+                    run_guardrail "🧪 Running tests..." "❌ Guardrail failed: Tests failed." npm test
+                fi
             fi
         fi
-        
-        echo "✅ All guardrails passed."
-        # --- FIN GUARDRAILS ---
 
-        git pull --rebase origin $(git branch --show-current) || { echo "❌ Rebase failed. Fix conflicts and retry."; exit 1; }
-        
-        if [[ -n $(git status -s) ]]; then
-            echo "📝 Found uncommitted changes. Committing..."
-            git add .
-            git commit -m "Auto-sync from agent session"
+        info "✅ All guardrails passed."
+
+        git -C "$REPO_ROOT" pull --rebase "$(upstream_remote)" "$(upstream_branch)" || die "❌ Rebase failed. Fix conflicts and retry."
+
+        if has_staged_changes; then
+            info "📝 Found staged changes. Creating landing commit..."
+            git -C "$REPO_ROOT" commit -m "Auto-sync from agent session" || die "❌ Commit failed."
         fi
 
-        echo "🚀 Pushing to remote..."
-        git push origin $(git branch --show-current) || { echo "❌ Push failed."; exit 1; }
-        
-        echo "✅ Sync complete. Work safely landed."
-        
-        # --- AUTOPILOT V2 HOOK: CICLO DE VIDA EFÍMERO ---
-        echo "💀 Phase 3: Terminating agent session to release resources..."
-        # Si estamos dentro de tmux (el entorno de AO), matamos la ventana para que el agente termine.
-        if [ -n "$TMUX" ]; then
+        info "🚀 Pushing to remote..."
+        git -C "$REPO_ROOT" push --set-upstream "$(upstream_remote)" "$(current_branch)" || die "❌ Push failed."
+
+        info "✅ Sync complete. Work safely landed."
+
+        info "💀 Phase 3: Terminating agent session to release resources..."
+        if [ -n "${TMUX:-}" ]; then
             tmux kill-window
         else
-            # Si no estamos en tmux, matamos el proceso padre (el agente) directamente.
-            kill -9 $PPID
+            info "✅ Session finished outside tmux. No process termination needed."
         fi
         ;;
     *)
-        echo "Usage: bd [onboard|ready|show <id>|update <id> --status in_progress|close <id>|sync]"
+        usage
         exit 1
         ;;
 esac

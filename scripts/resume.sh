@@ -1,9 +1,14 @@
 #!/bin/bash
 
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/ao-paths.sh"
+
 # Uso: ./scripts/resume.sh <session-id>
 # Ejemplo: ./scripts/resume.sh rr-1
 
-SESSION_ID=$1
+SESSION_ID="${1:-}"
 
 if [ -z "$SESSION_ID" ]; then
     echo "❌ Debes proporcionar el ID de la sesión."
@@ -15,7 +20,7 @@ echo "🔍 Buscando archivo de error en los worktrees..."
 
 # Buscamos el archivo de error en el worktree correspondiente a esa sesión.
 # Asumimos la estructura por defecto de AO: ~/.agent-orchestrator/<hash>-<project>/worktrees/<session-id>/
-WORKTREE_PATH=$(find ~/.agent-orchestrator -type d -path "*/worktrees/$SESSION_ID" | head -n 1)
+WORKTREE_PATH=$(find_ao_worktree "$SESSION_ID")
 
 if [ -z "$WORKTREE_PATH" ]; then
     echo "❌ No se pudo encontrar el worktree para la sesión $SESSION_ID."

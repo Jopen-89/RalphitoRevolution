@@ -1,4 +1,10 @@
 #!/bin/bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/ao-paths.sh"
+
 # Uso: ./tool_check_status
 
 # Primero mostramos el estado que conoce Agent Orchestrator
@@ -8,7 +14,7 @@ ao session ls
 echo ""
 echo "=== BUSCANDO RALPHITOS CAÍDOS (GUARDRAILS FALLIDOS) ==="
 # Buscamos en el directorio de runtime de AO si hay algún error de guardrail reciente
-FALLOS=$(find ~/.agent-orchestrator -type f -name ".guardrail_error.log" 2>/dev/null)
+FALLOS=$(find_ao_guardrail_logs)
 
 if [ -z "$FALLOS" ]; then
     echo "✅ No se detectaron errores de guardrails locales. Todos los Ralphitos vivos están sanos."

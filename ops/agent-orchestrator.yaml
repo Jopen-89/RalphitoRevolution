@@ -1,6 +1,3 @@
-# Compatibility config.
-# Canonical location: `ops/agent-orchestrator.yaml`.
-
 dataDir: ~/.agent-orchestrator
 worktreeDir: ~/.worktrees
 port: 3000

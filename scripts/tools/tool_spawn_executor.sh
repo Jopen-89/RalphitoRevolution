@@ -2,17 +2,25 @@
 # Uso: ./tool_spawn_executor <proyecto> <prompt_o_spec_path>
 # Ejemplo: ./tool_spawn_executor RalphitoRevolution "Lee docs/specs/tarea1.md y ejecútala"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 PROJECT=$1
 PROMPT=$2
-LOCKS_FILE="/home/pepu/IAproject/RalphitoRevolution/scripts/tools/.locks.json"
+LOCKS_FILE="$SCRIPT_DIR/.locks.json"
 
 if [ -z "$PROJECT" ] || [ -z "$PROMPT" ]; then
     echo '{"error": "Faltan argumentos. Uso: tool_spawn_executor <proyecto> <prompt_o_spec_path>"}'
     exit 1
 fi
 
-# 1. Intentamos extraer la ruta al archivo .bead.md desde el prompt (si la hay)
-BEAD_FILE=$(echo "$PROMPT" | grep -o 'docs/specs/[^ ]*\.bead\.md' || true)
+# 1. Intentamos extraer la ruta al archivo bead desde el prompt (si la hay)
+BEAD_PATH=$(echo "$PROMPT" | grep -o 'docs/specs/[^ ]*bead[^ ]*\.md' | head -n 1 || true)
+BEAD_FILE=""
+
+if [ -n "$BEAD_PATH" ]; then
+    BEAD_FILE="$REPO_ROOT/$BEAD_PATH"
+fi
 
 if [ -n "$BEAD_FILE" ] && [ -f "$BEAD_FILE" ]; then
     # Extraemos el WRITE_ONLY_GLOBS del archivo
@@ -29,7 +37,7 @@ if [ -n "$BEAD_FILE" ] && [ -f "$BEAD_FILE" ]; then
         fi
         
         # Registramos el lock (esto es muy básico, en producción usaríamos jq)
-        echo "{\"lock\": \"$NORMALIZED_GLOBS\", \"bead\": \"$BEAD_FILE\"}" >> "$LOCKS_FILE"
+        echo "{\"lock\": \"$NORMALIZED_GLOBS\", \"bead\": \"$BEAD_PATH\"}" >> "$LOCKS_FILE"
     fi
 fi
 
