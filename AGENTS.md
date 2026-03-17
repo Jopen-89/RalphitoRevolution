@@ -26,6 +26,12 @@ Este repo combina producto, operacion de agentes y automatizacion local para el 
 - `scripts/` contiene wrappers y automatizacion ejecutable
 - `agent-orchestrator.yaml` en raiz se mantiene como compatibilidad; la ruta canonica de config es `ops/agent-orchestrator.yaml`
 
+### No Backward Compatibility
+Never write code for backward compatibility. No legacy fallbacks, no old-format deserialization shims, no deprecated type aliases. When a type or format changes, all producers and consumers change in the same task. Old data is dead.
+
+### Specs & Architecture
+IMPORTANT: Specs are the single source of truth. The current codebase may not match the specs — when there is a discrepancy, the specs are correct and the code must be updated to match. If something exists in the code but is not described in the specs, it should be removed. If the specs describe something that doesn't exist in the code yet, it needs to be implemented as specified. Specs marked as SUPERSEDED should not be implemented — any existing code matching superseded specs should be removed.
+
 ## Validacion
 
 - TypeScript: `npx tsc --noEmit`

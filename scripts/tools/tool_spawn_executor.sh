@@ -1,6 +1,8 @@
 #!/bin/bash
 # Uso: ./tool_spawn_executor <proyecto> <prompt_o_spec_path>
-# Ejemplo: ./tool_spawn_executor RalphitoRevolution "Lee docs/specs/tarea1.md y ejecútala"
+# Ejemplo: ./tool_spawn_executor backend-team "Lee docs/specs/tarea1.md y ejecútala"
+
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -41,17 +43,39 @@ if [ -n "$BEAD_FILE" ] && [ -f "$BEAD_FILE" ]; then
     fi
 fi
 
-echo "🚀 Spawned Ralphito para el proyecto: $PROJECT"
-echo "Instrucción: $PROMPT"
+echo "🚀 Spawned Ralphito para el proyecto: $PROJECT" >&2
+echo "Instrucción: $PROMPT" >&2
 
-# Ejecutamos ao spawn y filtramos la salida para dar un JSON limpio al orquestador.
-# 'ao spawn' normalmente devuelve texto formateado para humanos, intentaremos capturar si fue exitoso.
-ao spawn "$PROJECT" "$PROMPT" > /tmp/spawn_output_$$.log 2>&1
+# Ejecutamos ao spawn sin issue para evitar colisiones de branch derivadas del prompt.
+# Luego enviamos el prompt al Ralphito ya creado.
+SPAWN_LOG="/tmp/spawn_output_$$.log"
+SEND_LOG="/tmp/send_output_$$.log"
 
-if [ $? -eq 0 ]; then
-    echo '{"status": "success", "message": "Ralphito iniciado correctamente. Usa tool_check_status para ver su session_id y progreso."}'
+if ao spawn "$PROJECT" > "$SPAWN_LOG" 2>&1; then
+    SESSION_ID=$(python3 - <<'PY' "$SPAWN_LOG"
+import sys
+
+session_id = ""
+with open(sys.argv[1], encoding="utf-8") as f:
+    for line in f:
+        if line.startswith("SESSION="):
+            session_id = line.strip().split("=", 1)[1]
+
+print(session_id)
+PY
+)
+    if [ -z "$SESSION_ID" ]; then
+        printf '{"status":"error","message":"AO creó una sesión pero no devolvió SESSION=. Revisa tool_check_status."}\n'
+    elif ao send "$SESSION_ID" "$PROMPT" > "$SEND_LOG" 2>&1; then
+        printf '{"status":"success","session_id":"%s","message":"Ralphito iniciado correctamente y prompt enviado. Usa tool_check_status para ver su progreso."}\n' "$SESSION_ID"
+    else
+        ERROR=$(tr '\n' ' ' < "$SEND_LOG")
+        ESCAPED_ERROR=$(printf '%s' "$ERROR" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+        printf '{"status":"error","session_id":"%s","message":"Se creó la sesión pero falló el envío del prompt: ","details":%s}\n' "$SESSION_ID" "$ESCAPED_ERROR"
+    fi
 else
-    ERROR=$(cat /tmp/spawn_output_$$.log | tr '\n' ' ')
-    echo '{"status": "error", "message": "'"$ERROR"'"}'
+    ERROR=$(tr '\n' ' ' < "$SPAWN_LOG")
+    ESCAPED_ERROR=$(printf '%s' "$ERROR" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+    printf '{"status":"error","message":%s}\n' "$ESCAPED_ERROR"
 fi
-rm /tmp/spawn_output_$$.log
+rm -f "$SPAWN_LOG" "$SEND_LOG"

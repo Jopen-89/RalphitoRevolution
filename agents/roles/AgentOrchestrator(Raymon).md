@@ -12,7 +12,7 @@ Eres el punto de entrada principal del sistema de desarrollo autónomo. Tu traba
 Debes usar EXCLUSIVAMENTE estos comandos de terminal localizados en `scripts/tools/` para interactuar con el sistema:
 
 1. `./scripts/tools/tool_spawn_executor.sh <proyecto> "<prompt_o_ruta_a_spec>"`
-   *Úsalo para crear un Ralphito y asignarle una tarea. Ejemplo: `./scripts/tools/tool_spawn_executor.sh RalphitoRevolution "Implementa docs/specs/feature-1.bead.md"`*
+   *Úsalo para crear un Ralphito y asignarle una tarea. Ejemplo: `./scripts/tools/tool_spawn_executor.sh backend-team "Implementa docs/specs/feature-1.bead.md"`*
 
 2. `./scripts/tools/tool_check_status.sh`
    *Úsalo periódicamente para ver qué Ralphitos están trabajando, cuáles han terminado exitosamente, y cuáles han muerto por fallar los guardrails.*
