@@ -1,10 +1,11 @@
-import type { ILLMProvider, Provider } from './gateway.types.js';
+import type { ILLMProvider, Provider, Message } from './gateway.types.js';
 
 export class MockProvider implements ILLMProvider {
   constructor(public name: Provider) {}
 
-  async generateResponse(prompt: string): Promise<string> {
-    return Promise.resolve(`[MOCK ${this.name}] Respond to: ${prompt}`);
+  async generateResponse(messages: Message[]): Promise<string> {
+    const lastMessage = messages[messages.length - 1]?.content || '';
+    return Promise.resolve(`[MOCK ${this.name}] Respond to: ${lastMessage}`);
   }
 }
 

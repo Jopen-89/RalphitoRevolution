@@ -24,6 +24,14 @@ RalphitoRevolution es un laboratorio de orquestacion autonoma sobre Agent Orches
 - las reglas duras del agente viven en `.agent-rules.md`
 - el repo todavia esta en proceso de reorganizacion estructural
 
+## Direccion objetivo de estado y memoria
+
+- AO sigue siendo el runtime y la fuente de verdad del lifecycle tecnico de sesiones
+- SQLite Ralphito pasa a ser la fuente de verdad de memoria y estado operativo propio
+- `traceability.json` deja de ser el coordinador vivo; si se conserva, sera un artefacto derivado
+- Telegram, tasks/beads, eventos operativos y summaries deben converger en una sola capa persistente
+- dashboard y tooling deben leer interfaces estructuradas, no depender de scraping de CLI o JSONs vivos
+
 ## Principios del repo
 
 - separar producto, operacion e infraestructura

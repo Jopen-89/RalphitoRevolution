@@ -12,16 +12,15 @@ export interface OrchestrationResult {
 export function isExplicitExecutionIntent(instruction: string) {
   const normalized = instruction.trim().toLowerCase();
 
+  // OBLIGA a que la instrucción sea explícitamente técnica o contenga un archivo bead
+  const hasBeadOrSpec = /\.bead\.md\b|\.spec\.md\b/i.test(normalized);
+  
   const executionPatterns = [
-    /^(delega|delegar|delegalo|delegalo ya)\b/,
-    /^(lanza|lanzar|lanzalo|lan[cz]adlo)\b/,
-    /^(ejecuta|ejecutar|ejec[úu]talo)\b/,
-    /^(pon(?:lo)? en marcha|pon(?:lo)? a trabajar)\b/,
-    /^(spawnea|spawn|run)\b/,
-    /^(orquesta|orquesta esto|mueve esto)\b/,
+    /^(ejecuta|ejecutar|programa)\b.*\bbead\b/i,
+    /^(orquesta|lanza|ejecuta)\b.*\b(código|script|implementación)\b/i,
   ];
 
-  return executionPatterns.some((pattern) => pattern.test(normalized));
+  return hasBeadOrSpec || executionPatterns.some((pattern) => pattern.test(normalized));
 }
 
 export async function executeOrchestrationTask(agentId: string, instruction: string): Promise<OrchestrationResult> {

@@ -19,9 +19,25 @@ La clave de la arquitectura actual. Es un binario falso instalado en el PATH del
 ### 2. Reglas Estrictas (`.agent-rules.md`)
 Reglas inyectadas nativamente a cada agente instanciado por AO mediante la propiedad `agentRulesFile` en `ops/agent-orchestrator.yaml`. El archivo `agent-orchestrator.yaml` en raiz se conserva como compatibilidad local. Fuerzan al agente a usar `bd` y prohiben dar por finalizado un trabajo sin un push exitoso.
 
+## Contrato de arquitectura objetivo
+
+- AO sigue siendo la fuente de verdad del lifecycle tecnico de sesiones y agentes.
+- Ralphito necesita una capa persistente propia para memoria, trazabilidad y joins de negocio.
+- La capa central objetivo de Ralphito es SQLite.
+- `traceability.json` deja de ser el coordinador transaccional vivo; si se conserva, sera un snapshot derivado desde la capa persistente.
+- El dashboard debe consumir interfaces estructuradas de AO y metadata Ralphito, no screen scraping.
+
 ---
 
-## Roadmap de Implementación (Fases)
+## Roadmap de Implementacion (Fases)
+
+### ⏳ Fase 0: Alineacion de contrato y ownership
+**Estado: EN CURSO**
+**Objetivo:** Eliminar la doble verdad entre AO, JSONs operativos y memoria volatil.
+- Fijar por documentacion que AO posee el lifecycle tecnico de sesiones.
+- Fijar por documentacion que SQLite Ralphito poseera conversaciones, tasks/beads, eventos, summaries e indice documental.
+- Reemplazar el contrato vivo de `traceability.json` por un modelo transaccional central; si se conserva, solo como snapshot derivado.
+- Ajustar roles y tooling para dejar de tratar JSONs como fuente de verdad operativa.
 
 ### ✅ Fase 1: Asentar las Bases (Configuración Estricta)
 **Estado: COMPLETADO**

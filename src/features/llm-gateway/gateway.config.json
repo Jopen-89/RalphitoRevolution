@@ -1,0 +1,80 @@
+{
+  "agents": [
+    {
+      "agentId": "default",
+      "primaryProvider": "gemini",
+      "model": "gemini-2.5-pro",
+      "fallbacks": [
+        {
+          "provider": "openai",
+          "model": "gpt-5.4"
+        }
+      ]
+    },
+    {
+      "agentId": "moncho",
+      "primaryProvider": "openai",
+      "model": "gpt-5.4",
+      "fallbacks": [
+        {
+          "provider": "gemini",
+          "model": "gemini-2.5-pro"
+        }
+      ]
+    },
+    {
+      "agentId": "lola",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "fallbacks": []
+    },
+    {
+      "agentId": "ricki",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "fallbacks": []
+    },
+    {
+      "agentId": "ricky",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "fallbacks": []
+    },
+    {
+      "agentId": "juez",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "fallbacks": []
+    },
+    {
+      "agentId": "tracker",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "fallbacks": []
+    },
+    {
+      "agentId": "relleno",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "fallbacks": []
+    },
+    {
+      "agentId": "raymon",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "fallbacks": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3-pro"
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-2.5-pro"
+        },
+        {
+          "provider": "gemini"
+        }
+      ]
+    }
+  ]
+}

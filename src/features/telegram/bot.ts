@@ -1,16 +1,10 @@
 import { Telegraf, Context } from 'telegraf';
 import * as dotenv from 'dotenv';
 import { analyzeAgentMentions, extractMultiAgentInstruction, loadAgentRegistry, getAgentById, type AgentInfo } from './agentRegistry.js';
-import {
-    getAgentRouteForMessage,
-    getRecentActiveAgent,
-    isRecentDuplicateMessage,
-    rememberRecentMessage,
-    setActiveAgent,
-    setMessageAgentRoute,
-} from './conversationStore.js';
+import * as convStore from './conversationStore.js';
 import { executeAgentTask } from './chatExecutor.js';
 import { executeOrchestrationTask, isExplicitExecutionIntent } from './orchestrationExecutor.js';
+import { initializeRalphitoDatabase } from '../persistence/db/index.js';
 
 // Capturar errores no manejados para ver el error real y no "[Object: null prototype]"
 process.on('uncaughtException', (err) => {
@@ -21,6 +15,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 dotenv.config();
+initializeRalphitoDatabase();
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const allowedChatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
@@ -65,6 +60,21 @@ function normalizeErrorMessage(error: unknown) {
     return cleaned;
 }
 
+function getAgentEmoji(agentId: string): string {
+    const emojis: Record<string, string> = {
+        raymon: '🤖',
+        moncho: '🎯',
+        juez: '⚖️',
+        poncho: '🏗️',
+        ricky: '🐛',
+        mapito: '🛡️',
+        tracker: '🔍',
+        martapepis: '🕵️‍♀️',
+        relleno: '⚡'
+    };
+    return emojis[agentId] || '👤';
+}
+
 function buildMessageFingerprint(text: string, replyToMessageId?: number) {
     return `${text.trim().toLowerCase()}::${replyToMessageId || 0}`;
 }
@@ -88,18 +98,33 @@ function splitTelegramMessage(text: string, maxLength = 3800) {
     return chunks;
 }
 
+function normalizeTelegramText(text: string) {
+    return text.replace(/\r\n/g, '\n').trim();
+}
+
 async function publishAgentReply(chatId: number | string, messageId: number, agent: AgentInfo, response: string) {
-    const chunks = splitTelegramMessage(`${agent.name}:\n\n${response}`);
-    const firstChunk = chunks[0] || `${agent.name}:`;
+    const emoji = getAgentEmoji(agent.id);
+    const header = `${emoji} ${agent.name.toUpperCase()} (${agent.role}):\n\n`;
+    const outgoingText = normalizeTelegramText(response);
+    const chunks = splitTelegramMessage(outgoingText ? `${header}${outgoingText}` : header, 3800);
+    const firstChunk = chunks[0] || header;
+
+    convStore.addMessageToHistory(String(chatId), agent.name, response, {
+        externalMessageId: String(messageId),
+        senderType: 'agent',
+        senderId: agent.id,
+        senderName: agent.name,
+        role: 'assistant',
+    });
 
     await bot.telegram.editMessageText(chatId, messageId, undefined, firstChunk);
-    setMessageAgentRoute(String(chatId), messageId, agent.id);
-    setActiveAgent(String(chatId), agent.id);
+    convStore.setMessageAgentRoute(String(chatId), messageId, agent.id);
+    convStore.setActiveAgent(String(chatId), agent.id);
 
     for (const chunk of chunks.slice(1)) {
         const sent = await bot.telegram.sendMessage(chatId, chunk);
-        setMessageAgentRoute(String(chatId), sent.message_id, agent.id);
-        setActiveAgent(String(chatId), agent.id);
+        convStore.setMessageAgentRoute(String(chatId), sent.message_id, agent.id);
+        convStore.setActiveAgent(String(chatId), agent.id);
     }
 }
 
@@ -107,14 +132,14 @@ function resolveAgentFromReply(ctx: Context) {
     const replyMessageId = (ctx.message as any)?.reply_to_message?.message_id;
     if (!replyMessageId || !ctx.chat) return null;
 
-    const agentId = getAgentRouteForMessage(String(ctx.chat.id), replyMessageId);
+    const agentId = convStore.getAgentRouteForMessage(String(ctx.chat.id), replyMessageId);
     if (!agentId) return null;
 
     return getAgentById(agents, agentId) || null;
 }
 
 function resolveRecentActiveAgent(chatId: string) {
-    const activeAgentId = getRecentActiveAgent(chatId, ACTIVE_AGENT_WINDOW_MS);
+    const activeAgentId = convStore.getRecentActiveAgent(chatId, ACTIVE_AGENT_WINDOW_MS);
     if (!activeAgentId) return null;
 
     return getAgentById(agents, activeAgentId) || null;
@@ -147,7 +172,7 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
 
     const chatId = ctx.chat.id;
     const chatKey = String(chatId);
-    setActiveAgent(String(chatId), agent.id);
+    convStore.setActiveAgent(String(chatId), agent.id);
     
     if (!instruction) {
         await ctx.reply(`¡Hola! Soy ${agent.name} (${agent.role}). ¿En qué te puedo ayudar hoy?`);
@@ -163,16 +188,22 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
 
     processingChats.add(chatKey);
 
-    const statusMessage = await ctx.reply(`⏳ *[${agent.name} (${agent.role})]* ${statusLabel}...`, { parse_mode: 'Markdown' });
+    const statusMessage = await ctx.reply(`⏳ ${agent.name} (${agent.role}) ${statusLabel}...`);
 
     try {
         if (shouldExecute) {
             const result = await executeOrchestrationTask(agent.id, instruction);
+            if (result.sessionId) {
+                convStore.setConversationSessionId(chatKey, agent.id, result.sessionId);
+            }
             await publishAgentReply(chatId, statusMessage.message_id, agent, result.response);
             return;
         }
 
         const result = await executeAgentTask(String(chatId), agent, instruction);
+        if (result.sessionId) {
+            convStore.setConversationSessionId(chatKey, agent.id, result.sessionId);
+        }
         await publishAgentReply(chatId, statusMessage.message_id, agent, result.response);
     } catch (error: any) {
         await bot.telegram.editMessageText(
@@ -189,12 +220,26 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
 // Comandos
 for (const agent of agents) {
     bot.command(agent.id, async (ctx) => {
+        const chatId = ctx.chat.id.toString();
+        if (allowedChatId && chatId !== allowedChatId) {
+            console.log(`⚠️ Acceso denegado en comando /${agent.id}: El Chat ID ${chatId} no coincide con el permitido (${allowedChatId})`);
+            return;
+        }
         // @ts-ignore
         const text = ctx.message?.text || '';
         const instruction = text.replace(new RegExp(`^/${agent.id}\\s*`, 'i'), '').trim();
         await processAgentRequest(ctx, agent, instruction);
     });
 }
+
+bot.start((ctx) => {
+    const chatId = ctx.chat.id.toString();
+    if (allowedChatId && chatId !== allowedChatId) {
+        console.log(`⚠️ Acceso denegado en /start: El Chat ID ${chatId} no coincide con el permitido (${allowedChatId})`);
+        return;
+    }
+    ctx.reply(`¡Hola! Soy el sistema Autopilot.\n\n🤖 RAYMON es el agente planificador y predeterminado. Puedes hablarle directamente para organizar tareas o consultar el estado del sistema.\n\nTambién puedes hablar con el resto de agentes mencionándolos por su nombre (ej: "Moncho, ¿qué opinas de esta idea?").\n\nAgentes disponibles: ${listAgentNames()}`);
+});
 
 // Texto natural
 bot.on('text', async (ctx) => {
@@ -207,11 +252,10 @@ bot.on('text', async (ctx) => {
     console.log(`\n📩 Mensaje recibido de [${username}] en Chat ID: ${chatId}`);
     console.log(`Contenido: "${text}"`);
 
-    if (text.startsWith('/')) return;
     if (!text.trim()) return;
 
     if (allowedChatId && chatId !== allowedChatId) {
-        console.log(`⚠️ Acceso denegado: El Chat ID ${chatId} no coincide con el permitido (${allowedChatId})`);
+        console.log(`⚠️ Acceso denegado en texto: El Chat ID ${chatId} no coincide con el permitido (${allowedChatId})`);
         return;
     }
 
@@ -219,12 +263,29 @@ bot.on('text', async (ctx) => {
         console.log(`👉 Configura este ID en tu .env: TELEGRAM_ALLOWED_CHAT_ID=${chatId}`);
     }
 
+    // Si empieza por /, comprobamos si es un comando que ya hemos manejado arriba
+    // Si no es un comando de agente, lo tratamos como texto normal (fallback a Raymon)
+    const isCommand = text.startsWith('/');
+    const commandName = isCommand ? text.split(' ')[0]?.slice(1).toLowerCase() : null;
+    const isAgentCommand = commandName && agents.some(a => a.id === commandName);
+
+    // Si es un comando de agente, el bot.command ya lo habrá capturado.
+    // Si es otro tipo de comando (ej: /hola), seguimos adelante para que Raymon conteste.
+    if (isAgentCommand) return;
+
     const fingerprint = buildMessageFingerprint(text, replyToMessageId);
-    if (isRecentDuplicateMessage(chatId, userId, fingerprint, DUPLICATE_MESSAGE_WINDOW_MS)) {
+    if (convStore.isRecentDuplicateMessage(chatId, userId, fingerprint, DUPLICATE_MESSAGE_WINDOW_MS)) {
         console.log(`↩️ Ignorando mensaje duplicado reciente de [${username}]`);
         return;
     }
-    rememberRecentMessage(chatId, userId, fingerprint);
+    convStore.rememberRecentMessage(chatId, userId, fingerprint);
+    convStore.addMessageToHistory(chatId, 'Usuario', text, {
+        externalMessageId: String((ctx.message as any)?.message_id || ''),
+        senderType: 'user',
+        senderId: userId,
+        senderName: username,
+        role: 'user',
+    });
 
     const mentionAnalysis = analyzeAgentMentions(agents, text);
     if (mentionAnalysis.matches.length > 1) {
@@ -255,7 +316,25 @@ bot.on('text', async (ctx) => {
         return;
     }
 
+    // Fallback a Raymon si no se menciona a nadie (solo si no es un comando de sistema tipo /start)
+    if (!text.startsWith('/')) {
+        const defaultAgent = getAgentById(agents, 'raymon');
+        if (defaultAgent) {
+            console.log(`👉 Usando Raymon como agente por defecto para: "${text}"`);
+            await processAgentRequest(ctx, defaultAgent, text.trim());
+            return;
+        }
+    }
+
+    // Si llegamos aquí y es un comando desconocido, simplemente no hacemos nada o respondemos start
+    if (text.startsWith('/')) return;
+
     await askToChooseAgent(ctx, 'missing');
+});
+
+bot.catch((err, ctx) => {
+    console.error('❌ Error en middleware de Telegram:', err);
+    console.error('↳ Chat:', ctx.chat?.id, 'Update:', ctx.updateType);
 });
 
 bot.launch().then(() => {
@@ -267,8 +346,7 @@ bot.launch().then(() => {
 // Exportar función de notificación de forma segura
 export const sendNotification = async (message: string) => {
     if (allowedChatId) {
-        await bot.telegram.sendMessage(allowedChatId, `🔔 *SISTEMA*:\n${message}`, { parse_mode: 'Markdown' })
-            .catch(() => bot.telegram.sendMessage(allowedChatId, `🔔 SISTEMA:\n${message}`));
+        await bot.telegram.sendMessage(allowedChatId, `🔔 SISTEMA:\n${message}`);
     }
 };
 

@@ -1,11 +1,13 @@
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import type { AgentInfo } from './agentRegistry.js';
-import { getConversationSessionId, setConversationSessionId } from './conversationStore.js';
+import { getConversationSessionId, setConversationSessionId, getRecentChatHistory } from './conversationStore.js';
+import { loadDeterministicContext } from '../context/contextLoader.js';
+import { formatMemoryContext, refreshMemoryContext } from '../memory/summaryService.js';
+import type { ChatResponse } from '../llm-gateway/interfaces/gateway.types.js';
 
 interface ChatResult {
   response: string;
-  sessionId: string;
+  sessionId?: string;
 }
 
 interface ChatPersonaProfile {
@@ -17,16 +19,18 @@ interface ChatPersonaProfile {
 
 const CHAT_PERSONAS: Record<string, ChatPersonaProfile> = {
   raymon: {
-    voice: 'coordinador sereno, ejecutivo y muy claro',
-    focus: 'ordenar trabajo, priorizar, decidir el siguiente movimiento y dar contexto de equipo',
+    voice: 'Project Manager y Orquestador de alto nivel, muy directivo y metodológico',
+    focus: 'Evaluar intenciones, organizar el trabajo, explicar el Pipeline de 4 Fases y mantener el flujo conversacional. NUNCA resuelvas el problema técnico.',
     habits: [
-      'Habla como alguien que dirige una mesa de trabajo, no como un bot de sistema.',
-      'Resume con claridad y propone siguiente paso cuando aporte valor.',
-      'Si el usuario solo conversa, responde normal y cercano; no conviertas todo en una operacion.',
+      'Si el usuario propone una idea, TU RESPUESTA OBLIGATORIA es explicar el Pipeline y proponer empezar la Fase 0 trayendo a Moncho al chat. NUNCA des opciones técnicas.',
+      'Controlas un Pipeline de 4 fases: Fase 0 (Entrevista con Moncho) -> Fase 1 (Consejo de Sabios: validación con Lola, Mapito y Poncho) -> Fase 2 (Research con Martapepis si aplica) -> Fase 3 (Documentación PRD/Specs).',
+      'Cuando el usuario acabe con un agente, eres el responsable de marcar el paso y llamar al siguiente agente al chat mencionándolo por su nombre.',
+      'Di cosas como: "Fase 0 terminada. Ahora pasamos a la Fase 1: El Consejo de Sabios. Traigo a Lola al chat para que valide la UX de lo que han hablado."',
     ],
     avoid: [
+      'NUNCA ofrezcas opciones técnicas de implementación.',
       'No respondas con acuses tecnicos ni mensajes de infraestructura.',
-      'No menciones tools, sessions, worktrees o comandos salvo que el usuario pida ejecutar algo.',
+      'No intentes ejecutar ni "spawnear" a agentes en background para tareas de diseño (PRD/Specs); diles que hablen con ellos aquí en Telegram.',
     ],
   },
   moncho: {
@@ -122,7 +126,7 @@ function getChatPersona(agent: AgentInfo): ChatPersonaProfile {
   };
 }
 
-function buildInitialPrompt(agent: AgentInfo, userMessage: string) {
+function buildSystemPrompt(agent: AgentInfo): string {
   const roleMarkdown = fs.readFileSync(agent.rolePath, 'utf8');
   const persona = getChatPersona(agent);
 
@@ -147,78 +151,7 @@ function buildInitialPrompt(agent: AgentInfo, userMessage: string) {
     '',
     'Base de identidad del agente:',
     roleMarkdown,
-    '',
-    'Mensaje del usuario:',
-    userMessage,
   ].join('\n');
-}
-
-function parseOpenCodeOutput(stdout: string) {
-  let sessionId = '';
-  const textParts: string[] = [];
-
-  for (const line of stdout.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    try {
-      const event = JSON.parse(trimmed) as {
-        type?: string;
-        sessionID?: string;
-        part?: { text?: string };
-      };
-
-      if (!sessionId && typeof event.sessionID === 'string') {
-        sessionId = event.sessionID;
-      }
-
-      if (event.type === 'text' && typeof event.part?.text === 'string') {
-        textParts.push(event.part.text);
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return {
-    sessionId,
-    response: textParts.join('').trim(),
-  };
-}
-
-function runOpenCode(args: string[]) {
-  return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    const child = spawn('opencode', args, {
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.once('error', (error) => {
-      reject(error);
-    });
-
-    child.once('close', (code) => {
-      if (code === 0) {
-        resolve({ stdout, stderr });
-        return;
-      }
-
-      reject(new Error(stderr || stdout || `opencode exited with code ${code}`));
-    });
-
-    child.stdin.end();
-  });
 }
 
 export async function executeAgentTask(
@@ -226,33 +159,71 @@ export async function executeAgentTask(
   agent: AgentInfo,
   instruction: string,
 ): Promise<ChatResult> {
-  const existingSessionId = getConversationSessionId(chatId, agent.id);
-  const args = ['run', '--format', 'json'];
+  const history = getRecentChatHistory(chatId);
+  const conversationSessionId = getConversationSessionId(chatId, agent.id);
+  const systemPrompt = buildSystemPrompt(agent);
+  const deterministicContext = await loadDeterministicContext(instruction);
+  const memoryContext = formatMemoryContext(refreshMemoryContext(chatId, conversationSessionId));
+  
+  const messages = [
+    { role: 'system', content: systemPrompt }
+  ];
 
-  if (existingSessionId) {
-    args.push('--session', existingSessionId, instruction);
-  } else {
-    args.push('--title', `TG:${chatId}:${agent.id}`, buildInitialPrompt(agent, instruction));
+  if (history) {
+    messages.push({ 
+      role: 'user', 
+      content: `[CONTEXTO RECIENTE DEL GRUPO DE TELEGRAM]\n${history}\n[FIN DEL CONTEXTO]` 
+    });
   }
 
+  if (memoryContext) {
+    messages.push({
+      role: 'user',
+      content: memoryContext,
+    });
+  }
+
+  if (deterministicContext) {
+    messages.push({
+      role: 'user',
+      content: deterministicContext,
+    });
+  }
+
+  messages.push({ role: 'user', content: instruction });
+
+  const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:3005/v1/chat';
+
   try {
-    const { stdout, stderr } = await runOpenCode(args);
+    const response = await fetch(gatewayUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        agentId: agent.id,
+        ...(conversationSessionId ? { sessionId: conversationSessionId } : {}),
+        messages
+      })
+    });
 
-    const result = parseOpenCodeOutput(stdout);
-
-    if (!result.sessionId) {
-      throw new Error(stderr || 'No pude obtener el identificador de sesión conversacional.');
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(`Error del Gateway (${response.status}): ${errorData}`);
     }
 
-    if (!result.response) {
-      throw new Error(stderr || 'El agente no devolvió contenido conversacional.');
+    const data = await response.json() as ChatResponse;
+
+    if (data.sessionId) {
+      setConversationSessionId(chatId, agent.id, data.sessionId);
     }
 
-    setConversationSessionId(chatId, agent.id, result.sessionId);
-
-    return result;
+    return {
+      response: data.response,
+      ...(data.sessionId ? { sessionId: data.sessionId } : {}),
+    };
   } catch (error: any) {
-    const diagnostic = [error.stdout, error.stderr, error.message].filter(Boolean).join('\n');
-    throw new Error(diagnostic || 'Fallo desconocido al conversar con el agente.');
+    console.error(`[ChatExecutor] Fallo al contactar con el Gateway para ${agent.id}:`, error);
+    throw new Error(`Gateway inalcanzable o error interno: ${error.message}`);
   }
 }

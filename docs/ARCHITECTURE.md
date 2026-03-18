@@ -20,6 +20,36 @@ La capa operativa coordina como se diseña, ejecuta, valida y reanuda el trabajo
 - `scripts/` expone wrappers ejecutables para `bd`, resume y tooling auxiliar
 - `scripts/bd.sh` es el comando unico de aterrizaje: valida, sincroniza y hace push
 
+## Ownership de runtime vs memoria
+
+- AO posee el lifecycle tecnico de sesiones y agentes
+- Ralphito posee el estado operativo y la memoria propia del producto
+- la capa central objetivo para Ralphito es SQLite
+- no debe existir doble verdad entre AO y artefactos locales mutables
+
+### AO es fuente de verdad de
+
+- session ids
+- status y activity de sesion
+- branch y worktree
+- timestamps del ciclo de vida
+- PRs y metadata tecnica de sesion
+
+### SQLite Ralphito es fuente de verdad de
+
+- threads y mensajes
+- relacion chat/agente/sesion
+- tasks y beads
+- eventos operativos y errores
+- summaries persistentes
+- indice documental y de codigo
+
+### `traceability.json`
+
+- deja de ser un coordinador transaccional vivo
+- no debe editarse como mecanismo operativo
+- si se mantiene, se genera desde SQLite como snapshot documental
+
 ## 3. Documentacion y specs
 
 `docs/` es la fuente humana.
@@ -42,9 +72,10 @@ La capa operativa coordina como se diseña, ejecuta, valida y reanuda el trabajo
 1. Negocio o usuario define una idea.
 2. Se documenta en `docs/specs/`.
 3. Arquitectura divide el trabajo en beads con scope estricto.
-4. Los ejecutores trabajan contra mocks o contratos locales.
-5. `scripts/bd.sh sync` corre guardrails antes del push.
-6. Si fallan, `scripts/resume.sh` reinyecta el error en la sesion.
+4. Ralphito persiste estado y memoria propia en SQLite.
+5. Los ejecutores trabajan contra mocks o contratos locales.
+6. `scripts/bd.sh sync` corre guardrails antes del push.
+7. Si fallan, `scripts/resume.sh` reinyecta el error en la sesion.
 
 ## Reglas operativas de `bd sync`
 
