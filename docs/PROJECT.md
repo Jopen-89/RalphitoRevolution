@@ -23,6 +23,10 @@ RalphitoRevolution es un laboratorio de orquestacion autonoma sobre Agent Orches
 - el flujo Autopilot esta descrito en `docs/AUTOPILOT.md`
 - las reglas duras del agente viven en `.agent-rules.md`
 - el repo todavia esta en proceso de reorganizacion estructural
+- Ralphito ya persiste memoria y estado operativo en SQLite
+- Telegram ya conserva conversaciones, routing y session binding tras reinicios
+- el dashboard operativo ya unifica AO + metadata Ralphito en `/dashboard`
+- retrieval y memoria ya combinan summaries, recientes y FTS/retrieval determinista
 
 ## Direccion objetivo de estado y memoria
 

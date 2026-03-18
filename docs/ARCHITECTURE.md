@@ -43,6 +43,7 @@ La capa operativa coordina como se diseña, ejecuta, valida y reanuda el trabajo
 - eventos operativos y errores
 - summaries persistentes
 - indice documental y de codigo
+- eventos de observabilidad y metricas operativas
 
 ### `traceability.json`
 
@@ -66,6 +67,15 @@ La capa operativa coordina como se diseña, ejecuta, valida y reanuda el trabajo
 - no forma parte del producto principal
 - su funcion es soportar el runtime y la coordinacion del sistema
 - a medio plazo debe aislarse bajo una zona de vendor para evitar contaminar la raiz
+
+## 5. Superficies operativas actuales
+
+- `src/features/llm-gateway/api/server.ts` expone chat, dashboard, search, health y ops status
+- `src/features/dashboard/` concentra la vista operacional AO + SQLite
+- `src/features/context/` arma retrieval determinista para Telegram
+- `src/features/search/` mantiene el indice FTS5 de codigo y docs
+- `src/features/memory/` mantiene summaries persistentes por thread, sesion y task
+- `src/features/ops/` concentra health, metricas, eventos y backups
 
 ## Flujo operativo resumido
 

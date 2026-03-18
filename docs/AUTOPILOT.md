@@ -31,8 +31,8 @@ Reglas inyectadas nativamente a cada agente instanciado por AO mediante la propi
 
 ## Roadmap de Implementacion (Fases)
 
-### ⏳ Fase 0: Alineacion de contrato y ownership
-**Estado: EN CURSO**
+### ✅ Fase 0: Alineacion de contrato y ownership
+**Estado: COMPLETADO**
 **Objetivo:** Eliminar la doble verdad entre AO, JSONs operativos y memoria volatil.
 - Fijar por documentacion que AO posee el lifecycle tecnico de sesiones.
 - Fijar por documentacion que SQLite Ralphito poseera conversaciones, tasks/beads, eventos, summaries e indice documental.
@@ -78,3 +78,30 @@ El repositorio adopta `bd sync` como comando unico de cierre operativo.
 - Un LLM Maestro (ej. Gemini 3.1 Pro Preview) lee el objetivo del usuario.
 - Decide qué ejecutores spamear (`ao spawn frontend ...`, `ao spawn backend ...`).
 - Monitoriza asíncronamente el estado de los worktrees y da por finalizado el proyecto.
+
+## Estado actual de Ralphito Memory Refactor
+
+La plataforma ya no depende del esquema original de JSONs vivos y scraping como capa principal. El estado operativo y la memoria propia de Ralphito quedaron aterrizados sobre SQLite.
+
+### Capas ya implementadas
+
+- SQLite como capa central para `threads`, `messages`, `agent_sessions`, `tasks`, `task_events`, `artifacts`, `session_summaries`, `documents`, `document_chunks` y `system_events`
+- persistencia real de Telegram con binding `chat + agent -> ao_session_id`
+- estado transaccional de tasks/beads con `traceability.json` como snapshot derivado
+- integracion estructurada con AO para sesiones y dashboard
+- dashboard operativo unificado en `/dashboard`
+- context loader determinista para Telegram
+- indice FTS5 para `src/`, `docs/` y `agents/`
+- memoria de largo plazo con summaries por hilo, sesion AO y task
+- health checks, metricas operativas, backups SQLite y runbook de recovery
+
+### Superficies operativas vigentes
+
+- `npm run db:migrate`
+- `npm run search:index`
+- `npm run search -- "<consulta>"`
+- `npm run ops:status`
+- `npm run backup:db`
+- `GET /health`
+- `GET /api/ops/status`
+- `POST /api/ops/backup`
