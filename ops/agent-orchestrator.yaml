@@ -1,14 +1,14 @@
 dataDir: ~/.agent-orchestrator
 worktreeDir: ~/.worktrees
 port: 3000
-
 defaults:
   runtime: tmux
   agent: opencode
+  agentConfig:
+    model: gemini-3.1-pro-preview
   workspace: worktree
   notifiers:
     - desktop
-
 projects:
   backend-team:
     name: Ralphito Backend
@@ -17,4 +17,22 @@ projects:
     path: /home/pepu/IAproject/RalphitoRevolution
     defaultBranch: master
     agentRulesFile: .agent-rules.md
-    agent: codex
+    agent: opencode
+    agentConfig:
+      model: minimax-m2.7
+  research-team:
+    name: Ralphito Research (Martapepis)
+    sessionPrefix: rs
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agent: gemini
+    agentRulesFile: agents/roles/Researcher(Martapepis).md
+  automation-team:
+    name: Ralphito Automator (Relleno)
+    sessionPrefix: au
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agent: gemini
+    agentRulesFile: agents/roles/FormFiller(Relleno).md
