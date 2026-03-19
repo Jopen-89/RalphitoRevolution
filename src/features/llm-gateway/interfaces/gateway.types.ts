@@ -28,6 +28,10 @@ export interface AgentConfig {
     provider: Provider;
     model: string;
   }[];
+  tools?: {
+    allowed?: string[];
+    blocked?: string[];
+  };
 }
 
 export interface GatewayConfig {
@@ -72,6 +76,53 @@ export interface IVisionProvider {
   name: Provider;
   model: string;
   evaluateVisual(screenshotBase64: string, route: string, rubric: string): Promise<VisionResult>;
+  getQuotaStatus?(): Promise<QuotaInfo>;
+}
+
+export interface ToolParameter {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  description: string;
+  required: boolean;
+  enum?: string[];
+  items?: ToolParameter;
+}
+
+export interface ToolParameters {
+  type: 'object';
+  properties: Record<string, ToolParameter>;
+  required?: string[];
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: ToolParameters;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ToolResult {
+  id: string;
+  result: unknown;
+  error?: string;
+}
+
+export interface ToolCallMessage {
+  role: 'user' | 'assistant';
+  tool_calls?: ToolCall[];
+  tool_results?: ToolResult[];
+}
+
+export interface ILLMToolProvider {
+  name: Provider;
+  generateResponseWithTools(
+    messages: (Message | ToolCallMessage)[],
+    tools: ToolDefinition[]
+  ): Promise<{ message: Message | ToolCallMessage; toolCalls?: ToolCall[] }>;
   getQuotaStatus?(): Promise<QuotaInfo>;
 }
 

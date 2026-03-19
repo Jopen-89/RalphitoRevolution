@@ -19,19 +19,22 @@
     },
     {
       "agentId": "raymon",
-      "primaryProvider": "opencode",
-      "model": "minimax-m2.7",
+      "primaryProvider": "openai",
+      "model": "gpt-5.4",
       "fallbacks": [
         {
           "provider": "codex",
           "model": "gpt-5.4"
         }
-      ]
+      ],
+      "tools": {
+        "allowed": ["spawn_executors_from_beads", "check_executor_status", "list_project_files", "read_project_file"]
+      }
     },
     {
       "agentId": "moncho",
-      "primaryProvider": "opencode",
-      "model": "minimax-m2.7",
+      "primaryProvider": "openai",
+      "model": "gpt-5.4",
       "fallbacks": [
         {
           "provider": "codex",
@@ -41,52 +44,64 @@
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
         }
-      ]
+      ],
+      "tools": {
+        "allowed": ["write_project_file", "read_project_file"]
+      }
     },
     {
       "agentId": "poncho",
-      "primaryProvider": "gemini",
-      "model": "gemini-3.1-pro-preview",
+      "primaryProvider": "openai",
+      "model": "gpt-5.4",
       "fallbacks": [
         {
           "provider": "codex",
           "model": "gpt-5.4"
         },
         {
-          "provider": "opencode",
-          "model": "minimax-m2.7"
+          "provider": "gemini",
+          "model": "gemini-3.1-pro-preview"
         }
-      ]
+      ],
+      "tools": {
+        "allowed": ["write_project_file", "read_project_file", "list_project_files"]
+      }
     },
     {
       "agentId": "martapepis",
-      "primaryProvider": "gemini",
-      "model": "gemini-3.1-pro-preview",
+      "primaryProvider": "openai",
+      "model": "gpt-5.4",
       "fallbacks": [
         {
-          "provider": "opencode",
-          "model": "minimax-m2.7"
+          "provider": "gemini",
+          "model": "gemini-3.1-pro-preview"
         },
         {
           "provider": "codex",
           "model": "gpt-5.4"
         }
-      ]
+      ],
+      "tools": {
+        "allowed": ["google_web_search", "read_project_file"]
+      }
     },
     {
       "agentId": "lola",
-      "primaryProvider": "gemini",
-      "model": "gemini-3.1-pro-preview",
+      "primaryProvider": "openai",
+      "model": "gpt-5.4",
       "fallbacks": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3.1-pro-preview"
+        },
         {
           "provider": "codex",
           "model": "gpt-5.4"
-        },
-        {
-          "provider": "opencode",
-          "model": "minimax-m2.7"
         }
-      ]
+      ],
+      "tools": {
+        "allowed": ["read_project_file", "write_project_file"]
+      }
     },
     {
       "agentId": "mapito",

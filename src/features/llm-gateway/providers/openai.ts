@@ -1,9 +1,9 @@
 import OpenAI from 'openai';
-import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult } from '../interfaces/gateway.types.js';
+import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult, ToolDefinition, ToolCall, ToolCallMessage, ILLMToolProvider } from '../interfaces/gateway.types.js';
 
 const VISION_MODELS = new Set(['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4-vision-preview', 'gpt-4o-search']);
 
-export class OpenAIProvider implements IVisionProvider {
+export class OpenAIProvider implements IVisionProvider, ILLMToolProvider {
   name: Provider = 'openai';
   model: string;
   private client: OpenAI;
@@ -29,6 +29,93 @@ export class OpenAIProvider implements IVisionProvider {
 
       const content = response.choices[0]?.message?.content;
       return content || 'Sin respuesta de OpenAI';
+    } catch (error) {
+      console.error('[OpenAIProvider] Fallo al conectar con OpenAI:', error);
+      throw error;
+    }
+  }
+
+  async generateResponseWithTools(
+    messages: (Message | ToolCallMessage)[],
+    tools: ToolDefinition[]
+  ): Promise<{ message: Message | ToolCallMessage; toolCalls?: ToolCall[] }> {
+    console.log(`[OpenAIProvider] Enrutando petición con tools a ${this.model}...`);
+
+    try {
+      const openaiTools = tools.map((tool) => ({
+        type: 'function' as const,
+        function: {
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+        },
+      }));
+
+      const formattedMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+
+      for (const msg of messages) {
+        if ('tool_calls' in msg && msg.tool_calls) {
+          const toolCallsArray = msg.tool_calls.map((tc) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: {
+              name: tc.name,
+              arguments: JSON.stringify(tc.arguments),
+            },
+          }));
+          (formattedMessages as OpenAI.Chat.ChatCompletionAssistantMessageParam[]).push({
+            role: 'assistant',
+            content: (msg as Message).content || '',
+            tool_calls: toolCallsArray,
+          });
+          if (msg.tool_results) {
+            for (const tr of msg.tool_results) {
+              formattedMessages.push({
+                role: 'tool' as const,
+                tool_call_id: tr.id,
+                content: tr.error ?? (tr.result !== null ? JSON.stringify(tr.result) : ''),
+              });
+            }
+          }
+        } else {
+          const plainMsg = msg as Message;
+          formattedMessages.push({
+            role: plainMsg.role as 'user' | 'assistant' | 'system',
+            content: plainMsg.content,
+          });
+        }
+      }
+
+      const response = await this.client.chat.completions.create({
+        model: this.model,
+        messages: formattedMessages as OpenAI.Chat.ChatCompletionMessageParam[],
+        tools: openaiTools as unknown as OpenAI.Chat.ChatCompletionTool[],
+        tool_choice: 'auto',
+      });
+
+      const responseMessage = response.choices[0]?.message;
+      if (!responseMessage) {
+        return { message: { role: 'assistant', content: 'Sin respuesta de OpenAI' } };
+      }
+
+      if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+        const toolCalls: ToolCall[] = responseMessage.tool_calls.map((tc) => {
+          const fn = (tc as unknown as { function: { name: string; arguments: string } }).function;
+          return {
+            id: tc.id,
+            name: fn.name,
+            arguments: JSON.parse(fn.arguments),
+          };
+        });
+        return {
+          message: { role: 'assistant', content: responseMessage.content || '' },
+          toolCalls,
+        };
+      }
+
+      return {
+        message: { role: 'assistant', content: responseMessage.content || '' },
+      };
     } catch (error) {
       console.error('[OpenAIProvider] Fallo al conectar con OpenAI:', error);
       throw error;
