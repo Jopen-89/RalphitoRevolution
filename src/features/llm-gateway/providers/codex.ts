@@ -1,14 +1,14 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import type { ILLMProvider, Message, Provider, QuotaInfo } from '../interfaces/gateway.types.js';
+import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult } from '../interfaces/gateway.types.js';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_MODEL = 'gpt-5.4';
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
-export class CodexProvider implements ILLMProvider {
+export class CodexProvider implements IVisionProvider {
   name: Provider = 'codex';
-  private model: string;
+  model: string;
 
   constructor(model: string = DEFAULT_MODEL) {
     this.model = model;
@@ -50,6 +50,14 @@ export class CodexProvider implements ILLMProvider {
       remainingMessages: 999,
       totalLimit: 999,
       percentage: 100,
+    };
+  }
+
+  async evaluateVisual(_screenshotBase64: string, route: string, _rubric: string): Promise<VisionResult> {
+    return {
+      status: 'warn',
+      summary: `Provider ${this.name} (${this.model}) no soporta Vision evaluation via CLI.`,
+      issues: [`provider_no_vision:${this.name}:${this.model}`],
     };
   }
 

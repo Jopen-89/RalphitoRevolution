@@ -42,6 +42,39 @@ export interface QuotaInfo {
   resetTime?: string;
 }
 
+export interface VisionMessagePart {
+  type: 'text';
+  text: string;
+}
+
+export interface VisionImagePart {
+  type: 'image_url';
+  image_url: {
+    url: string;
+  };
+}
+
+export type VisionMessageContent = VisionMessagePart | VisionImagePart;
+
+export interface VisionMessage {
+  role: string;
+  content: VisionMessageContent[];
+}
+
+export interface VisionResult {
+  status: 'pass' | 'fail' | 'warn';
+  summary: string;
+  issues: string[];
+  rawModelOutput?: string;
+}
+
+export interface IVisionProvider {
+  name: Provider;
+  model: string;
+  evaluateVisual(screenshotBase64: string, route: string, rubric: string): Promise<VisionResult>;
+  getQuotaStatus?(): Promise<QuotaInfo>;
+}
+
 export interface ILLMProvider {
   name: Provider;
   generateResponse(messages: Message[]): Promise<string>;

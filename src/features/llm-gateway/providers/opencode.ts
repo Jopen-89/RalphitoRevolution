@@ -1,4 +1,4 @@
-import type { ILLMProvider, Provider, Message, QuotaInfo } from '../interfaces/gateway.types.js';
+import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult } from '../interfaces/gateway.types.js';
 
 type AnthropicMessage = {
   role: 'user' | 'assistant';
@@ -13,10 +13,10 @@ type AnthropicResponse = {
 const DEFAULT_MINIMAX_BASE_URL = 'https://api.minimax.io/anthropic';
 const DEFAULT_MAX_TOKENS = 4096;
 
-export class OpencodeProvider implements ILLMProvider {
+export class OpencodeProvider implements IVisionProvider {
   name: Provider = 'opencode';
+  model: string;
   private apiKey: string;
-  private model: string;
   private baseUrl: string;
 
   constructor(apiKey: string, model: string = 'minimax-m2.7') {
@@ -83,6 +83,14 @@ export class OpencodeProvider implements ILLMProvider {
       remainingMessages: 100,
       totalLimit: 100,
       percentage: 100,
+    };
+  }
+
+  async evaluateVisual(_screenshotBase64: string, route: string, _rubric: string): Promise<VisionResult> {
+    return {
+      status: 'warn',
+      summary: `Provider ${this.name} (${this.model}) no soporta Vision evaluation.`,
+      issues: [`provider_no_vision:${this.name}:${this.model}`],
     };
   }
 

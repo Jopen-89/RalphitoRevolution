@@ -1,16 +1,13 @@
 import type { OAuth2Client } from 'google-auth-library';
-import type { ILLMProvider, Provider, Message, QuotaInfo } from '../interfaces/gateway.types.js';
+import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult } from '../interfaces/gateway.types.js';
 
-export class GeminiProvider implements ILLMProvider {
+export class GeminiProvider implements IVisionProvider {
   name: Provider = 'gemini';
   private oAuth2Client: OAuth2Client;
-  private model: string;
-  // Usamos el endpoint de la API de Vertex AI para Gemini (que soporta OAuth)
-  // Nota: Para cuentas personales con suscripción, a veces se requiere el endpoint de generativelanguage, 
-  // pero el auth header es el mismo. Usaremos generativelanguage por defecto para cuentas de usuario.
+  model: string;
   private baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-  constructor(oAuth2Client: OAuth2Client, model: string = 'gemini-2.5-pro') {
+  constructor(oAuth2Client: OAuth2Client, model: string = 'gemini-2.0-flash') {
     this.oAuth2Client = oAuth2Client;
     this.model = model;
   }
@@ -73,9 +70,89 @@ export class GeminiProvider implements ILLMProvider {
   async getQuotaStatus(): Promise<QuotaInfo> {
     return {
       provider: this.name,
-      remainingMessages: 999, // Con OAuth el límite depende de tu suscripción personal
+      remainingMessages: 999,
       totalLimit: 999,
       percentage: 100,
     };
+  }
+
+  async evaluateVisual(screenshotBase64: string, route: string, rubric: string): Promise<VisionResult> {
+    console.log(`[GeminiProvider] evaluateVisual route=${route} model=${this.model}`);
+
+    try {
+      const { token } = await this.oAuth2Client.getAccessToken();
+      if (!token) {
+        return { status: 'warn', summary: 'No se pudo obtener token de Google OAuth.', issues: ['google_oauth_no_token'] };
+      }
+
+      const prompt = [
+        `Ruta evaluada: ${route}`,
+        'Rubrica visual de Lola:',
+        rubric,
+        'Responde JSON valido con las claves status, summary e issues. status solo puede ser pass, fail o warn.',
+      ].join('\n\n');
+
+      const response = await fetch(`${this.baseUrl}/${this.model}:generateContent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType: 'image/png', data: screenshotBase64 } },
+            ],
+          }],
+          generationConfig: {
+            temperature: 0.3,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 1024,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        return { status: 'warn', summary: `Gemini API error ${response.status}`, issues: [errorData.slice(0, 300)] };
+      }
+
+      const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+      return this.parseVisionResult(raw);
+    } catch (error) {
+      return {
+        status: 'warn',
+        summary: 'Excepcion en evaluateVisual de Gemini.',
+        issues: [error instanceof Error ? error.message : String(error)],
+      };
+    }
+  }
+
+  private parseVisionResult(raw: string): VisionResult {
+    const trimmed = raw.trim();
+    if (!trimmed) return { status: 'warn', summary: 'Respuesta vacia de Gemini.', issues: [] };
+
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]+?)```/i);
+    const candidate = fenced?.[1]?.trim() || trimmed;
+
+    try {
+      const parsed = JSON.parse(candidate) as { status?: string; summary?: string; issues?: unknown };
+      const status = parsed?.status;
+      if (status === 'pass' || status === 'fail' || status === 'warn') {
+        return {
+          status,
+          summary: typeof parsed?.summary === 'string' ? parsed.summary : 'Sin resumen.',
+          issues: Array.isArray(parsed?.issues) ? parsed.issues.map(String) : [],
+          rawModelOutput: raw,
+        };
+      }
+    } catch { /* ignore parse failure */ }
+
+    return { status: 'warn', summary: 'No pude parsear respuesta estructurada de Gemini.', issues: [trimmed.slice(0, 200)], rawModelOutput: raw };
   }
 }
