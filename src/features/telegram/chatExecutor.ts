@@ -208,8 +208,17 @@ export async function executeAgentTask(
     });
 
     if (!response.ok) {
-      const errorData = await response.text();
-      throw new Error(`Error del Gateway (${response.status}): ${errorData}`);
+      const rawBody = await response.text();
+      let parsed: any = null;
+
+      try {
+        parsed = JSON.parse(rawBody);
+      } catch {
+        parsed = null;
+      }
+
+      const message = mapGatewayError(response.status, parsed, rawBody, agent.id);
+      throw new Error(message);
     }
 
     const data = await response.json() as ChatResponse;
@@ -224,6 +233,26 @@ export async function executeAgentTask(
     };
   } catch (error: any) {
     console.error(`[ChatExecutor] Fallo al contactar con el Gateway para ${agent.id}:`, error);
-    throw new Error(`Gateway inalcanzable o error interno: ${error.message}`);
+    throw new Error(error.message || 'No pude contactar con el gateway.');
   }
+}
+
+function mapGatewayError(status: number, parsed: any, rawBody: string, agentId: string) {
+  if (status === 404 && parsed?.error === 'AGENT_CONFIG_NOT_FOUND') {
+    return `No encuentro configuracion del agente '${agentId}' en el gateway.`;
+  }
+
+  if (status === 502 && parsed?.error === 'ALL_PROVIDERS_UNAVAILABLE') {
+    return `Ahora mismo ${agentId} no tiene ningun proveedor disponible.`;
+  }
+
+  if (status === 400) {
+    return parsed?.error || 'La peticion al gateway no es valida.';
+  }
+
+  if (status >= 500) {
+    return parsed?.details || parsed?.error || `Error interno del gateway (${status}).`;
+  }
+
+  return parsed?.message || parsed?.error || rawBody || `Error del gateway (${status}).`;
 }

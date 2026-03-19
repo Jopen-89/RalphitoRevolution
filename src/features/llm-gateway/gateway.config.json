@@ -1,24 +1,75 @@
 {
+  "version": "2.0.0",
+  "default_fallback_strategy": "priority",
   "agents": [
     {
       "agentId": "default",
-      "primaryProvider": "gemini",
-      "model": "gemini-2.5-pro",
+      "primaryProvider": "codex",
+      "model": "gpt-5.4",
       "fallbacks": [
         {
-          "provider": "openai",
+          "provider": "opencode",
+          "model": "minimax-m2.7"
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.1-pro-preview"
+        }
+      ]
+    },
+    {
+      "agentId": "raymon",
+      "primaryProvider": "opencode",
+      "model": "minimax-m2.7",
+      "fallbacks": [
+        {
+          "provider": "codex",
           "model": "gpt-5.4"
         }
       ]
     },
     {
       "agentId": "moncho",
-      "primaryProvider": "openai",
-      "model": "gpt-5.4",
+      "primaryProvider": "opencode",
+      "model": "minimax-m2.7",
       "fallbacks": [
         {
+          "provider": "codex",
+          "model": "gpt-5.4"
+        },
+        {
           "provider": "gemini",
-          "model": "gemini-2.5-pro"
+          "model": "gemini-3.1-pro-preview"
+        }
+      ]
+    },
+    {
+      "agentId": "poncho",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "fallbacks": [
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
+        },
+        {
+          "provider": "opencode",
+          "model": "minimax-m2.7"
+        }
+      ]
+    },
+    {
+      "agentId": "martapepis",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "fallbacks": [
+        {
+          "provider": "opencode",
+          "model": "minimax-m2.7"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
@@ -26,55 +77,138 @@
       "agentId": "lola",
       "primaryProvider": "gemini",
       "model": "gemini-3.1-pro-preview",
-      "fallbacks": []
+      "fallbacks": [
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
+        },
+        {
+          "provider": "opencode",
+          "model": "minimax-m2.7"
+        }
+      ]
     },
     {
-      "agentId": "ricki",
-      "primaryProvider": "gemini",
-      "model": "gemini-3.1-pro-preview",
-      "fallbacks": []
-    },
-    {
-      "agentId": "ricky",
-      "primaryProvider": "gemini",
-      "model": "gemini-3.1-pro-preview",
-      "fallbacks": []
-    },
-    {
-      "agentId": "juez",
-      "primaryProvider": "gemini",
-      "model": "gemini-3.1-pro-preview",
-      "fallbacks": []
-    },
-    {
-      "agentId": "tracker",
-      "primaryProvider": "gemini",
-      "model": "gemini-3.1-pro-preview",
-      "fallbacks": []
-    },
-    {
-      "agentId": "relleno",
-      "primaryProvider": "gemini",
-      "model": "gemini-3.1-pro-preview",
-      "fallbacks": []
-    },
-    {
-      "agentId": "raymon",
-      "primaryProvider": "gemini",
-      "model": "gemini-3.1-pro-preview",
+      "agentId": "mapito",
+      "primaryProvider": "codex",
+      "model": "gpt-5.4",
       "fallbacks": [
         {
           "provider": "gemini",
-          "model": "gemini-3-pro"
+          "model": "gemini-3.1-pro-preview"
+        },
+        {
+          "provider": "opencode",
+          "model": "minimax-m2.7"
+        }
+      ]
+    },
+    {
+      "agentId": "juez",
+      "primaryProvider": "codex",
+      "model": "gpt-5.4",
+      "fallbacks": [
+        {
+          "provider": "opencode",
+          "model": "minimax-m2.7"
         },
         {
           "provider": "gemini",
-          "model": "gemini-2.5-pro"
+          "model": "gemini-3.1-pro-preview"
+        }
+      ]
+    },
+    {
+      "agentId": "tracker",
+      "primaryProvider": "codex",
+      "model": "gpt-5.4",
+      "fallbacks": [
+        {
+          "provider": "opencode",
+          "model": "minimax-m2.7"
         },
         {
-          "provider": "gemini"
+          "provider": "gemini",
+          "model": "gemini-3.1-pro-preview"
+        }
+      ]
+    },
+    {
+      "agentId": "ricky",
+      "primaryProvider": "codex",
+      "model": "gpt-5.4",
+      "fallbacks": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3.1-pro-preview"
+        },
+        {
+          "provider": "opencode",
+          "model": "minimax-m2.7"
+        }
+      ]
+    },
+    {
+      "agentId": "miron",
+      "primaryProvider": "codex",
+      "model": "gpt-5.4",
+      "fallbacks": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3.1-pro-preview"
+        },
+        {
+          "provider": "opencode",
+          "model": "minimax-m2.7"
+        }
+      ]
+    },
+    {
+      "agentId": "relleno",
+      "primaryProvider": "opencode",
+      "model": "minimax-m2.7",
+      "fallbacks": [
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.1-pro-preview"
+        }
+      ]
+    },
+    {
+      "agentId": "ralphito",
+      "primaryProvider": "opencode",
+      "model": "minimax-m2.7",
+      "fallbacks": [
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.1-pro-preview"
         }
       ]
     }
-  ]
+  ],
+  "models": {
+    "minimax-m2.7": {
+      "provider": "opencode",
+      "max_tokens": 128000,
+      "temperature": 0.3
+    },
+    "gpt-5.4": {
+      "provider": "codex",
+      "max_tokens": 128000,
+      "temperature": 0.5
+    },
+    "gemini-3.1-pro-preview": {
+      "provider": "gemini",
+      "max_tokens": 1000000,
+      "temperature": 0.7
+    }
+  }
 }

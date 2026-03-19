@@ -26,6 +26,29 @@ app.use(express.json());
 // Variable global para mantener el cliente OAuth autenticado
 let googleAuthClient: any = null;
 
+const DEFAULT_MODEL_BY_PROVIDER: Record<Provider, string> = {
+  gemini: 'gemini-3.1-pro-preview',
+  openai: 'gpt-5.4',
+  opencode: 'minimax-m2.7',
+  codex: 'gpt-5.4',
+};
+
+const AGENT_ALIASES: Record<string, string[]> = {
+  default: ['default', 'ralphito'],
+  raymon: ['raymon', 'ramon', 'raimon', 'ray mond', 'rei mon'],
+  moncho: ['moncho'],
+  poncho: ['poncho'],
+  martapepis: ['martapepis', 'marta', 'marta pepis'],
+  lola: ['lola'],
+  mapito: ['mapito'],
+  juez: ['juez'],
+  tracker: ['tracker'],
+  ricky: ['ricky'],
+  miron: ['miron'],
+  relleno: ['relleno'],
+  ralphito: ['ralphito'],
+};
+
 // Cargar configuración de agentes
 const getConfig = (): GatewayConfig => {
   try {
@@ -38,25 +61,70 @@ const getConfig = (): GatewayConfig => {
   }
 };
 
+const normalizeAgentId = (value: string) => value
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .trim()
+  .toLowerCase()
+  .replace(/[\s_-]+/g, '');
+
+const resolveAgentConfig = (config: GatewayConfig, rawAgentId: string) => {
+  const requestedId = normalizeAgentId(rawAgentId || 'default');
+  const configsById = new Map(config.agents.map((agent) => [normalizeAgentId(agent.agentId), agent]));
+
+  const direct = configsById.get(requestedId);
+  if (direct) {
+    return { agentConfig: direct, resolvedAgentId: normalizeAgentId(direct.agentId), requestedId };
+  }
+
+  for (const [canonicalId, aliases] of Object.entries(AGENT_ALIASES)) {
+    if (!aliases.map(normalizeAgentId).includes(requestedId)) continue;
+    const aliasMatch = configsById.get(canonicalId);
+    if (aliasMatch) {
+      return { agentConfig: aliasMatch, resolvedAgentId: canonicalId, requestedId };
+    }
+  }
+
+  const fallback = configsById.get('default');
+  if (fallback) {
+    return { agentConfig: fallback, resolvedAgentId: 'default', requestedId };
+  }
+
+  return { agentConfig: undefined, resolvedAgentId: undefined, requestedId };
+};
+
 app.post('/v1/chat', async (req, res) => {
-  const { agentId = 'default', messages } = req.body as ChatRequest;
+  const { agentId = 'default', provider, model, messages } = req.body as ChatRequest;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'Faltan parámetros messages (debe ser un array)' });
   }
 
   const config = getConfig();
-  const agentConfig = config.agents.find(a => a.agentId === agentId) || config.agents.find(a => a.agentId === 'default');
+  const { agentConfig, resolvedAgentId, requestedId } = resolveAgentConfig(config, agentId);
 
-  if (!agentConfig) {
-    return res.status(404).json({ error: `Configuración no encontrada para el agente: ${agentId}` });
+  if (!agentConfig && !provider) {
+    return res.status(404).json({
+      error: 'AGENT_CONFIG_NOT_FOUND',
+      message: `No encuentro configuración para el agente '${agentId}'.`,
+      requestedAgentId: agentId,
+      normalizedAgentId: requestedId,
+    });
   }
 
   // Lista de intentos (primario + fallbacks)
-  const attempts = [
-    { provider: agentConfig.primaryProvider, model: agentConfig.model },
-    ...agentConfig.fallbacks
-  ];
+  const attempts = provider
+    ? [{ provider, model: model || DEFAULT_MODEL_BY_PROVIDER[provider] }]
+    : [
+        {
+          provider: agentConfig!.primaryProvider,
+          model: agentConfig!.model || DEFAULT_MODEL_BY_PROVIDER[agentConfig!.primaryProvider],
+        },
+        ...agentConfig!.fallbacks.map((fallback) => ({
+          provider: fallback.provider,
+          model: fallback.model || DEFAULT_MODEL_BY_PROVIDER[fallback.provider],
+        })),
+      ];
 
   let lastError: any = null;
 
@@ -76,7 +144,7 @@ app.post('/v1/chat', async (req, res) => {
       const successResponse: ChatResponse = {
         response: responseText,
         providerUsed: attempt.provider,
-        modelUsed: attempt.model
+        modelUsed: attempt.model,
       };
 
       return res.json(successResponse);
@@ -198,16 +266,26 @@ app.post('/api/ops/backup', async (_req, res) => {
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3005;
 
-// Iniciamos la autenticación ANTES de levantar el servidor
-console.log('🔄 Iniciando secuencia de arranque del Gateway...');
-authenticateGoogle()
-  .then((client) => {
-    googleAuthClient = client;
-    app.listen(PORT, () => {
-      console.log(`🚀 LLM Gateway escuchando en http://localhost:${PORT}`);
-    });
-  })
-  .catch((err) => {
-    console.error('❌ Error fatal al autenticar con Google:', err.message);
-    process.exit(1);
+async function bootstrap() {
+  console.log('🔄 Iniciando secuencia de arranque del Gateway...');
+
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    try {
+      googleAuthClient = await authenticateGoogle();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`⚠️ Google OAuth no disponible. Gemini quedará deshabilitado hasta resolverlo: ${message}`);
+    }
+  } else {
+    console.warn('⚠️ GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET no configurados. Gemini quedará deshabilitado.');
+  }
+
+  app.listen(PORT, () => {
+    console.log(`🚀 LLM Gateway escuchando en http://localhost:${PORT}`);
   });
+}
+
+bootstrap().catch((error) => {
+  console.error('❌ Error fatal al iniciar el Gateway:', error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

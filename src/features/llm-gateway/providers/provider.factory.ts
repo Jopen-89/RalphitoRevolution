@@ -1,6 +1,7 @@
 import { GeminiProvider } from './gemini.js';
 import { OpenAIProvider } from './openai.js';
 import { OpencodeProvider } from './opencode.js';
+import { CodexProvider } from './codex.js';
 import type { Provider, ILLMProvider } from '../interfaces/gateway.types.js';
 
 export class ProviderFactory {
@@ -19,6 +20,8 @@ export class ProviderFactory {
       case 'opencode':
         if (!auth.minimaxKey) throw new Error('Falta MINIMAX_API_KEY en el entorno.');
         return new OpencodeProvider(auth.minimaxKey, model);
+      case 'codex':
+        return new CodexProvider(model);
       default:
         throw new Error(`Proveedor ${provider} no soportado por la factoría.`);
     }
