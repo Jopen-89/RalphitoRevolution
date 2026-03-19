@@ -19,27 +19,31 @@
     },
     {
       "agentId": "raymon",
-      "primaryProvider": "opencode",
-      "model": "minimax-m2.7",
-      "fallbacks": [
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
-        }
-      ]
-    },
-    {
-      "agentId": "moncho",
-      "primaryProvider": "opencode",
-      "model": "minimax-m2.7",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
       "fallbacks": [
         {
           "provider": "codex",
           "model": "gpt-5.4"
         },
         {
-          "provider": "gemini",
-          "model": "gemini-3.1-pro-preview"
+          "provider": "opencode",
+          "model": "minimax-m2.7"
+        }
+      ]
+    },
+    {
+      "agentId": "moncho",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
+      "fallbacks": [
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
+        },
+        {
+          "provider": "opencode",
+          "model": "minimax-m2.7"
         }
       ]
     },
