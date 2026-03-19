@@ -4,7 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { authenticateGoogle } from '../auth/google-oauth.js';
 import { ProviderFactory } from '../providers/provider.factory.js';
-import type { Provider, Message, AgentConfig, GatewayConfig, ChatRequest, ChatResponse } from '../interfaces/gateway.types.js';
+import type { Provider, Message, AgentConfig, GatewayConfig, ChatRequest, ChatResponse, ToolCallMessage, ILLMToolProvider } from '../interfaces/gateway.types.js';
+import { TOOL_DEFINITIONS, filterAllowedTools, executeTool } from '../tools/toolRegistry.js';
 import { initializeRalphitoDatabase } from '../../persistence/db/index.js';
 import { renderDashboardPage } from '../../dashboard/dashboardPage.js';
 import {
@@ -93,6 +94,8 @@ const resolveAgentConfig = (config: GatewayConfig, rawAgentId: string) => {
   return { agentConfig: undefined, resolvedAgentId: undefined, requestedId };
 };
 
+const MAX_TOOL_ITERATIONS = 10;
+
 app.post('/v1/chat', async (req, res) => {
   const { agentId = 'default', provider, model, messages } = req.body as ChatRequest;
 
@@ -112,7 +115,18 @@ app.post('/v1/chat', async (req, res) => {
     });
   }
 
-  // Lista de intentos (primario + fallbacks)
+  const auth = {
+    ...(googleAuthClient ? { googleAuthClient } : {}),
+    ...(process.env.OPENAI_API_KEY ? { openAiKey: process.env.OPENAI_API_KEY } : {}),
+    ...(process.env.MINIMAX_API_KEY ? { minimaxKey: process.env.MINIMAX_API_KEY } : {}),
+  };
+
+  const tools = agentConfig?.tools
+    ? filterAllowedTools(agentConfig.tools.allowed, agentConfig.tools.blocked)
+    : [];
+
+  const useToolLoop = tools.length > 0;
+
   const attempts = provider
     ? [{ provider, model: model || DEFAULT_MODEL_BY_PROVIDER[provider] }]
     : [
@@ -131,12 +145,64 @@ app.post('/v1/chat', async (req, res) => {
   for (const attempt of attempts) {
     try {
       console.log(`[Gateway] Intentando con ${attempt.provider} (${attempt.model})...`);
-      
-      const auth = {
-        ...(googleAuthClient ? { googleAuthClient } : {}),
-        ...(process.env.OPENAI_API_KEY ? { openAiKey: process.env.OPENAI_API_KEY } : {}),
-        ...(process.env.MINIMAX_API_KEY ? { minimaxKey: process.env.MINIMAX_API_KEY } : {}),
-      };
+
+      if (useToolLoop && ProviderFactory.supportsTools(attempt.provider)) {
+        const toolProvider = ProviderFactory.createToolProvider(attempt.provider, attempt.model, auth) as ILLMToolProvider;
+        const conversationMessages: (Message | ToolCallMessage)[] = messages.map((m) => ({ ...m }));
+
+        for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+          console.log(`[Gateway] Tool loop iteration ${iteration + 1}/${MAX_TOOL_ITERATIONS}`);
+
+          const result = await toolProvider.generateResponseWithTools(conversationMessages, tools);
+
+          if (result.toolCalls && result.toolCalls.length > 0) {
+            console.log(`[Gateway] Tool calls received:`, result.toolCalls.map((tc) => tc.name).join(', '));
+
+            const toolResults = await Promise.all(
+              result.toolCalls.map(async (tc) => {
+                const result = await executeTool(tc);
+                return result;
+              })
+            );
+
+            conversationMessages.push({
+              role: 'assistant',
+              content: 'content' in result.message ? result.message.content || '' : '',
+              tool_calls: result.toolCalls,
+            });
+
+            conversationMessages.push({
+              role: 'user',
+              tool_results: toolResults,
+            });
+          } else {
+            const responseText = 'content' in result.message ? result.message.content || '' : '';
+            recordSystemEvent('tool_call_loop', 'ok', {
+              iterations: iteration + 1,
+              agentId,
+              provider: attempt.provider,
+            });
+
+            const successResponse: ChatResponse = {
+              response: responseText,
+              providerUsed: attempt.provider,
+              modelUsed: attempt.model,
+            };
+
+            return res.json(successResponse);
+          }
+        }
+
+        recordSystemEvent('tool_call_loop', 'error', {
+          agentId,
+          provider: attempt.provider,
+        });
+
+        return res.status(504).json({
+          error: 'TOOL_LOOP_MAX_ITERATIONS',
+          message: `Exceeded maximum tool call iterations (${MAX_TOOL_ITERATIONS}).`,
+        });
+      }
 
       const llmProvider = ProviderFactory.create(attempt.provider, attempt.model, auth);
       const responseText = await llmProvider.generateResponse(messages);
@@ -152,11 +218,9 @@ app.post('/v1/chat', async (req, res) => {
     } catch (error) {
       console.warn(`⚠️ Falló ${attempt.provider} (${attempt.model}):`, error instanceof Error ? error.message : String(error));
       lastError = error;
-      // Continuar al siguiente fallback
     }
   }
 
-  // Si llegamos aquí, todos los intentos fallaron
   console.error('❌ Todos los proveedores fallaron:', lastError);
   res.status(502).json({ 
     error: 'ALL_PROVIDERS_UNAVAILABLE', 
