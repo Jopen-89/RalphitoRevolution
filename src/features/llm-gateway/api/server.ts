@@ -4,7 +4,16 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { authenticateGoogle } from '../auth/google-oauth.js';
 import { ProviderFactory } from '../providers/provider.factory.js';
-import type { Provider, Message, AgentConfig, GatewayConfig, ChatRequest, ChatResponse } from '../interfaces/gateway.types.js';
+import type {
+  Provider,
+  Message,
+  AgentConfig,
+  GatewayConfig,
+  ChatRequest,
+  ChatResponse,
+  ToolExecutionEntry,
+  ToolResult,
+} from '../interfaces/gateway.types.js';
 import { initializeRalphitoDatabase } from '../../persistence/db/index.js';
 import { renderDashboardPage } from '../../dashboard/dashboardPage.js';
 import {
@@ -14,6 +23,7 @@ import {
 } from '../../dashboard/dashboardService.js';
 import { backupRalphitoDatabase, getOperationalStatus, recordSystemEvent } from '../../ops/observabilityService.js';
 import { searchIndexedDocuments } from '../../search/codeIndexService.js';
+import { ToolRegistry } from '../tools/toolRegistry.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,7 +104,7 @@ const resolveAgentConfig = (config: GatewayConfig, rawAgentId: string) => {
 };
 
 app.post('/v1/chat', async (req, res) => {
-  const { agentId = 'default', provider, model, messages } = req.body as ChatRequest;
+  const { agentId = 'default', provider, model, messages, sessionId } = req.body as ChatRequest;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'Faltan parámetros messages (debe ser un array)' });
@@ -102,6 +112,9 @@ app.post('/v1/chat', async (req, res) => {
 
   const config = getConfig();
   const { agentConfig, resolvedAgentId, requestedId } = resolveAgentConfig(config, agentId);
+  const effectiveAgentId = resolvedAgentId || normalizeAgentId(agentId);
+  const toolRegistry = new ToolRegistry(googleAuthClient);
+  const toolDefinitions = toolRegistry.getDefinitionsForAgent(effectiveAgentId);
 
   if (!agentConfig && !provider) {
     return res.status(404).json({
@@ -139,13 +152,42 @@ app.post('/v1/chat', async (req, res) => {
       };
 
       const llmProvider = ProviderFactory.create(attempt.provider, attempt.model, auth);
-      const responseText = await llmProvider.generateResponse(messages);
+      let responseText = '';
+      let toolExecutions: ToolExecutionEntry[] = [];
+
+      if (toolDefinitions.length > 0) {
+        if (!llmProvider.generateResponseWithTools) {
+          throw new Error(`Provider ${attempt.provider} no soporta tool calling para el agente ${effectiveAgentId}.`);
+        }
+
+        const toolOutcome = await runToolLoop({
+          llmProvider,
+          messages,
+          toolDefinitions,
+          toolRegistry,
+          agentId: effectiveAgentId,
+          ...(sessionId ? { sessionId } : {}),
+        });
+        responseText = toolOutcome.responseText;
+        toolExecutions = toolOutcome.toolExecutions;
+      } else {
+        responseText = await llmProvider.generateResponse(messages);
+      }
 
       const successResponse: ChatResponse = {
         response: responseText,
         providerUsed: attempt.provider,
         modelUsed: attempt.model,
+        ...(sessionId ? { sessionId } : {}),
       };
+
+      recordSystemEvent('gateway_chat', 'ok', {
+        agentId: effectiveAgentId,
+        provider: attempt.provider,
+        model: attempt.model,
+        usedTools: toolExecutions.length > 0,
+        toolExecutions,
+      });
 
       return res.json(successResponse);
 
@@ -158,6 +200,12 @@ app.post('/v1/chat', async (req, res) => {
 
   // Si llegamos aquí, todos los intentos fallaron
   console.error('❌ Todos los proveedores fallaron:', lastError);
+  recordSystemEvent('gateway_chat', 'error', {
+    agentId: effectiveAgentId,
+    requestedProvider: provider || null,
+    attemptedProviders: attempts.map((attempt) => `${attempt.provider}:${attempt.model}`),
+    error: lastError instanceof Error ? lastError.message : String(lastError),
+  });
   res.status(502).json({ 
     error: 'ALL_PROVIDERS_UNAVAILABLE', 
     details: lastError instanceof Error ? lastError.message : String(lastError) 
@@ -263,6 +311,81 @@ app.post('/api/ops/backup', async (_req, res) => {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Backup failed' });
   }
 });
+
+async function runToolLoop({
+  llmProvider,
+  messages,
+  toolDefinitions,
+  toolRegistry,
+  agentId,
+  sessionId,
+}: {
+  llmProvider: ReturnType<typeof ProviderFactory.create>;
+  messages: Message[];
+  toolDefinitions: ReturnType<ToolRegistry['getDefinitionsForAgent']>;
+  toolRegistry: ToolRegistry;
+  agentId: string;
+  sessionId?: string;
+}) {
+  let workingMessages = [...messages];
+  const toolExecutions: ToolExecutionEntry[] = [];
+
+  for (let iteration = 0; iteration < toolRegistry.getMaxIterations(); iteration += 1) {
+    const llmResponse = await llmProvider.generateResponseWithTools!(workingMessages, { tools: toolDefinitions });
+
+    if (llmResponse.type === 'final') {
+      return {
+        responseText: llmResponse.text,
+        toolExecutions,
+      };
+    }
+
+    if (llmResponse.toolCalls.length === 0) {
+      throw new Error('El provider entro en modo tool calling pero no devolvio llamadas ni respuesta final.');
+    }
+
+    const toolResults: ToolResult[] = [];
+
+    for (const toolCall of llmResponse.toolCalls) {
+      try {
+        const result = await toolRegistry.execute(toolCall.name, toolCall.input, { agentId, ...(sessionId ? { sessionId } : {}) });
+        toolResults.push({
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          ok: result.ok,
+          content: result.content,
+        });
+        toolExecutions.push({ toolCallId: toolCall.id, toolName: toolCall.name, ok: result.ok });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        toolResults.push({
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          ok: false,
+          content: JSON.stringify({ error: message }),
+        });
+        toolExecutions.push({ toolCallId: toolCall.id, toolName: toolCall.name, ok: false });
+      }
+    }
+
+    workingMessages = [
+      ...workingMessages,
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: llmResponse.toolCalls,
+      },
+      ...toolResults.map((result) => ({
+        role: 'tool' as const,
+        content: result.content,
+        toolCallId: result.toolCallId,
+        toolName: result.name,
+      })),
+    ];
+  }
+
+  throw new Error(`Se supero el limite de ${toolRegistry.getMaxIterations()} iteraciones de tool calling.`);
+}
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3005;
 

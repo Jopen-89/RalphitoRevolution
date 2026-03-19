@@ -1,8 +1,74 @@
 export type Provider = 'gemini' | 'openai' | 'opencode' | 'codex';
 
-export interface Message {
-  role: string;
+export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
+
+export type ToolSchemaProperty = {
+  type: 'string' | 'number' | 'boolean' | 'array' | 'object';
+  description: string;
+  items?: ToolSchemaProperty;
+};
+
+export interface ToolInputSchema {
+  type: 'object';
+  properties: Record<string, ToolSchemaProperty>;
+  required?: string[];
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: ToolInputSchema;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface ToolResult {
+  toolCallId: string;
+  name: string;
+  ok: boolean;
   content: string;
+}
+
+export interface ToolExecutionResult {
+  ok: boolean;
+  content: string;
+}
+
+export interface ToolContext {
+  agentId: string;
+  sessionId?: string;
+}
+
+export interface ToolExecutionEntry {
+  toolCallId: string;
+  toolName: string;
+  ok: boolean;
+}
+
+export type LLMResponse =
+  | {
+      type: 'final';
+      text: string;
+    }
+  | {
+      type: 'tool_calls';
+      toolCalls: ToolCall[];
+    };
+
+export interface ToolCapabilityOptions {
+  tools: ToolDefinition[];
+}
+
+export interface Message {
+  role: MessageRole;
+  content: string;
+  toolCallId?: string;
+  toolName?: string;
+  toolCalls?: ToolCall[];
 }
 
 export interface ChatRequest {
@@ -78,5 +144,6 @@ export interface IVisionProvider {
 export interface ILLMProvider {
   name: Provider;
   generateResponse(messages: Message[]): Promise<string>;
+  generateResponseWithTools?(messages: Message[], options: ToolCapabilityOptions): Promise<LLMResponse>;
   getQuotaStatus?(): Promise<QuotaInfo>;
 }

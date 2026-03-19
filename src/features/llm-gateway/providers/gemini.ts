@@ -1,5 +1,27 @@
 import type { OAuth2Client } from 'google-auth-library';
-import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult } from '../interfaces/gateway.types.js';
+import type {
+  IVisionProvider,
+  Provider,
+  Message,
+  QuotaInfo,
+  VisionResult,
+  ToolCapabilityOptions,
+  LLMResponse,
+} from '../interfaces/gateway.types.js';
+
+type GeminiGenerateContentResponse = {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+        functionCall?: {
+          name?: string;
+          args?: Record<string, unknown>;
+        };
+      }>;
+    };
+  }>;
+};
 
 export class GeminiProvider implements IVisionProvider {
   name: Provider = 'gemini';
@@ -16,47 +38,12 @@ export class GeminiProvider implements IVisionProvider {
     console.log(`[GeminiProvider] Enrutando petición a ${this.model} usando Google OAuth...`);
     
     try {
-      // 1. Obtener el token de acceso fresco
-      const { token } = await this.oAuth2Client.getAccessToken();
-      
-      if (!token) {
-        throw new Error('No se pudo obtener un token de acceso válido de Google.');
-      }
-
-      // 2. Mapear los mensajes de Telegram/Gateway al formato de Gemini
-      const geminiContents = messages.map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : 'user', // Gemini usa 'model' en lugar de 'assistant'
-        parts: [{ text: msg.content }]
-      }));
-
-      // 3. Hacer la petición a la API de Gemini usando el token OAuth en la cabecera
-      const response = await fetch(`${this.baseUrl}/${this.model}:generateContent`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // Aquí está la magia: enviamos tu token personal
-        },
-        body: JSON.stringify({
-          contents: geminiContents,
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 8192,
-          }
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(`Error de Gemini API: ${response.status} - ${errorData}`);
-      }
-
-      const data = await response.json();
+      const data = await this.generateContent(messages);
       
       // Extraer la respuesta del formato de Gemini
-      if (data.candidates && data.candidates.length > 0) {
-        return data.candidates[0].content.parts[0].text;
+      const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('\n').trim();
+      if (text) {
+        return text;
       }
       
       throw new Error('Respuesta de Gemini vacía o en formato inesperado.');
@@ -65,6 +52,31 @@ export class GeminiProvider implements IVisionProvider {
       console.error('[GeminiProvider] Fallo al conectar con Gemini:', error);
       throw error;
     }
+  }
+
+  async generateResponseWithTools(messages: Message[], options: ToolCapabilityOptions): Promise<LLMResponse> {
+    console.log(`[GeminiProvider] Enrutando petición con tools a ${this.model}...`);
+
+    const data = await this.generateContent(messages, options);
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    const toolCalls = parts.filter((part) => part.functionCall?.name);
+
+    if (toolCalls.length > 0) {
+      return {
+        type: 'tool_calls',
+        toolCalls: toolCalls.map((part, index) => ({
+          id: `gemini-call-${Date.now()}-${index}`,
+          name: part.functionCall?.name || 'unknown_tool',
+          input: part.functionCall?.args || {},
+        })),
+      };
+    }
+
+    const text = parts.map((part) => part.text || '').join('\n').trim();
+    return {
+      type: 'final',
+      text: text || 'Sin respuesta de Gemini',
+    };
   }
 
   async getQuotaStatus(): Promise<QuotaInfo> {
@@ -154,5 +166,95 @@ export class GeminiProvider implements IVisionProvider {
     } catch { /* ignore parse failure */ }
 
     return { status: 'warn', summary: 'No pude parsear respuesta estructurada de Gemini.', issues: [trimmed.slice(0, 200)], rawModelOutput: raw };
+  }
+
+  private async generateContent(messages: Message[], options?: ToolCapabilityOptions) {
+    const { token } = await this.oAuth2Client.getAccessToken();
+    if (!token) {
+      throw new Error('No se pudo obtener un token de acceso válido de Google.');
+    }
+
+    const systemInstruction = messages
+      .filter((message) => message.role === 'system')
+      .map((message) => message.content.trim())
+      .filter(Boolean)
+      .join('\n\n');
+
+    const contents = messages
+      .filter((message) => message.role !== 'system')
+      .map((message) => {
+        if (message.role === 'assistant' && message.toolCalls && message.toolCalls.length > 0) {
+          return {
+            role: 'model',
+            parts: message.toolCalls.map((toolCall) => ({
+              functionCall: {
+                name: toolCall.name,
+                args: toolCall.input,
+              },
+            })),
+          };
+        }
+
+        if (message.role === 'tool') {
+          return {
+            role: 'user',
+            parts: [{
+              functionResponse: {
+                name: message.toolName || 'tool',
+                response: {
+                  content: safeParseJson(message.content),
+                },
+              },
+            }],
+          };
+        }
+
+        return {
+          role: message.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: message.content }],
+        };
+      });
+
+    const response = await fetch(`${this.baseUrl}/${this.model}:generateContent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
+        contents,
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 8192,
+        },
+        ...(options ? {
+          tools: [{
+            functionDeclarations: options.tools.map((tool) => ({
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.inputSchema,
+            })),
+          }],
+        } : {}),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(`Error de Gemini API: ${response.status} - ${errorData}`);
+    }
+
+    return await response.json() as GeminiGenerateContentResponse;
+  }
+}
+
+function safeParseJson(raw: string) {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return { raw };
   }
 }
