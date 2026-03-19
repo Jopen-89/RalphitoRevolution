@@ -1,0 +1,3 @@
+[IMPLEMENTATION-EVIDENCE] bead-1: writeEvidenceTool created at src/features/llm-gateway/tools/telegram-demo/writeEvidenceTool.ts
+[IMPLEMENTATION-EVIDENCE] bead-1: toolRegistry.ts created with writeEvidence tool registered
+[IMPLEMENTATION-EVIDENCE] bead-1: telegram-demo/index.ts exports writeEvidenceTool
