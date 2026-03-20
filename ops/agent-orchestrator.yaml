@@ -5,7 +5,7 @@ defaults:
   runtime: tmux
   agent: opencode
   agentConfig:
-    model: gemini-3.1-pro-preview
+    model: minimax-m2.7
   workspace: worktree
   notifiers:
     - desktop
@@ -20,6 +20,66 @@ projects:
     agent: opencode
     agentConfig:
       model: minimax-m2.7
+  frontend-team:
+    name: Ralphito UI
+    sessionPrefix: fe
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: .agent-rules.md
+    agent: opencode
+    agentConfig:
+      model: minimax-m2.7
+  design-team:
+    name: Ralphito Design (Lola)
+    sessionPrefix: ds
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: agents/roles/UIDesigner(Lola).md
+    agent: gemini
+    agentConfig:
+      model: gemini-3.1-pro-preview
+  visual-qa-team:
+    name: Ralphito Visual QA (Miron)
+    sessionPrefix: vq
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: agents/roles/VisualQA(Miron).md
+    agent: gemini
+    agentConfig:
+      model: gemini-3.1-pro-preview
+  qa-team:
+    name: Ralphito QA (Ricky)
+    sessionPrefix: qa
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: agents/roles/PreFlightQA(Ricky).md
+    agent: gemini
+    agentConfig:
+      model: gemini-3.1-pro-preview
+  devops-team:
+    name: Ralphito DevOps
+    sessionPrefix: do
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: .agent-rules.md
+    agent: opencode
+    agentConfig:
+      model: minimax-m2.7
+  security-team:
+    name: Ralphito Security (Mapito)
+    sessionPrefix: se
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: agents/roles/SecurityAuditor(Mapito).md
+    agent: gemini
+    agentConfig:
+      model: gemini-3.1-pro-preview
   research-team:
     name: Ralphito Research (Martapepis)
     sessionPrefix: rs
@@ -28,11 +88,15 @@ projects:
     defaultBranch: master
     agent: gemini
     agentRulesFile: agents/roles/Researcher(Martapepis).md
+    agentConfig:
+      model: gemini-3.1-pro-preview
   automation-team:
     name: Ralphito Automator (Relleno)
     sessionPrefix: au
     repo: Jopen-89/RalphitoRevolution
     path: /home/pepu/IAproject/RalphitoRevolution
     defaultBranch: master
-    agent: gemini
+    agent: opencode
     agentRulesFile: agents/roles/FormFiller(Relleno).md
+    agentConfig:
+      model: minimax-m2.7

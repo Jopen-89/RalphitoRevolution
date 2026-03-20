@@ -24,6 +24,7 @@ const AGENT_METADATA: Record<string, string> = {
   moncho: 'Feature PM',
   juez: 'Code Reviewer',
   ricky: 'Pre-Flight QA',
+  miron: 'Visual QA',
   mapito: 'Security Auditor',
   poncho: 'Technical Architect',
   tracker: 'Error Learning Analyst',
