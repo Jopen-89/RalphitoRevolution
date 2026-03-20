@@ -72,8 +72,10 @@ IMPORTANT: Specs are the single source of truth. The current codebase may not ma
 
 - TypeScript: `npx tsc --noEmit`
 - Flujo local de aterrizaje: `scripts/bd.sh sync`
-- `bd sync` es el comando unico de aterrizaje: corre guardrails, sincroniza con git y hace push
-- `bd sync` exige worktree limpio: sin cambios unstaged ni archivos untracked
+- Flujo de integración final: `scripts/bd.sh merge`
+- `bd sync` es el comando único de aterrizaje: corre guardrails locales, sincroniza con git y hace push al PR.
+- `bd merge` es el comando de cierre en master: ejecuta Ricky (E2E) y Juez (CR) antes de fusionar el código.
+- `bd sync` exige worktree limpio: sin cambios unstaged ni archivos untracked.
 - Reanudacion de sesion: `scripts/resume.sh <session-id>`
 
 ## Referencias

@@ -72,12 +72,35 @@ El repositorio adopta `bd sync` como comando unico de cierre operativo.
 - Se implementó la generación de `.guardrail_error.log` en el comando `bd sync`.
 - Se creó el script `scripts/resume.sh` que busca el error en el worktree del agente, extrae un resumen y usa `ao send` para resucitar al agente inyectándole el error directamente, permitiendo continuar la sesión (y aprovechar el Context Caching de la API) en lugar de reiniciar un agente desde cero.
 
-### ⏳ Fase 5: Autopilot v2 Parte C (El Agente Orquestador Maestro)
-**Estado: PENDIENTE**
+### ✅ Fase 5: Autopilot v2 Parte C (El Agente Orquestador Maestro)
+**Estado: COMPLETADO**
 **Objetivo:** Eliminar la interacción humana en el inicio del proceso.
-- Un LLM Maestro (ej. Gemini 3.1 Pro Preview) lee el objetivo del usuario.
-- Decide qué ejecutores spamear (`ao spawn frontend ...`, `ao spawn backend ...`).
-- Monitoriza asíncronamente el estado de los worktrees y da por finalizado el proyecto.
+- Raymon (Agente Maestro) lee el objetivo del usuario desde Telegram.
+- Descubre proyectos, lee `_bead_graph.md` y spawnea múltiples Ralphitos en paralelo.
+- Monitoriza asíncronamente el estado de los worktrees y notifica el progreso.
+
+### ✅ Fase 6: Spawning Determinista (Anti-Branch Drift)
+**Estado: COMPLETADO**
+**Objetivo:** Erradicar la desincronización de ramas mediante el anclaje a hashes.
+- Vendor (`agent-orchestrator`) parcheado para aceptar el flag `--base-ref <hash>`.
+- `tool_spawn_executor.sh` inyecta el hash del commit actual en la creación del agente.
+- SQLite (`agent_sessions`) persiste el `base_commit_hash` para trazabilidad absoluta.
+- `bd sync` fuerza un `fetch` y `rebase origin/master` automáticos para resolver la deriva temporal de forma segura.
+
+### ✅ Fase 7: Notificaciones Proactivas Asíncronas
+**Estado: COMPLETADO**
+**Objetivo:** Mantener al usuario informado sin esperas síncronas.
+- El sistema recupera el `chat_id` original desde SQLite al finalizar `bd sync`.
+- Envía un mensaje push a Telegram con el estado exacto de la tarea (éxito o fallo de guardrails).
+
+### ✅ Fase 8: Cártel de QA y Comando `bd merge`
+**Estado: COMPLETADO**
+**Objetivo:** Implementar una barrera de calidad infranqueable antes de la integración final.
+- Se separó el aterrizaje (`bd sync`) de la integración final.
+- Se creó el comando `bd merge` para ejecutar validaciones bloqueantes:
+  - **Miron** (Visual) actúa en shadow mode.
+  - **Ricky** (E2E) actúa de forma bloqueante antes del merge.
+  - **Juez** (Code Review) actúa de forma informativa.
 
 ## Estado actual de Ralphito Memory Refactor
 

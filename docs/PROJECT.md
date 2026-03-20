@@ -19,14 +19,13 @@ RalphitoRevolution es un laboratorio de orquestacion autonoma sobre Agent Orches
 
 ## Estado actual
 
-- existe una feature inicial en `src/features/llm-gateway/`
-- el flujo Autopilot esta descrito en `docs/AUTOPILOT.md`
-- las reglas duras del agente viven en `.agent-rules.md`
-- el repo todavia esta en proceso de reorganizacion estructural
-- Ralphito ya persiste memoria y estado operativo en SQLite
-- Telegram ya conserva conversaciones, routing y session binding tras reinicios
-- el dashboard operativo ya unifica AO + metadata Ralphito en `/dashboard`
-- retrieval y memoria ya combinan summaries, recientes y FTS/retrieval determinista
+- **Autopilot v2 en Producción:** Sistema estable con orquestación masiva y spawning determinista.
+- **Raymon (Orquestador Maestro):** Coordina múltiples Ralphitos desde Telegram.
+- **Flujo Anti-Drift:** Sincronización basada en commit hashes para evitar colisiones de ramas.
+- **Cártel de QA:** Barreras automáticas (Ricky E2E, Juez CR) vía `bd merge`.
+- **Memoria Persistente:** Estado operativo y conversaciones centralizados en SQLite.
+- **Notificaciones Push:** Telemetría asíncrona a Telegram al finalizar tareas.
+- **Dashboard Operativo:** Vista unificada AO + Ralphito en `/dashboard`.
 
 ## Direccion objetivo de estado y memoria
 
