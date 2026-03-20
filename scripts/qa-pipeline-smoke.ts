@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { execFile, spawn, type ChildProcess } from 'child_process';
+import { execFile } from 'child_process';
 import { copyFile, readFile, rm, writeFile } from 'fs/promises';
 import fs from 'fs';
 import path from 'path';
 import * as util from 'util';
 import type { QAConfig } from '../src/features/ao/spawnExecutorClient.js';
+import { startDevServer, stopDevServer, waitForReady, type DevServerHandle } from './lib/dev-server.js';
 
 const execFileAsync = util.promisify(execFile);
 const repoRoot = process.cwd();
@@ -109,33 +110,23 @@ async function readFinalSession() {
   return JSON.parse(await readFile(sessionPath, 'utf8')) as Record<string, unknown>;
 }
 
-async function waitForHealthcheck(url: string, timeoutMs = 30_000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const res = await fetch(url);
-      if (res.ok) return;
-    } catch { /* retry */ }
-    await new Promise(r => setTimeout(r, 1000));
-  }
-  throw new Error(`Healthcheck timeout: ${url}`);
-}
-
 async function main() {
   await backupExistingSession();
 
-  let child: ChildProcess | null = null;
+  let server: DevServerHandle | null = null;
 
   try {
-    child = spawn('npx', ['tsx', 'scripts/qa-fixture-server.ts'], {
+    server = await startDevServer({
+      command: 'npx tsx scripts/qa-fixture-server.ts',
       cwd: repoRoot,
-      shell: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      mirrorOutput: true,
     });
-    child.stdout?.pipe(process.stdout);
-    child.stderr?.pipe(process.stderr);
 
-    await waitForHealthcheck(qaConfig.healthcheckUrl!);
+    await waitForReady({
+      url: qaConfig.healthcheckUrl!,
+      server,
+      timeoutMs: 30_000,
+    });
 
     await writeFixtureSession();
 
@@ -151,16 +142,12 @@ async function main() {
       e2eQa: finalSession['e2eQa'] || null,
     }, null, 2));
   } finally {
-    if (child && !child.killed) {
-      child.kill('SIGTERM');
-      await new Promise(r => setTimeout(r, 500));
-      if (!child.killed) child.kill('SIGKILL');
-    }
+    await stopDevServer(server);
     await restoreExistingSession();
   }
 }
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  process.exitCode = 1;
 });

@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-import { spawn, type ChildProcess } from 'child_process';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import fs from 'fs';
 import os from 'os';
@@ -8,6 +7,7 @@ import path from 'path';
 import { chromium } from 'playwright';
 import { ProviderFactory } from '../src/features/llm-gateway/providers/provider.factory.js';
 import type { QAConfig } from '../src/features/ao/spawnExecutorClient.js';
+import { startDevServer, stopDevServer, waitForReady, type DevServerHandle } from './lib/dev-server.js';
 
 interface SessionState {
   sessionId: string;
@@ -117,42 +117,6 @@ function buildEvidenceDir(session: SessionState, qaConfig: QAConfig | null | und
   const sessionId = session.sessionId || 'unknown-session';
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   return path.join(root, sessionId, timestamp);
-}
-
-async function startServer(command: string, cwd: string, evidenceDir: string) {
-  const serverLogPath = path.join(evidenceDir, 'server.log');
-  const output = fs.createWriteStream(serverLogPath, { flags: 'a' });
-  const child = spawn(command, {
-    cwd,
-    shell: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      CI: process.env.CI || '1',
-    },
-  });
-
-  child.stdout?.pipe(output);
-  child.stderr?.pipe(output);
-
-  return { child, serverLogPath };
-}
-
-async function waitForUrl(url: string) {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < DEFAULT_TIMEOUT_MS) {
-    try {
-      const response = await fetch(url, { method: 'GET' });
-      if (response.ok) return;
-    } catch {
-      // Keep polling until timeout.
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-
-  throw new Error(`Timeout esperando readiness en ${url}`);
 }
 
 function normalizeRoute(route: string) {
@@ -306,15 +270,6 @@ async function writeReport(report: VisualQAReport, evidenceDir?: string) {
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 }
 
-async function stopServer(child: ChildProcess | null) {
-  if (!child || child.killed) return;
-  child.kill('SIGTERM');
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  if (!child.killed) {
-    child.kill('SIGKILL');
-  }
-}
-
 async function main() {
   const { repoRoot, shadow, noServer } = parseArgs();
   const session = await loadSessionState(repoRoot);
@@ -345,18 +300,26 @@ async function main() {
   const evidenceDir = buildEvidenceDir(session, qaConfig);
   await mkdir(evidenceDir, { recursive: true });
 
-  let child: ChildProcess | null = null;
+  let server: DevServerHandle | null = null;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
   let startedServer = false;
+  let exitCode = 0;
 
   try {
     if (qaConfig.devServerCommand && !noServer) {
-      const server = await startServer(qaConfig.devServerCommand, repoRoot, evidenceDir);
-      child = server.child;
+      server = await startDevServer({
+        command: qaConfig.devServerCommand,
+        cwd: repoRoot,
+        logPath: path.join(evidenceDir, 'server.log'),
+      });
       startedServer = true;
     }
 
-    await waitForUrl(qaConfig.healthcheckUrl || qaConfig.baseUrl);
+    await waitForReady({
+      url: qaConfig.healthcheckUrl || qaConfig.baseUrl,
+      server,
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+    });
     browser = await chromium.launch({ headless: true });
 
     const routes: RouteEvidence[] = [];
@@ -411,7 +374,7 @@ async function main() {
     console.log(JSON.stringify(report));
 
     if (!effectiveShadowMode && status === 'failed') {
-      process.exit(1);
+      exitCode = 1;
     }
   } catch (error) {
     const report: VisualQAReport = {
@@ -439,15 +402,19 @@ async function main() {
     console.log(JSON.stringify(report));
 
     if (!effectiveShadowMode) {
-      process.exit(1);
+      exitCode = 1;
     }
   } finally {
     await browser?.close();
-    await stopServer(child);
+    await stopDevServer(server);
+  }
+
+  if (exitCode !== 0) {
+    process.exitCode = exitCode;
   }
 }
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  process.exitCode = 1;
 });
