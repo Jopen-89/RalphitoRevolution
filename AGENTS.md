@@ -34,6 +34,14 @@ Este repo combina producto, operacion de agentes y automatizacion local para el 
 - Una bead solo se considera cerrada cuando la spec canonica, la ruta esperada del codigo, la integracion y la validacion ya estan alineadas
 - Las ramas laterales no son verdad canonica por defecto; cada una debe terminar `merged`, `descartada` o `pendiente de port`
 
+## Git Workflow Interactivo
+
+- En sesiones interactivas humanas, `master` es de solo lectura para cambios de codigo; antes de editar, comprobar `git branch --show-current` y crear rama si estas en `master`
+- Prohibido usar `git add .` a ciegas cuando haya multiples cambios en el worktree; usar siempre staging selectivo de los archivos del scope actual
+- En trabajo interactivo, terminar significa completar el ciclo entero: validacion local, commit, push, PR, merge a `master`, actualizar `master` local y `git fetch --prune`
+- Mientras un cambio siga solo en rama o sin mergear, no se declara como trabajo completo
+- Los ejecutores lanzados via AO pueden seguir cerrando con `bd sync` dentro de sus worktrees aislados; esta excepcion no aplica a sesiones humanas sobre el workspace principal
+
 ## Equipos AO
 
 - `backend-team`: implementacion backend y producto general
