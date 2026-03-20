@@ -138,6 +138,93 @@ record_guardrail_failure() {
     printf '%s\n' "$message" | tee -a "$(guardrail_log_path)"
 }
 
+get_session_id() {
+    if [ -f "$REPO_ROOT/.ralphito-session.json" ]; then
+        jq -r '.sessionId' "$REPO_ROOT/.ralphito-session.json" 2>/dev/null || echo ""
+    else
+        echo ""
+    fi
+}
+
+notify_guardrail_failure() {
+    local guardrail_name="$1"
+
+    if [ ! -f "$REPO_ROOT/scripts/notify_telegram.sh" ]; then
+        return
+    fi
+
+    local session_id
+    session_id="$(get_session_id)"
+
+    if [ -z "$session_id" ]; then
+        return
+    fi
+
+    require_cmd node
+
+    local session_info
+    session_info="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null)" || return
+
+    local chat_id bead_id has_error error_message
+    chat_id="$(echo "$session_info" | jq -r '.externalChatId' 2>/dev/null)" || return
+    bead_id="$(echo "$session_info" | jq -r '.beadId' 2>/dev/null)" || return
+    has_error="$(echo "$session_info" | jq -r '.hasGuardrailError' 2>/dev/null)" || return
+    error_message="$(echo "$session_info" | jq -r '.guardrailError' 2>/dev/null)" || return
+
+    if [ "$chat_id" = "null" ] || [ -z "$chat_id" ]; then
+        return
+    fi
+
+    local display_bead="UNKNOWN"
+    if [ "$bead_id" != "null" ] && [ -n "$bead_id" ]; then
+        display_bead="$bead_id"
+    fi
+
+    local message
+    if [ "$has_error" = "true" ] && [ "$error_message" != "null" ] && [ -n "$error_message" ]; then
+        message="❌ [${display_bead}] Fallo en ${guardrail_name}. Error: ${error_message}"
+    else
+        message="❌ [${display_bead}] Fallo en ${guardrail_name}."
+    fi
+
+    "$REPO_ROOT/scripts/notify_telegram.sh" "$message" "$chat_id" || true
+}
+
+notify_session_success() {
+    if [ ! -f "$REPO_ROOT/scripts/notify_telegram.sh" ]; then
+        return
+    fi
+
+    local session_id
+    session_id="$(get_session_id)"
+
+    if [ -z "$session_id" ]; then
+        return
+    fi
+
+    require_cmd node
+
+    local session_info
+    session_info="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null)" || return
+
+    local chat_id bead_id
+    chat_id="$(echo "$session_info" | jq -r '.externalChatId' 2>/dev/null)" || return
+    bead_id="$(echo "$session_info" | jq -r '.beadId' 2>/dev/null)" || return
+
+    if [ "$chat_id" = "null" ] || [ -z "$chat_id" ]; then
+        return
+    fi
+
+    local display_bead="UNKNOWN"
+    if [ "$bead_id" != "null" ] && [ -n "$bead_id" ]; then
+        display_bead="$bead_id"
+    fi
+
+    local message="✅ [${display_bead}] Tarea completada y aterrizada en master."
+
+    "$REPO_ROOT/scripts/notify_telegram.sh" "$message" "$chat_id" || true
+}
+
 has_package_json() {
     [ -f "$REPO_ROOT/package.json" ]
 }
@@ -174,11 +261,13 @@ collect_modified_files() {
 run_guardrail() {
     local start_message="$1"
     local failure_message="$2"
-    shift 2
+    local guardrail_name="$3"
+    shift 3
 
     info "$start_message"
     "$@" > "$(guardrail_log_path)" 2>&1 || {
         record_guardrail_failure "$failure_message"
+        notify_guardrail_failure "$guardrail_name"
         exit 1
     }
 }
@@ -258,12 +347,12 @@ case "$COMMAND" in
 
             if [ -f "$REPO_ROOT/tsconfig.json" ]; then
                 require_cmd npx
-                run_guardrail "⚡ Running tsc --noEmit..." "❌ Guardrail failed: TypeScript type errors found." npx tsc --noEmit
+                run_guardrail "⚡ Running tsc --noEmit..." "❌ Guardrail failed: TypeScript type errors found." "TypeScript" npx tsc --noEmit
             fi
 
             if has_npm_script lint; then
                 require_cmd npm
-                run_guardrail "🧹 Running linter..." "❌ Guardrail failed: Linter errors found." npm run lint
+                run_guardrail "🧹 Running linter..." "❌ Guardrail failed: Linter errors found." "ESLint" npm run lint
             fi
 
             if has_npm_script test; then
@@ -271,7 +360,7 @@ case "$COMMAND" in
                 if is_placeholder_test_script; then
                     info "⏭️ Skipping placeholder test script in package.json."
                 else
-                    run_guardrail "🧪 Running tests..." "❌ Guardrail failed: Tests failed." npm test
+                    run_guardrail "🧪 Running tests..." "❌ Guardrail failed: Tests failed." "Tests" npm test
                 fi
             fi
         fi
@@ -294,9 +383,7 @@ case "$COMMAND" in
 
         info "✅ Sync complete. Work safely landed."
 
-        if [ -f "$REPO_ROOT/scripts/notify_telegram.sh" ]; then
-            "$REPO_ROOT/scripts/notify_telegram.sh" "✅ Un agente terminó su tarea (Sync exitoso en rama $(current_branch))" || true
-        fi
+        notify_session_success
 
         info "💀 Phase 3: Terminating agent session to release resources..."
         if [ -n "${TMUX:-}" ]; then

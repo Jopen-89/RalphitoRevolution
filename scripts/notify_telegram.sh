@@ -1,5 +1,6 @@
 #!/bin/bash
-# Uso: ./notify_telegram.sh "Mensaje que quieres enviar"
+# Uso: ./notify_telegram.sh "Mensaje que quieres enviar" [chat_id]
+# Si chat_id no se pasa, usa TELEGRAM_ALLOWED_CHAT_ID del .env
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -10,20 +11,21 @@ if [ -f "$REPO_ROOT/.env" ]; then
 fi
 
 MESSAGE="$1"
+CHAT_ID="${2:-${TELEGRAM_ALLOWED_CHAT_ID}}"
 
 if [ -z "$MESSAGE" ]; then
     echo "Error: Se requiere un mensaje."
     exit 1
 fi
 
-if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_ALLOWED_CHAT_ID" ]; then
-    echo "Aviso: TELEGRAM_BOT_TOKEN o TELEGRAM_ALLOWED_CHAT_ID no configurados. No se enviará notificación."
+if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+    echo "Aviso: TELEGRAM_BOT_TOKEN o CHAT_ID no configurados. No se enviará notificación."
     exit 0
 fi
 
 # Hacer la petición a la API de Telegram usando curl
 RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-    -d "chat_id=${TELEGRAM_ALLOWED_CHAT_ID}" \
+    -d "chat_id=${CHAT_ID}" \
     -d "text=${MESSAGE}" \
     -d "parse_mode=HTML")
 
