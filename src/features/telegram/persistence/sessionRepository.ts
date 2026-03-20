@@ -1,0 +1,70 @@
+import type { AddHistoryMessageInput } from '../telegramStateRepository.js';
+import { getTelegramStateRepository } from '../telegramStateRepository.js';
+
+export interface SessionRepository {
+  getConversationSessionId(chatId: string, agentId: string): string | null;
+  setConversationSessionId(chatId: string, agentId: string, sessionId: string, updatedAt?: string): void;
+  setMessageAgentRoute(chatId: string, messageId: number, agentId: string, updatedAt?: string): void;
+  getAgentRouteForMessage(chatId: string, messageId: number): string | null;
+  setActiveAgent(chatId: string, agentId: string, updatedAt?: string): void;
+  getRecentActiveAgent(chatId: string, maxAgeMs: number): string | null;
+  rememberRecentMessage(chatId: string, userId: string, fingerprint: string, updatedAt?: string): void;
+  isRecentDuplicateMessage(chatId: string, userId: string, fingerprint: string, maxAgeMs: number): boolean;
+  addMessageToHistory(chatId: string, sender: string, text: string, input?: AddHistoryMessageInput): void;
+  getRecentChatHistory(chatId: string): string;
+}
+
+export class SQLiteSessionRepository implements SessionRepository {
+  private readonly repository = getTelegramStateRepository();
+
+  getConversationSessionId(chatId: string, agentId: string) {
+    return this.repository.getConversationSessionId(chatId, agentId);
+  }
+
+  setConversationSessionId(chatId: string, agentId: string, sessionId: string, updatedAt?: string) {
+    this.repository.setConversationSessionId(chatId, agentId, sessionId, updatedAt);
+  }
+
+  setMessageAgentRoute(chatId: string, messageId: number, agentId: string, updatedAt?: string) {
+    this.repository.setMessageAgentRoute(chatId, messageId, agentId, updatedAt);
+  }
+
+  getAgentRouteForMessage(chatId: string, messageId: number) {
+    return this.repository.getAgentRouteForMessage(chatId, messageId);
+  }
+
+  setActiveAgent(chatId: string, agentId: string, updatedAt?: string) {
+    this.repository.setActiveAgent(chatId, agentId, updatedAt);
+  }
+
+  getRecentActiveAgent(chatId: string, maxAgeMs: number) {
+    return this.repository.getRecentActiveAgent(chatId, maxAgeMs);
+  }
+
+  rememberRecentMessage(chatId: string, userId: string, fingerprint: string, updatedAt?: string) {
+    this.repository.rememberRecentMessage(chatId, userId, fingerprint, updatedAt);
+  }
+
+  isRecentDuplicateMessage(chatId: string, userId: string, fingerprint: string, maxAgeMs: number) {
+    return this.repository.isRecentDuplicateMessage(chatId, userId, fingerprint, maxAgeMs);
+  }
+
+  addMessageToHistory(chatId: string, sender: string, text: string, input?: AddHistoryMessageInput) {
+    this.repository.addMessageToHistory(chatId, sender, text, input);
+  }
+
+  getRecentChatHistory(chatId: string) {
+    return this.repository.getRecentChatHistory(chatId);
+  }
+}
+
+let sessionRepository: SessionRepository | null = null;
+
+export function getSessionRepository(): SessionRepository {
+  if (sessionRepository) return sessionRepository;
+
+  sessionRepository = new SQLiteSessionRepository();
+  return sessionRepository;
+}
+
+export type { AddHistoryMessageInput };
