@@ -3,7 +3,8 @@ import * as dotenv from 'dotenv';
 import { analyzeAgentMentions, extractMultiAgentInstruction, loadAgentRegistry, getAgentById, type AgentInfo } from './agentRegistry.js';
 import * as convStore from './conversationStore.js';
 import { executeAgentTask } from './chatExecutor.js';
-import { executeOrchestrationTask, isExplicitExecutionIntent } from './orchestrationExecutor.js';
+import { isExplicitExecutionIntent } from './orchestrationExecutor.js';
+import { runAutonomousCoordinatorLoop } from './ingress/autonomousCoordinatorLoop.js';
 import { initializeRalphitoDatabase } from '../persistence/db/index.js';
 
 // Capturar errores no manejados para ver el error real y no "[Object: null prototype]"
@@ -192,10 +193,7 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
 
     try {
         if (shouldExecute) {
-            const result = await executeOrchestrationTask(agent.id, instruction);
-            if (result.sessionId) {
-                convStore.setConversationSessionId(chatKey, agent.id, result.sessionId);
-            }
+            const result = await runAutonomousCoordinatorLoop(instruction, chatKey);
             await publishAgentReply(chatId, statusMessage.message_id, agent, result.response);
             return;
         }
@@ -210,7 +208,9 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
             chatId,
             statusMessage.message_id,
             undefined,
-            `❌ ${agent.name}: ${normalizeErrorMessage(error)}`
+            shouldExecute
+                ? `⚠️ ${agent.name}: Estoy temporalmente degradado. No he podido completar la ejecucion. Intentalo de nuevo en unos segundos.`
+                : `❌ ${agent.name}: ${normalizeErrorMessage(error)}`
         );
     } finally {
         processingChats.delete(chatKey);
