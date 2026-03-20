@@ -1,4 +1,4 @@
-import { writeEvidenceTool } from './telegram-demo';
+import { writeEvidenceTool } from './telegram-demo/index.js';
 
 export interface Tool {
   name: string;

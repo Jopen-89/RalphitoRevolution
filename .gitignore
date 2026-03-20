@@ -1,4 +1,5 @@
 node_modules/
+.ralphito-session.json
 .env
 .env.*
 !.env.example

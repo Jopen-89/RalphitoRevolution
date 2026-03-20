@@ -1,2 +1,2 @@
-export { writeEvidenceTool } from './writeEvidenceTool';
-export type { WriteEvidenceResult } from './writeEvidenceTool';
+export { writeEvidenceTool } from './writeEvidenceTool.js';
+export type { WriteEvidenceResult } from './writeEvidenceTool.js';
