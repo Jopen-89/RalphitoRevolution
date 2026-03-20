@@ -321,12 +321,10 @@ async function main() {
     await stopDevServer(server);
   }
 
-  if (exitCode !== 0) {
-    process.exitCode = exitCode;
-  }
+  process.exit(exitCode);
 }
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+  process.exit(1);
 });
