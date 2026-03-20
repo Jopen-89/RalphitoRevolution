@@ -4,16 +4,16 @@
   "agents": [
     {
       "agentId": "default",
-      "primaryProvider": "codex",
-      "model": "gpt-5.4",
+      "primaryProvider": "opencode",
+      "model": "minimax-m2.7",
       "fallbacks": [
-        {
-          "provider": "opencode",
-          "model": "minimax-m2.7"
-        },
         {
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
@@ -22,6 +22,10 @@
       "primaryProvider": "opencode",
       "model": "minimax-m2.7",
       "fallbacks": [
+        {
+          "provider": "gemini",
+          "model": "gemini-3.1-pro-preview"
+        },
         {
           "provider": "codex",
           "model": "gpt-5.4"
@@ -34,12 +38,12 @@
       "model": "minimax-m2.7",
       "fallbacks": [
         {
-          "provider": "codex",
-          "model": "gpt-5.4"
-        },
-        {
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
@@ -49,12 +53,12 @@
       "model": "gemini-3.1-pro-preview",
       "fallbacks": [
         {
-          "provider": "codex",
-          "model": "gpt-5.4"
-        },
-        {
           "provider": "opencode",
           "model": "minimax-m2.7"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
@@ -79,87 +83,87 @@
       "model": "gemini-3.1-pro-preview",
       "fallbacks": [
         {
-          "provider": "codex",
-          "model": "gpt-5.4"
-        },
-        {
           "provider": "opencode",
           "model": "minimax-m2.7"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
     {
       "agentId": "mapito",
-      "primaryProvider": "codex",
-      "model": "gpt-5.4",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
       "fallbacks": [
-        {
-          "provider": "gemini",
-          "model": "gemini-3.1-pro-preview"
-        },
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
     {
       "agentId": "juez",
-      "primaryProvider": "codex",
-      "model": "gpt-5.4",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
       "fallbacks": [
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
         },
         {
-          "provider": "gemini",
-          "model": "gemini-3.1-pro-preview"
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
     {
       "agentId": "tracker",
-      "primaryProvider": "codex",
-      "model": "gpt-5.4",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
       "fallbacks": [
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
         },
         {
-          "provider": "gemini",
-          "model": "gemini-3.1-pro-preview"
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
     {
       "agentId": "ricky",
-      "primaryProvider": "codex",
-      "model": "gpt-5.4",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
       "fallbacks": [
-        {
-          "provider": "gemini",
-          "model": "gemini-3.1-pro-preview"
-        },
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
     {
       "agentId": "miron",
-      "primaryProvider": "codex",
-      "model": "gpt-5.4",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
       "fallbacks": [
-        {
-          "provider": "gemini",
-          "model": "gemini-3.1-pro-preview"
-        },
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
@@ -169,12 +173,12 @@
       "model": "minimax-m2.7",
       "fallbacks": [
         {
-          "provider": "codex",
-          "model": "gpt-5.4"
-        },
-        {
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     },
@@ -184,12 +188,12 @@
       "model": "minimax-m2.7",
       "fallbacks": [
         {
-          "provider": "codex",
-          "model": "gpt-5.4"
-        },
-        {
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
+        },
+        {
+          "provider": "codex",
+          "model": "gpt-5.4"
         }
       ]
     }
