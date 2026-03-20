@@ -9,6 +9,41 @@ export interface OrchestrationResult {
   sessionId?: string;
 }
 
+export type OrchestrationIntent = 'chat' | 'divergence' | 'execution' | 'status';
+
+export function classifyIntent(_agentId: string, instruction: string): OrchestrationIntent {
+  const normalized = instruction.trim().toLowerCase();
+
+  const statusPatterns = [
+    /\bestado\b/i,
+    /\bstatus\b/i,
+    /\bcomo va\b/i,
+    /\bprogreso\b/i,
+    /\bseguimiento\b/i,
+  ];
+
+  const divergencePatterns = [
+    /\bdivergencia\b/i,
+    /\bdiverge\b/i,
+    /\bdesv[ií]ate\b/i,
+    /\bmodo divergente\b/i,
+  ];
+
+  if (statusPatterns.some((pattern) => pattern.test(normalized))) {
+    return 'status';
+  }
+
+  if (divergencePatterns.some((pattern) => pattern.test(normalized))) {
+    return 'divergence';
+  }
+
+  if (isExplicitExecutionIntent(instruction)) {
+    return 'execution';
+  }
+
+  return 'chat';
+}
+
 export function isExplicitExecutionIntent(instruction: string) {
   const normalized = instruction.trim().toLowerCase();
 
