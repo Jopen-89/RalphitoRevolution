@@ -198,4 +198,11 @@ export const ralphitoMigrations: RalphitoMigration[] = [
         ON system_events(event_type, created_at DESC);
     `,
   },
+  {
+    id: 9,
+    name: 'add_base_commit_hash_to_agent_sessions',
+    sql: `
+      ALTER TABLE agent_sessions ADD COLUMN base_commit_hash TEXT;
+    `,
+  },
 ];

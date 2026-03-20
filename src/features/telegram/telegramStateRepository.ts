@@ -169,23 +169,24 @@ export class TelegramStateRepository {
     return row?.aoSessionId || null;
   }
 
-  setConversationSessionId(chatId: string, agentId: string, sessionId: string, updatedAt?: string) {
+  setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string, updatedAt?: string) {
     const threadId = this.ensureThread(chatId);
     const timestamp = updatedAt || new Date().toISOString();
 
     this.db
       .prepare(
         `
-          INSERT INTO agent_sessions (thread_id, agent_id, ao_session_id, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO agent_sessions (thread_id, agent_id, ao_session_id, status, base_commit_hash, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(thread_id, agent_id)
           DO UPDATE SET
             ao_session_id = excluded.ao_session_id,
             status = excluded.status,
+            base_commit_hash = COALESCE(excluded.base_commit_hash, base_commit_hash),
             updated_at = excluded.updated_at
         `,
       )
-      .run(threadId, agentId, sessionId, 'bound', timestamp, timestamp);
+      .run(threadId, agentId, sessionId, 'bound', baseCommitHash || null, timestamp, timestamp);
   }
 
   setMessageAgentRoute(chatId: string, messageId: number, agentId: string, updatedAt?: string) {

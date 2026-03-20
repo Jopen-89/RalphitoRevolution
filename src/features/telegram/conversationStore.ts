@@ -8,8 +8,8 @@ export function getConversationSessionId(chatId: string, agentId: string) {
   return getRepository().getConversationSessionId(chatId, agentId);
 }
 
-export function setConversationSessionId(chatId: string, agentId: string, sessionId: string) {
-  getRepository().setConversationSessionId(chatId, agentId, sessionId);
+export function setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string) {
+  getRepository().setConversationSessionId(chatId, agentId, sessionId, baseCommitHash);
 }
 
 export function setMessageAgentRoute(chatId: string, messageId: number, agentId: string) {

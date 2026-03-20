@@ -62,6 +62,7 @@ export interface SpawnExecutorResult {
   status?: string;
   message?: string;
   session_id?: string;
+  base_commit_hash?: string;
   details?: string;
   model?: string;
   bead_spec_hash?: string;

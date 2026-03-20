@@ -69,7 +69,7 @@ PY
     if [ -z "$SESSION_ID" ]; then
         printf '{"status":"error","message":"AO creó una sesión pero no devolvió SESSION=. Revisa tool_check_status."}\n'
     elif ao send "$SESSION_ID" "$PROMPT" > "$SEND_LOG" 2>&1; then
-        printf '{"status":"success","session_id":"%s","message":"Ralphito iniciado correctamente y prompt enviado. Usa tool_check_status para ver su progreso."}\n' "$SESSION_ID"
+        printf '{"status":"success","session_id":"%s","base_commit_hash":"%s","message":"Ralphito iniciado correctamente y prompt enviado. Usa tool_check_status para ver su progreso."}\n' "$SESSION_ID" "$CURRENT_COMMIT_HASH"
     else
         ERROR=$(tr '\n' ' ' < "$SEND_LOG")
         ESCAPED_ERROR=$(printf '%s' "$ERROR" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')

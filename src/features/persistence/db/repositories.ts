@@ -29,6 +29,7 @@ export interface UpsertAgentSessionInput {
   agentId: string;
   aoSessionId: string;
   status: string;
+  baseCommitHash?: string;
 }
 
 export interface CreateTaskInput {
@@ -152,12 +153,13 @@ class AgentSessionsRepository {
     this.db
       .prepare(
         `
-          INSERT INTO agent_sessions (thread_id, agent_id, ao_session_id, status, created_at, updated_at)
-          VALUES (@threadId, @agentId, @aoSessionId, @status, @now, @now)
+          INSERT INTO agent_sessions (thread_id, agent_id, ao_session_id, status, base_commit_hash, created_at, updated_at)
+          VALUES (@threadId, @agentId, @aoSessionId, @status, @baseCommitHash, @now, @now)
           ON CONFLICT(thread_id, agent_id)
           DO UPDATE SET
             ao_session_id = excluded.ao_session_id,
             status = excluded.status,
+            base_commit_hash = COALESCE(excluded.base_commit_hash, base_commit_hash),
             updated_at = excluded.updated_at
         `,
       )
