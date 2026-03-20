@@ -1,7 +1,7 @@
-import { getTelegramStateRepository, type AddHistoryMessageInput } from './telegramStateRepository.js';
+import { getSessionRepository, type AddHistoryMessageInput } from './persistence/sessionRepository.js';
 
 function getRepository() {
-  return getTelegramStateRepository();
+  return getSessionRepository();
 }
 
 export function getConversationSessionId(chatId: string, agentId: string) {
