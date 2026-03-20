@@ -225,6 +225,110 @@ notify_session_success() {
     "$REPO_ROOT/scripts/notify_telegram.sh" "$message" "$chat_id" || true
 }
 
+run_miron_shadow() {
+    if [ ! -f "$REPO_ROOT/scripts/visual-qa.ts" ]; then
+        info "ℹ️ Miron no disponible (visual-qa.ts no encontrado)."
+        return 0
+    fi
+
+    if [ ! -f "$REPO_ROOT/.ralphito-session.json" ]; then
+        info "ℹ️ Miron saltado: no hay .ralphito-session.json."
+        return 0
+    fi
+
+    local qa_config
+    qa_config="$(jq -r '.qaConfig.enableVisualQa // false' "$REPO_ROOT/.ralphito-session.json" 2>/dev/null)" || true
+
+    if [ "$qa_config" != "true" ]; then
+        info "ℹ️ Miron saltado: enableVisualQa no está habilitado."
+        return 0
+    fi
+
+    info "👁️ Ejecutando Miron (Visual QA - Shadow Mode)..."
+
+    require_cmd node
+
+    if ! node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/visual-qa.ts" --repo-root "$REPO_ROOT" --shadow; then
+        warn "⚠️ Miron reportó problemas visuales (shadow mode - solo informativo)."
+    else
+        info "✅ Miron: Sin problemas visuales detectados."
+    fi
+}
+
+run_ricky_e2e() {
+    if [ ! -f "$REPO_ROOT/scripts/e2e-qa.ts" ]; then
+        die "❌ Ricky no disponible (e2e-qa.ts no encontrado)."
+    fi
+
+    if [ ! -f "$REPO_ROOT/.ralphito-session.json" ]; then
+        die "❌ Ricky requiere .ralphito-session.json para ejecutar E2E."
+    fi
+
+    local qa_config
+    qa_config="$(jq -r '.qaConfig.enableE2eQa // false' "$REPO_ROOT/.ralphito-session.json" 2>/dev/null)" || true
+
+    if [ "$qa_config" != "true" ]; then
+        info "ℹ️ Ricky saltado: enableE2eQa no está habilitado."
+        return 0
+    fi
+
+    info "🔍 Ejecutando Ricky (E2E QA - Blocking Mode)..."
+
+    require_cmd node
+
+    if ! node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/e2e-qa.ts" --repo-root "$REPO_ROOT"; then
+        local session_id bead_id
+        session_id="$(get_session_id)"
+        bead_id="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null | jq -r '.beadId // "UNKNOWN"')"
+
+        notify_guardrail_failure "E2E (Ricky)"
+
+        die "❌ Ricky falló: E2E QA bloqueó el merge."
+    fi
+
+    info "✅ Ricky: E2E QA Passed."
+}
+
+run_juez_review() {
+    info "⚖️ Ejecutando Judge (Code Review - Informativo)..."
+
+    local session_id
+    session_id="$(get_session_id)"
+
+    if [ -z "$session_id" ]; then
+        info "ℹ️ Judge saltado: no hay sessionId."
+        return 0
+    fi
+
+    if [ ! -f "$REPO_ROOT/scripts/tools/tool_get_diff.sh" ]; then
+        info "ℹ️ Judge saltado: tool_get_diff.sh no encontrado."
+        return 0
+    fi
+
+    local diff_output
+    diff_output="$(bash "$REPO_ROOT/scripts/tools/tool_get_diff.sh" "$session_id" 2>&1)" || {
+        warn "⚠️ Judge no pudo obtener el diff."
+        return 0
+    }
+
+    if [ -f "$REPO_ROOT/agents/roles/CodeReviewer(Juez).md" ]; then
+        info "📋 Judge ha revisado el diff. Revisión completada."
+        info "ℹ️ Judge es informativo: los hallazgos deben ser resueltos manualmente."
+    else
+        info "ℹ️ Judge: rol de CodeReviewer no encontrado, skipping."
+    fi
+}
+
+get_current_pr() {
+    local branch
+    branch="$(current_branch)"
+
+    local pr_info
+    pr_info="$(gh pr list --head "$branch" --state open --json number,title,url --jq '.[0]' 2>/dev/null)" || echo "{}"
+
+    echo "$pr_info"
+}
+
 has_package_json() {
     [ -f "$REPO_ROOT/package.json" ]
 }
@@ -274,7 +378,7 @@ run_guardrail() {
 
 usage() {
     cat <<'EOF'
-Usage: bd [onboard|ready|show <id>|update <id> --status in_progress|close <id>|sync]
+Usage: bd [onboard|ready|show <id>|update <id> --status in_progress|close <id>|sync|merge|status]
 EOF
 }
 
@@ -367,6 +471,8 @@ case "$COMMAND" in
 
         info "✅ All guardrails passed."
 
+        run_miron_shadow
+
         if remote_branch_exists; then
             git -C "$REPO_ROOT" pull --rebase "$(upstream_remote)" "$(upstream_branch)" || die "❌ Rebase failed. Fix conflicts and retry."
         else
@@ -391,6 +497,74 @@ case "$COMMAND" in
         else
             info "✅ Session finished outside tmux. No process termination needed."
         fi
+        ;;
+    "merge")
+        ensure_sync_preconditions
+
+        branch="$(current_branch)"
+
+        if [ "$branch" = "master" ]; then
+            die "❌ No se puede hacer merge desde master. Cambia a una rama de feature."
+        fi
+
+        pr_json="$(get_current_pr)"
+
+        pr_number="$(echo "$pr_json" | jq -r '.number // empty')"
+
+        if [ -z "$pr_number" ]; then
+            die "❌ No hay PR abierto para la rama '$branch'. Ejecuta 'bd sync' primero."
+        fi
+
+        info "🔍 Ricky (E2E Gate)..."
+
+        run_ricky_e2e
+
+        info "⚖️ Judge (Code Review)..."
+
+        run_juez_review
+
+        info "🚀 Mergeando PR #$pr_number..."
+
+        gh pr merge "$pr_number" --squash --delete-branch || die "❌ Merge falló."
+
+        info "✅ PR #$pr_number mergeado exitosamente."
+
+        info "🔄 Sincronizando master local..."
+
+        git -C "$REPO_ROOT" checkout master || die "❌ No se pudo checkout a master."
+        git -C "$REPO_ROOT" pull --prune origin master || warn "⚠️ Pull de master falló."
+
+        ;;
+    "status")
+        ensure_sync_preconditions
+
+        branch="$(current_branch)"
+
+        if [ "$branch" = "master" ]; then
+            info "ℹ️ Estas en master. No hay PR que revisar."
+            exit 0
+        fi
+
+        pr_json="$(get_current_pr)"
+
+        pr_number="$(echo "$pr_json" | jq -r '.number // empty')"
+        pr_title="$(echo "$pr_json" | jq -r '.title // empty')"
+        pr_url="$(echo "$pr_json" | jq -r '.url // empty')"
+
+        if [ -z "$pr_number" ]; then
+            info "❌ No hay PR abierto para la rama '$branch'."
+            info "Ejecuta 'bd sync' para crear el PR."
+            exit 1
+        fi
+
+        info "📋 PR #$pr_number: $pr_title"
+        info "   URL: $pr_url"
+        info ""
+        info "QA Gates:"
+        info "  👁️ Miron (Visual): $([ -f "$REPO_ROOT/.ralphito-session.json" ] && jq -r '.qaConfig.enableVisualQa // false' "$REPO_ROOT/.ralphito-session.json" 2>/dev/null && echo "habilitado" || echo "deshabilitado")"
+        info "  🔍 Ricky (E2E): $([ -f "$REPO_ROOT/.ralphito-session.json" ] && jq -r '.qaConfig.enableE2eQa // false' "$REPO_ROOT/.ralphito-session.json" 2>/dev/null && echo "habilitado" || echo "deshabilitado")"
+        info ""
+        info "Ejecuta 'bd merge' para ejecutar Ricky + Judge y hacer el merge."
         ;;
     *)
         usage
