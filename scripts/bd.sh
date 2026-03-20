@@ -60,10 +60,28 @@ has_untracked_changes() {
     [ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard)" ]
 }
 
+remote_branch_exists() {
+    local branch
+    branch="$(current_branch)"
+
+    git -C "$REPO_ROOT" ls-remote --exit-code --heads "$(upstream_remote)" "$branch" >/dev/null 2>&1
+}
+
 has_local_commits_ahead() {
     local upstream
     upstream="$(resolve_upstream_ref)"
-    [ -n "$(git -C "$REPO_ROOT" rev-list "${upstream}..HEAD" 2>/dev/null || true)" ]
+
+    if git -C "$REPO_ROOT" rev-parse --verify "$upstream" >/dev/null 2>&1; then
+        [ -n "$(git -C "$REPO_ROOT" rev-list "${upstream}..HEAD" 2>/dev/null || true)" ]
+        return
+    fi
+
+    if remote_branch_exists; then
+        [ -n "$(git -C "$REPO_ROOT" rev-list "origin/$(current_branch)..HEAD" 2>/dev/null || true)" ]
+        return
+    fi
+
+    return 0
 }
 
 resolve_upstream_ref() {
@@ -102,7 +120,7 @@ ensure_syncable_worktree() {
     fi
 
     if ! has_staged_changes && ! has_local_commits_ahead; then
-        info "ℹ️ Nothing to sync. No staged changes or local commits ahead of remote."
+        info "ℹ️ Nothing to sync. No staged changes and no commits pending push."
         exit 0
     fi
 }
@@ -260,7 +278,11 @@ case "$COMMAND" in
 
         info "✅ All guardrails passed."
 
-        git -C "$REPO_ROOT" pull --rebase "$(upstream_remote)" "$(upstream_branch)" || die "❌ Rebase failed. Fix conflicts and retry."
+        if remote_branch_exists; then
+            git -C "$REPO_ROOT" pull --rebase "$(upstream_remote)" "$(upstream_branch)" || die "❌ Rebase failed. Fix conflicts and retry."
+        else
+            info "ℹ️ No remote branch exists yet for $(current_branch). Skipping rebase before first push."
+        fi
 
         if has_staged_changes; then
             info "📝 Found staged changes. Creating landing commit..."
