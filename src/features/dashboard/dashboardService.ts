@@ -66,7 +66,7 @@ export interface UnifiedDashboardSession {
   createdAt: string | null;
   lastActivityAt: string | null;
   lastActivityLabel: string | null;
-  source: 'dashboard_api' | 'ao_status_json';
+  source: 'dashboard_api' | 'ao_status_json' | 'tmux_fallback';
   thread: {
     id: number;
     channel: string;
