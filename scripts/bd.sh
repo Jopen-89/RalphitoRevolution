@@ -430,6 +430,39 @@ case "$COMMAND" in
         ensure_remote_ref_exists
         ensure_syncable_worktree
 
+        # --- FASE 4: PRE-REBASE COMMIT ---
+        # El agente nació atado a un hash histórico.
+        # Commiteamos cualquier staged change ANTES del rebase para mantener un índice limpio.
+        if has_staged_changes; then
+            info "📝 Found staged changes. Creating landing commit before rebase..."
+            git -C "$REPO_ROOT" commit -m "Auto-sync from agent session" || die "❌ Commit failed."
+        fi
+
+        # Verify clean worktree for rebase
+        if has_unstaged_changes; then
+            die "❌ Unstaged changes detected after auto-commit. Cannot rebase."
+        fi
+
+        # Re-evaluate: if no local commits ahead after commit, nothing to rebase
+        if ! has_local_commits_ahead; then
+            info "ℹ️ No local commits to rebase. Skipping rebase step."
+        else
+            # --- FASE 4: AUTO-REBASE AGAINST MASTER ---
+            info "🔄 Fetching latest origin/master..."
+            if ! git -C "$REPO_ROOT" fetch origin master --quiet 2>&1; then
+                warn "⚠️ Could not fetch origin master. Continuing anyway..."
+            fi
+
+            info "🔄 Rebasing against origin/master..."
+            if ! git -C "$REPO_ROOT" rebase origin/master 2>&1; then
+                record_guardrail_failure "❌ [be-XX] Fallo de Rebase. Conflictos de integración con master."
+                notify_guardrail_failure "Rebase"
+                die "❌ Rebase failed. Resolve conflicts and retry."
+            fi
+        fi
+
+        reset_guardrail_log
+
         info "🛫 Landing the plane... Initiating sync sequence."
         info "⏳ Running pre-sync guardrails..."
 
@@ -444,7 +477,7 @@ case "$COMMAND" in
             fi
         done
 
-        reset_guardrail_log
+        run_miron_shadow
 
         if [ "$HAS_TS" = true ]; then
             info "🔍 TypeScript files detected. Running TS Guardrails..."
@@ -470,19 +503,6 @@ case "$COMMAND" in
         fi
 
         info "✅ All guardrails passed."
-
-        run_miron_shadow
-
-        if remote_branch_exists; then
-            git -C "$REPO_ROOT" pull --rebase "$(upstream_remote)" "$(upstream_branch)" || die "❌ Rebase failed. Fix conflicts and retry."
-        else
-            info "ℹ️ No remote branch exists yet for $(current_branch). Skipping rebase before first push."
-        fi
-
-        if has_staged_changes; then
-            info "📝 Found staged changes. Creating landing commit..."
-            git -C "$REPO_ROOT" commit -m "Auto-sync from agent session" || die "❌ Commit failed."
-        fi
 
         info "🚀 Pushing to remote..."
         git -C "$REPO_ROOT" push --set-upstream "$(upstream_remote)" "$(current_branch)" || die "❌ Push failed."
