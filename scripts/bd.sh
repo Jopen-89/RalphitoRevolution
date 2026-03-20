@@ -278,7 +278,11 @@ case "$COMMAND" in
 
         info "✅ All guardrails passed."
 
-        git -C "$REPO_ROOT" pull --rebase "$(upstream_remote)" "$(upstream_branch)" || die "❌ Rebase failed. Fix conflicts and retry."
+        if remote_branch_exists; then
+            git -C "$REPO_ROOT" pull --rebase "$(upstream_remote)" "$(upstream_branch)" || die "❌ Rebase failed. Fix conflicts and retry."
+        else
+            info "ℹ️ No remote branch exists yet for $(current_branch). Skipping rebase before first push."
+        fi
 
         if has_staged_changes; then
             info "📝 Found staged changes. Creating landing commit..."
