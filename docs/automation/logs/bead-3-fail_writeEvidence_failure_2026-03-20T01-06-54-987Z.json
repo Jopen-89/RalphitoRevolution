@@ -1,0 +1,9 @@
+{
+  "action": "writeEvidence",
+  "chatId": "bead-3-fail",
+  "errorMessage": "boom",
+  "intent": "telegram bead 3 failure verification",
+  "status": "failure",
+  "timestamp": "2026-03-20T01:06:54.987Z",
+  "filePath": "docs/automation/logs/bead-3-fail_writeEvidence_failure_2026-03-20T01-06-54-987Z.json"
+}
