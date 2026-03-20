@@ -10,10 +10,6 @@
         {
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -25,10 +21,6 @@
         {
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -40,10 +32,6 @@
         {
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -55,10 +43,6 @@
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -70,10 +54,6 @@
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -85,10 +65,6 @@
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -100,10 +76,6 @@
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -115,10 +87,6 @@
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -130,10 +98,6 @@
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -145,10 +109,6 @@
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -160,10 +120,6 @@
         {
           "provider": "opencode",
           "model": "minimax-m2.7"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -175,10 +131,6 @@
         {
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     },
@@ -190,10 +142,6 @@
         {
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
-        },
-        {
-          "provider": "codex",
-          "model": "gpt-5.4"
         }
       ]
     }
