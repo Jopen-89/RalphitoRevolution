@@ -1,0 +1,7 @@
+[DEMO-LAUNCH] bead-1
+spec=docs/specs/projects/demo-launch/bead-1.md
+branch=session/be-33
+status=implemented
+evidence=single allowed file created under docs/automation/evidence/
+acceptance.1=spec remains discoverable via docs/specs/projects/demo-launch/*.md glob
+acceptance.2=write scope respected; no files changed outside docs/automation/evidence/
