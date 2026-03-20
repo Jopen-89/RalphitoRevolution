@@ -3,7 +3,7 @@ import { getTelegramStateRepository } from '../telegramStateRepository.js';
 
 export interface SessionRepository {
   getConversationSessionId(chatId: string, agentId: string): string | null;
-  setConversationSessionId(chatId: string, agentId: string, sessionId: string, updatedAt?: string): void;
+  setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string, updatedAt?: string): void;
   setMessageAgentRoute(chatId: string, messageId: number, agentId: string, updatedAt?: string): void;
   getAgentRouteForMessage(chatId: string, messageId: number): string | null;
   setActiveAgent(chatId: string, agentId: string, updatedAt?: string): void;
@@ -21,8 +21,8 @@ export class SQLiteSessionRepository implements SessionRepository {
     return this.repository.getConversationSessionId(chatId, agentId);
   }
 
-  setConversationSessionId(chatId: string, agentId: string, sessionId: string, updatedAt?: string) {
-    this.repository.setConversationSessionId(chatId, agentId, sessionId, updatedAt);
+  setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string, updatedAt?: string) {
+    this.repository.setConversationSessionId(chatId, agentId, sessionId, baseCommitHash, updatedAt);
   }
 
   setMessageAgentRoute(chatId: string, messageId: number, agentId: string, updatedAt?: string) {

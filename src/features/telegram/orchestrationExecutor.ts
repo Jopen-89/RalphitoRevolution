@@ -7,6 +7,7 @@ const ORCHESTRATOR_PROJECT_ID = 'backend-team';
 export interface OrchestrationResult {
   response: string;
   sessionId?: string;
+  baseCommitHash?: string;
 }
 
 export type OrchestrationIntent = 'chat' | 'divergence' | 'execution' | 'status';
@@ -75,6 +76,7 @@ export async function executeOrchestrationTask(agentId: string, instruction: str
         status?: string;
         message?: string;
         session_id?: string;
+        base_commit_hash?: string;
         details?: string;
       };
 
@@ -87,6 +89,7 @@ export async function executeOrchestrationTask(agentId: string, instruction: str
       const sessionInfo = result.session_id ? ` He abierto la sesión ${result.session_id}.` : '';
       return {
         ...(result.session_id ? { sessionId: result.session_id } : {}),
+        ...(result.base_commit_hash ? { baseCommitHash: result.base_commit_hash } : {}),
         response: `Lo pongo en marcha.${sessionInfo} ${result.message || 'Puedes seguir el progreso por estado cuando quieras.'}`.trim(),
       };
     } catch (parseError) {

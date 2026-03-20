@@ -214,7 +214,7 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
         if (shouldExecute) {
             const result = await executeOrchestrationTask(agent.id, instruction);
             if (result.sessionId) {
-                convStore.setConversationSessionId(chatKey, agent.id, result.sessionId);
+                convStore.setConversationSessionId(chatKey, agent.id, result.sessionId, result.baseCommitHash);
             }
             await publishAgentReply(chatId, statusMessage.message_id, agent, result.response);
             return;
