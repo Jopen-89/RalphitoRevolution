@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-import { spawn, type ChildProcess } from 'child_process';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { chromium } from 'playwright';
 import type { QAConfig } from '../src/features/ao/spawnExecutorClient.js';
+import { startDevServer, stopDevServer, waitForReady, type DevServerHandle } from './lib/dev-server.js';
 
 interface E2EReportRoute {
   route: string;
@@ -104,34 +104,6 @@ function buildEvidenceDir(session: SessionState, qaConfig: QAConfig | null | und
   return path.join(root, session.sessionId || 'unknown-session', new Date().toISOString().replace(/[:.]/g, '-'));
 }
 
-async function startServer(command: string, cwd: string, evidenceDir: string) {
-  const serverLogPath = path.join(evidenceDir, 'server.log');
-  const output = fs.createWriteStream(serverLogPath, { flags: 'a' });
-  const child = spawn(command, {
-    cwd,
-    shell: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, CI: process.env.CI || '1' },
-  });
-  child.stdout?.pipe(output);
-  child.stderr?.pipe(output);
-  return child;
-}
-
-async function waitForUrl(url: string) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < DEFAULT_TIMEOUT_MS) {
-    try {
-      const response = await fetch(url, { method: 'GET' });
-      if (response.ok) return;
-    } catch {
-      // retry
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-  throw new Error(`Timeout esperando readiness en ${url}`);
-}
-
 function normalizeRoute(route: string) {
   if (!route) return '/';
   return route.startsWith('/') ? route : `/${route}`;
@@ -227,13 +199,6 @@ function summarizeStatus(routes: E2EReportRoute[]) {
   return 'passed' as const;
 }
 
-async function stopServer(child: ChildProcess | null) {
-  if (!child || child.killed) return;
-  child.kill('SIGTERM');
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  if (!child.killed) child.kill('SIGKILL');
-}
-
 async function writeReport(report: E2EReport, evidenceDir?: string) {
   if (!evidenceDir) return;
   await writeFile(path.join(evidenceDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
@@ -268,17 +233,26 @@ async function main() {
 
   const evidenceDir = buildEvidenceDir(session, qaConfig);
   await mkdir(evidenceDir, { recursive: true });
-  let child: ChildProcess | null = null;
+  let server: DevServerHandle | null = null;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
   let startedServer = false;
+  let exitCode = 0;
 
   try {
     if (qaConfig.devServerCommand && !noServer) {
-      child = await startServer(qaConfig.devServerCommand, repoRoot, evidenceDir);
+      server = await startDevServer({
+        command: qaConfig.devServerCommand,
+        cwd: repoRoot,
+        logPath: path.join(evidenceDir, 'server.log'),
+      });
       startedServer = true;
     }
 
-    await waitForUrl(qaConfig.healthcheckUrl || qaConfig.baseUrl);
+    await waitForReady({
+      url: qaConfig.healthcheckUrl || qaConfig.baseUrl,
+      server,
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+    });
     browser = await chromium.launch({ headless: true });
     const routeReports: E2EReportRoute[] = [];
     for (const route of routes) {
@@ -311,7 +285,7 @@ async function main() {
       routeCount: routeReports.length,
     });
     console.log(JSON.stringify(report));
-    if (!effectiveShadowMode && status === 'failed') process.exit(1);
+    if (!effectiveShadowMode && status === 'failed') exitCode = 1;
   } catch (error) {
     const generatedAt = new Date().toISOString();
     const reason = error instanceof Error ? error.message : String(error);
@@ -341,14 +315,18 @@ async function main() {
       routeCount: 0,
     });
     console.log(JSON.stringify(report));
-    if (!effectiveShadowMode) process.exit(1);
+    if (!effectiveShadowMode) exitCode = 1;
   } finally {
     await browser?.close();
-    await stopServer(child);
+    await stopDevServer(server);
+  }
+
+  if (exitCode !== 0) {
+    process.exitCode = exitCode;
   }
 }
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  process.exitCode = 1;
 });
