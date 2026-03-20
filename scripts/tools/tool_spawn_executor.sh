@@ -51,7 +51,9 @@ echo "Instrucción: $PROMPT" >&2
 SPAWN_LOG="/tmp/spawn_output_$$.log"
 SEND_LOG="/tmp/send_output_$$.log"
 
-if ao spawn "$PROJECT" > "$SPAWN_LOG" 2>&1; then
+CURRENT_COMMIT_HASH=$(git -C "$REPO_ROOT" rev-parse HEAD)
+
+if ao spawn "$PROJECT" --base-ref "$CURRENT_COMMIT_HASH" > "$SPAWN_LOG" 2>&1; then
     SESSION_ID=$(python3 - <<'PY' "$SPAWN_LOG"
 import sys
 
