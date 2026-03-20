@@ -26,6 +26,34 @@ Este repo combina producto, operacion de agentes y automatizacion local para el 
 - `scripts/` contiene wrappers y automatizacion ejecutable
 - `agent-orchestrator.yaml` en raiz se mantiene como compatibilidad; la ruta canonica de config es `ops/agent-orchestrator.yaml`
 
+## Protocolo anti autoengano
+
+- Nunca declarar un trabajo como completo sin indicar si vive `en master`, `en rama <branch>`, `solo local` o `faltante`
+- Para issues de seguimiento o validacion, empezar por una fase 0 con inventario `master | ramas | local | faltante`
+- No confundir "funciona en este workspace" con "esta aterrizado"; si depende de cambios locales, hay que decirlo
+- Una bead solo se considera cerrada cuando la spec canonica, la ruta esperada del codigo, la integracion y la validacion ya estan alineadas
+- Las ramas laterales no son verdad canonica por defecto; cada una debe terminar `merged`, `descartada` o `pendiente de port`
+
+## Equipos AO
+
+- `backend-team`: implementacion backend y producto general
+- `design-team`: discovery UX/UI, research de comportamiento y rubricas de Lola
+- `frontend-team`: UI React y superficies visuales
+- `visual-qa-team`: validacion visual renderizada y evidencia de Miron
+- `qa-team`: tests, validacion y regresiones
+- `devops-team`: runtime, CI/CD, ops y despliegue
+- `security-team`: auditoria de seguridad sobre `src/**`; no escribe por defecto
+- `research-team`: investigacion y contexto de mercado
+- `automation-team`: RPA, formularios y automatizacion web
+
+## Pipeline QA objetivo
+
+- `Lola -> Poncho -> Ralphito -> Miron -> Ricky -> Juez -> Raymon`
+- `Miron` bloquea `bd sync` solo para beads frontend cuando la UI renderizada no cumple la rubrica visual.
+- `Ricky` bloquea merge final con validacion E2E automatica sobre rama ya aterrizada.
+- `Juez` revisa diff y contrato tecnico despues del visto bueno funcional de `Ricky`.
+- Referencia operativa: `docs/runbooks/qa-pipeline.md`
+
 ### No Backward Compatibility
 Never write code for backward compatibility. No legacy fallbacks, no old-format deserialization shims, no deprecated type aliases. When a type or format changes, all producers and consumers change in the same task. Old data is dead.
 
