@@ -53,6 +53,7 @@ export function isExplicitExecutionIntent(instruction: string) {
   const executionPatterns = [
     /^(ejecuta|ejecutar|programa)\b.*\bbead\b/i,
     /^(orquesta|lanza|ejecuta)\b.*\b(código|script|implementación)\b/i,
+    /^(genera|crea|escribe|guarda)\b.*\b(evidencia|archivo|log)\b/i,
   ];
 
   return hasBeadOrSpec || executionPatterns.some((pattern) => pattern.test(normalized));
