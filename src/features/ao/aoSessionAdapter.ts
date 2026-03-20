@@ -6,9 +6,10 @@ import * as yaml from 'yaml';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_DASHBOARD_URL = 'http://127.0.0.1:3000';
-const DEFAULT_TIMEOUT_MS = 4000;
+const DEFAULT_TIMEOUT_MS = 15_000;
 const TERMINAL_STATUSES = new Set(['killed', 'done', 'terminated', 'merged', 'cleanup']);
 const TERMINAL_ACTIVITIES = new Set(['exited']);
+const WORKTREE_ROOT = path.join(process.env.HOME || '', '.worktrees');
 
 interface DashboardApiSession {
   id: string;
@@ -57,7 +58,7 @@ export interface AoStructuredSession {
   createdAt: string | null;
   lastActivityAt: string | null;
   lastActivityLabel: string | null;
-  source: 'dashboard_api' | 'ao_status_json';
+  source: 'dashboard_api' | 'ao_status_json' | 'tmux_fallback';
 }
 
 function getDashboardBaseUrl() {
@@ -158,11 +159,68 @@ async function fetchAoStatusSessions(projectId?: string): Promise<AoStructuredSe
   }));
 }
 
+function readProjectFromWorktree(sessionId: string) {
+  if (!WORKTREE_ROOT || !fs.existsSync(WORKTREE_ROOT)) return null;
+
+  try {
+    for (const projectId of fs.readdirSync(WORKTREE_ROOT)) {
+      const candidate = path.join(WORKTREE_ROOT, projectId, sessionId);
+      if (fs.existsSync(candidate)) return projectId;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+async function fetchTmuxFallbackSessions(projectId?: string): Promise<AoStructuredSession[]> {
+  const format = ['#{session_name}', '#{session_created}', '#{session_activity}', '#{session_attached}'].join('\t');
+  const { stdout } = await execFileAsync('tmux', ['list-sessions', '-F', format], {
+    timeout: DEFAULT_TIMEOUT_MS,
+    maxBuffer: 1024 * 1024,
+  });
+
+  return stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [sessionName, createdAt, lastActivityAt, attached] = line.split('\t') as [string, string, string, string];
+      const inferredProjectId = readProjectFromWorktree(sessionName) || null;
+
+      return {
+        id: sessionName,
+        projectId: inferredProjectId,
+        role: 'worker' as const,
+        status: attached === '1' ? 'running' : 'idle',
+        activity: 'tmux',
+        branch: inferredProjectId ? `session/${sessionName}` : null,
+        summary: 'Fallback desde tmux; revisar dashboard/AO si falta metadata.',
+        issue: null,
+        prUrl: null,
+        createdAt: createdAt ? new Date(Number(createdAt) * 1000).toISOString() : null,
+        lastActivityAt: lastActivityAt ? new Date(Number(lastActivityAt) * 1000).toISOString() : null,
+        lastActivityLabel: 'tmux fallback',
+        source: 'tmux_fallback' as const,
+      } satisfies AoStructuredSession;
+    })
+    .filter((session) => !projectId || session.projectId === projectId);
+}
+
 export async function getAoStructuredSessions(projectId?: string) {
   const dashboardSessions = await fetchDashboardSessions(projectId);
   if (dashboardSessions) return dashboardSessions;
 
-  return fetchAoStatusSessions(projectId);
+  try {
+    return await fetchAoStatusSessions(projectId);
+  } catch {
+    try {
+      return await fetchTmuxFallbackSessions(projectId);
+    } catch {
+      return [];
+    }
+  }
 }
 
 export function isActiveAoSession(session: AoStructuredSession) {
