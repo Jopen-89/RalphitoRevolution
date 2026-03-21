@@ -239,7 +239,7 @@ app.get('/api/search', (req, res) => {
 
 app.get('/health', async (_req, res) => {
   const status = await getOperationalStatus();
-  const ok = status.health.db.ok && status.health.ao.ok && status.health.searchIndex.ok;
+  const ok = status.health.db.ok && status.health.engine.ok && status.health.searchIndex.ok;
   res.status(ok ? 200 : 503).json({ ok, health: status.health });
 });
 

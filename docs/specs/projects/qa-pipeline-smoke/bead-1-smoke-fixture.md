@@ -33,7 +33,7 @@ Crear un smoke harness reproducible para probar Miron y Ricky aunque el repo no 
     "e2eRoutes": ["/", "/login", "/settings"],
     "designRuleset": "docs/specs/projects/qa-pipeline-smoke/design-rubric.md",
     "e2eProfile": "qa-pipeline-smoke",
-    "evidencePath": "~/.agent-orchestrator/qa-smoke",
+    "evidencePath": "~/.ralphito/qa/smoke",
     "waitForSelector": "[data-ready='true']",
     "requiredSelectors": ["main", "nav", "form"],
     "loginRoute": "/login",

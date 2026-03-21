@@ -5,8 +5,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { chromium } from 'playwright';
+import type { QAConfig } from '../src/features/engine/qaConfig.js';
 import { ProviderFactory } from '../src/features/llm-gateway/providers/provider.factory.js';
-import type { QAConfig } from '../src/features/ao/spawnExecutorClient.js';
 import { startDevServer, stopDevServer, waitForReady, type DevServerHandle } from './lib/dev-server.js';
 
 interface SessionState {
@@ -113,7 +113,7 @@ function shouldRunVisualQa(session: SessionState) {
 }
 
 function buildEvidenceDir(session: SessionState, qaConfig: QAConfig | null | undefined) {
-  const root = expandHomeDir(qaConfig?.evidencePath || '~/.agent-orchestrator/visual-qa');
+  const root = expandHomeDir(qaConfig?.evidencePath || '~/.ralphito/qa/visual');
   const sessionId = session.sessionId || 'unknown-session';
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   return path.join(root, sessionId, timestamp);

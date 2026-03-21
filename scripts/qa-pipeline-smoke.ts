@@ -5,7 +5,7 @@ import { copyFile, readFile, rm, writeFile } from 'fs/promises';
 import fs from 'fs';
 import path from 'path';
 import * as util from 'util';
-import type { QAConfig } from '../src/features/ao/spawnExecutorClient.js';
+import type { QAConfig } from '../src/features/engine/qaConfig.js';
 import { startDevServer, stopDevServer, waitForReady, type DevServerHandle } from './lib/dev-server.js';
 
 const execFileAsync = util.promisify(execFile);
@@ -25,7 +25,7 @@ const qaConfig: QAConfig = {
   e2eRoutes: ['/', '/login', '/settings'],
   designRuleset: 'docs/specs/projects/qa-pipeline-smoke/design-rubric.md',
   e2eProfile: 'qa-pipeline-smoke',
-  evidencePath: '~/.agent-orchestrator/qa-smoke',
+  evidencePath: '~/.ralphito/qa/smoke',
   waitForSelector: '[data-ready="true"]',
   requiredSelectors: ['main', 'nav', 'form'],
   loginRoute: '/login',

@@ -25,7 +25,7 @@ El payload estructurado de `tool_spawn_executor.sh` acepta un objeto `qaConfig`.
     "e2eRoutes": ["/", "/login", "/settings"],
     "designRuleset": "docs/specs/projects/foo/design-rubric.md",
     "e2eProfile": "core-auth",
-    "evidencePath": "~/.agent-orchestrator/visual-qa",
+    "evidencePath": "~/.ralphito/qa/visual",
     "waitForSelector": "[data-ready='true']",
     "requiredSelectors": ["main", "form"],
     "loginRoute": "/login",
@@ -77,5 +77,5 @@ El payload estructurado de `tool_spawn_executor.sh` acepta un objeto `qaConfig`.
 
 - `tool_spawn_executor.sh` persiste `qaConfig` dentro de `.ralphito-session.json`.
 - `bd sync` usa esa metadata para lanzar a Miron en shadow mode.
-- `resume.sh` conserva `qaConfig` al re-spawnear sesiones.
+- `resume.sh` conserva `qaConfig` al reinyectar sesiones.
 - `npm run qa:e2e` ejecuta a Ricky sobre la metadata persistida de la sesion.

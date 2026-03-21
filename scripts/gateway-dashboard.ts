@@ -12,17 +12,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const CONFIG_PATH = path.join(__dirname, '..', 'src', 'features', 'llm-gateway', 'gateway.config.json');
-const AO_YAML_PATH = path.join(__dirname, '..', 'ops', 'agent-orchestrator.yaml');
+const ENGINE_CONFIG_PATH = path.join(__dirname, '..', 'ops', 'agent-orchestrator.yaml');
 
-// Mapeos entre el mundo del Gateway (Providers) y el mundo de AO (Agents)
-const GATEWAY_TO_AO: Record<Provider, string> = {
+// Mapeos entre providers del Gateway y agentes del engine.
+const GATEWAY_TO_ENGINE_AGENT: Record<Provider, string> = {
   openai: 'codex',
   gemini: 'opencode',
   opencode: 'opencode',
   codex: 'codex'
 };
 
-const AO_TO_GATEWAY: Record<string, Provider> = {
+const ENGINE_AGENT_TO_GATEWAY: Record<string, Provider> = {
   codex: 'openai',
   opencode: 'gemini',
   'claude-code': 'openai' // Fallback visual
@@ -39,13 +39,13 @@ const loadConfig = (): GatewayConfig => {
   }
 };
 
-// Cargar configuración de AO (Ralphitos/Coders)
-const loadAOConfig = () => {
+// Cargar configuración del engine.
+const loadEngineConfig = () => {
   try {
-    const data = fs.readFileSync(AO_YAML_PATH, 'utf8');
+    const data = fs.readFileSync(ENGINE_CONFIG_PATH, 'utf8');
     return yaml.parse(data) || {};
   } catch (error) {
-    console.error(chalk.red('❌ Error al cargar agent-orchestrator.yaml:'), error);
+    console.error(chalk.red('❌ Error al cargar la config del engine:'), error);
     return { projects: {} };
   }
 };
@@ -60,14 +60,14 @@ const saveConfig = (config: GatewayConfig) => {
   }
 };
 
-// Guardar configuración AO
-const saveAOConfig = (aoConfig: any) => {
+// Guardar configuración del engine.
+const saveEngineConfig = (engineConfig: any) => {
   try {
-    const yamlStr = yaml.stringify(aoConfig);
-    fs.writeFileSync(AO_YAML_PATH, yamlStr);
-    console.log(chalk.green('\n✅ Configuración de los Ralphitos (AO) guardada correctamente.'));
+    const yamlStr = yaml.stringify(engineConfig);
+    fs.writeFileSync(ENGINE_CONFIG_PATH, yamlStr);
+    console.log(chalk.green('\n✅ Configuración del engine guardada correctamente.'));
   } catch (error) {
-    console.error(chalk.red('❌ Error al guardar agent-orchestrator.yaml:'), error);
+    console.error(chalk.red('❌ Error al guardar la config del engine:'), error);
   }
 };
 
@@ -81,11 +81,11 @@ const MODELS: Record<Provider, string[]> = {
 
 async function mainMenu() {
   console.clear();
-  console.log(chalk.bold.magenta('🤖 Ralphito Gateway & Factory - TUI Dashboard'));
+  console.log(chalk.bold.magenta('🤖 Ralphito Gateway & Engine - TUI Dashboard'));
   console.log(chalk.gray('================================================\n'));
 
   const config = loadConfig();
-  const aoConfig = loadAOConfig();
+  const engineConfig = loadEngineConfig();
 
   const response = await prompts({
     type: 'select',
@@ -102,10 +102,10 @@ async function mainMenu() {
 
   switch (response.action) {
     case 'list':
-      listAgents(config, aoConfig);
+      listAgents(config, engineConfig);
       break;
     case 'edit':
-      await editAgentOrCoder(config, aoConfig);
+      await editAgentOrCoder(config, engineConfig);
       break;
     case 'add':
       await addAgent(config);
@@ -118,7 +118,7 @@ async function mainMenu() {
   }
 }
 
-function listAgents(config: GatewayConfig, aoConfig: any) {
+function listAgents(config: GatewayConfig, engineConfig: any) {
   console.log(chalk.cyan('\n📋 Agentes del Bot (Telegram):'));
   config.agents.forEach(agent => {
     console.log(`  ${chalk.bold(agent.agentId)}: ${chalk.yellow(agent.primaryProvider)} (${agent.model})`);
@@ -127,12 +127,12 @@ function listAgents(config: GatewayConfig, aoConfig: any) {
     }
   });
 
-  console.log(chalk.magenta('\n👷 Ralphitos / Coders (Fábrica AO):'));
-  if (aoConfig.projects) {
-    for (const [projectId, projectData] of Object.entries<any>(aoConfig.projects)) {
-      const aoAgent = projectData.agent || aoConfig.defaults?.agent || 'unknown';
-      const model = projectData.agentConfig?.model || aoConfig.defaults?.agentConfig?.model || 'default';
-      console.log(`  ${chalk.bold(projectId)}: Motor ${chalk.yellow(aoAgent)} (${model})`);
+  console.log(chalk.magenta('\n👷 Ralphitos / Coders (Engine):'));
+  if (engineConfig.projects) {
+    for (const [projectId, projectData] of Object.entries<any>(engineConfig.projects)) {
+      const engineAgent = projectData.agent || engineConfig.defaults?.agent || 'unknown';
+      const model = projectData.agentConfig?.model || engineConfig.defaults?.agentConfig?.model || 'default';
+      console.log(`  ${chalk.bold(projectId)}: Motor ${chalk.yellow(engineAgent)} (${model})`);
     }
   } else {
     console.log(chalk.gray('  No hay proyectos definidos en el YAML.'));
@@ -147,7 +147,7 @@ function listAgents(config: GatewayConfig, aoConfig: any) {
   });
 }
 
-async function editAgentOrCoder(config: GatewayConfig, aoConfig: any) {
+async function editAgentOrCoder(config: GatewayConfig, engineConfig: any) {
   const choices = [];
   
   // Añadir agentes del Gateway
@@ -155,10 +155,10 @@ async function editAgentOrCoder(config: GatewayConfig, aoConfig: any) {
     choices.push({ title: `[Telegram] ${a.agentId}`, value: `gw:${a.agentId}` });
   });
 
-  // Añadir proyectos (Ralphitos) de AO
-  if (aoConfig.projects) {
-    for (const projectId of Object.keys(aoConfig.projects)) {
-      choices.push({ title: `[Ralphito] ${projectId}`, value: `ao:${projectId}` });
+  // Añadir proyectos del engine
+  if (engineConfig.projects) {
+    for (const projectId of Object.keys(engineConfig.projects)) {
+      choices.push({ title: `[Ralphito] ${projectId}`, value: `engine:${projectId}` });
     }
   }
 
@@ -240,11 +240,11 @@ async function editAgentOrCoder(config: GatewayConfig, aoConfig: any) {
     config.agents[agentIndex] = { agentId: id, primaryProvider, model, fallbacks };
     saveConfig(config);
 
-  } else if (type === 'ao') {
-    // Editar Ralphito (Coder) en agent-orchestrator.yaml
-    const projectData = aoConfig.projects[id];
-    const currentAoAgent = projectData.agent || aoConfig.defaults?.agent || 'opencode';
-    const currentGatewayProvider = AO_TO_GATEWAY[currentAoAgent] || 'gemini';
+  } else if (type === 'engine') {
+    // Editar Ralphito (Coder) en la config del engine
+    const projectData = engineConfig.projects[id];
+    const currentEngineAgent = projectData.agent || engineConfig.defaults?.agent || 'opencode';
+    const currentGatewayProvider = ENGINE_AGENT_TO_GATEWAY[currentEngineAgent] || 'gemini';
 
     console.log(chalk.cyan(`\nConfigurando el Ralphito (Fábrica): ${chalk.bold(id)}`));
     console.log(chalk.gray('Nota: Los Ralphitos no soportan fallbacks, usan un único modelo robusto.\n'));
@@ -266,17 +266,17 @@ async function editAgentOrCoder(config: GatewayConfig, aoConfig: any) {
       initial: MODELS[primaryProvider as Provider].indexOf(currentModel) !== -1 ? MODELS[primaryProvider as Provider].indexOf(currentModel) : 0
     });
 
-    // Mapear la elección del usuario de vuelta a la terminología de AO
-    const aoAgentTarget = GATEWAY_TO_AO[primaryProvider as Provider] || 'opencode';
+    // Mapear la elección del usuario al agente del engine.
+    const engineAgentTarget = GATEWAY_TO_ENGINE_AGENT[primaryProvider as Provider] || 'opencode';
 
     // Actualizar el objeto YAML en memoria
-    if (!aoConfig.projects[id].agentConfig) {
-      aoConfig.projects[id].agentConfig = {};
+    if (!engineConfig.projects[id].agentConfig) {
+      engineConfig.projects[id].agentConfig = {};
     }
-    aoConfig.projects[id].agent = aoAgentTarget;
-    aoConfig.projects[id].agentConfig.model = model;
+    engineConfig.projects[id].agent = engineAgentTarget;
+    engineConfig.projects[id].agentConfig.model = model;
 
-    saveAOConfig(aoConfig);
+    saveEngineConfig(engineConfig);
   }
 
   setTimeout(mainMenu, 1500);

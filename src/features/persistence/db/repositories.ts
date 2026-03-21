@@ -27,7 +27,7 @@ export interface CreateMessageInput {
 export interface UpsertAgentSessionInput {
   threadId: number;
   agentId: string;
-  aoSessionId: string;
+  runtimeSessionId: string;
   status: string;
   baseCommitHash?: string;
 }
@@ -40,7 +40,7 @@ export interface CreateTaskInput {
   componentPath?: string;
   status: TaskStatus;
   assignedAgent?: string;
-  aoSessionId?: string;
+  runtimeSessionId?: string;
   priority?: TaskPriority;
   completedAt?: string;
 }
@@ -49,7 +49,7 @@ export interface UpdateTaskStatusInput {
   id: string;
   status: TaskStatus;
   assignedAgent?: string;
-  aoSessionId?: string;
+  runtimeSessionId?: string;
   completedAt?: string | null;
 }
 
@@ -153,13 +153,17 @@ class AgentSessionsRepository {
     this.db
       .prepare(
         `
-          INSERT INTO agent_sessions (thread_id, agent_id, ao_session_id, status, base_commit_hash, created_at, updated_at)
-          VALUES (@threadId, @agentId, @aoSessionId, @status, @baseCommitHash, @now, @now)
-          ON CONFLICT(thread_id, agent_id)
+          INSERT INTO agent_sessions (thread_id, agent_id, runtime_session_id, status, base_commit_hash, started_at, heartbeat_at, created_at, updated_at)
+          VALUES (@threadId, @agentId, @runtimeSessionId, @status, @baseCommitHash, @now, @now, @now, @now)
+          ON CONFLICT(runtime_session_id)
           DO UPDATE SET
-            ao_session_id = excluded.ao_session_id,
-            status = excluded.status,
-            base_commit_hash = COALESCE(excluded.base_commit_hash, base_commit_hash),
+            thread_id = excluded.thread_id,
+            agent_id = excluded.agent_id,
+            runtime_session_id = excluded.runtime_session_id,
+            status = agent_sessions.status,
+            base_commit_hash = COALESCE(agent_sessions.base_commit_hash, excluded.base_commit_hash),
+            started_at = COALESCE(agent_sessions.started_at, excluded.started_at),
+            heartbeat_at = COALESCE(agent_sessions.heartbeat_at, excluded.heartbeat_at),
             updated_at = excluded.updated_at
         `,
       )
@@ -185,7 +189,7 @@ class TasksRepository {
             component_path,
             status,
             assigned_agent,
-            ao_session_id,
+            runtime_session_id,
             priority,
             created_at,
             updated_at,
@@ -201,7 +205,7 @@ class TasksRepository {
         input.componentPath || null,
         input.status,
         input.assignedAgent || null,
-        input.aoSessionId || null,
+        input.runtimeSessionId || null,
         priority,
         now,
         now,
@@ -218,7 +222,7 @@ class TasksRepository {
           UPDATE tasks
           SET status = ?,
               assigned_agent = COALESCE(?, assigned_agent),
-              ao_session_id = COALESCE(?, ao_session_id),
+              runtime_session_id = COALESCE(?, runtime_session_id),
               updated_at = ?,
               completed_at = COALESCE(?, completed_at)
           WHERE id = ?
@@ -227,7 +231,7 @@ class TasksRepository {
       .run(
         input.status,
         input.assignedAgent || null,
-        input.aoSessionId || null,
+        input.runtimeSessionId || null,
         updatedAt,
         input.completedAt || null,
         input.id,

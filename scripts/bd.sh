@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENGINE_CLI="$REPO_ROOT/src/features/engine/cli.ts"
 
 info() {
     printf '%s\n' "$1"
@@ -136,6 +137,60 @@ reset_guardrail_log() {
 record_guardrail_failure() {
     local message="$1"
     printf '%s\n' "$message" | tee -a "$(guardrail_log_path)"
+}
+
+run_engine_cli() {
+    if [ ! -f "$ENGINE_CLI" ]; then
+        return 0
+    fi
+
+    npx tsx "$ENGINE_CLI" "$@" >/dev/null 2>&1 || true
+}
+
+record_runtime_step() {
+    local session_id
+    session_id="$(get_session_id)"
+
+    if [ -z "$session_id" ]; then
+        return 0
+    fi
+
+    run_engine_cli record-step "$session_id"
+}
+
+record_runtime_failure() {
+    local failure_kind="$1"
+    local failure_summary="$2"
+    local session_id
+    session_id="$(get_session_id)"
+
+    if [ -z "$session_id" ]; then
+        return 0
+    fi
+
+    run_engine_cli record-failure "$session_id" "$failure_kind" "$failure_summary" "$(guardrail_log_path)"
+}
+
+clear_runtime_failure() {
+    local session_id
+    session_id="$(get_session_id)"
+
+    if [ -z "$session_id" ]; then
+        return 0
+    fi
+
+    run_engine_cli clear-failure "$session_id"
+}
+
+finish_runtime_session() {
+    local session_id
+    session_id="$(get_session_id)"
+
+    if [ -z "$session_id" ]; then
+        return 0
+    fi
+
+    run_engine_cli finish-session "$session_id" done
 }
 
 get_session_id() {
@@ -365,12 +420,15 @@ collect_modified_files() {
 run_guardrail() {
     local start_message="$1"
     local failure_message="$2"
-    local guardrail_name="$3"
-    shift 3
+    local failure_kind="$3"
+    local guardrail_name="$4"
+    shift 4
 
     info "$start_message"
+    record_runtime_step
     "$@" > "$(guardrail_log_path)" 2>&1 || {
         record_guardrail_failure "$failure_message"
+        record_runtime_failure "$failure_kind" "$failure_message"
         notify_guardrail_failure "$guardrail_name"
         exit 1
     }
@@ -454,14 +512,17 @@ case "$COMMAND" in
             fi
 
             info "🔄 Rebasing against origin/master..."
+            record_runtime_step
             if ! git -C "$REPO_ROOT" rebase origin/master 2>&1; then
                 record_guardrail_failure "❌ [be-XX] Fallo de Rebase. Conflictos de integración con master."
+                record_runtime_failure "rebase_failed" "❌ [be-XX] Fallo de Rebase. Conflictos de integración con master."
                 notify_guardrail_failure "Rebase"
                 die "❌ Rebase failed. Resolve conflicts and retry."
             fi
         fi
 
         reset_guardrail_log
+        clear_runtime_failure
 
         info "🛫 Landing the plane... Initiating sync sequence."
         info "⏳ Running pre-sync guardrails..."
@@ -484,12 +545,12 @@ case "$COMMAND" in
 
             if [ -f "$REPO_ROOT/tsconfig.json" ]; then
                 require_cmd npx
-                run_guardrail "⚡ Running tsc --noEmit..." "❌ Guardrail failed: TypeScript type errors found." "TypeScript" npx tsc --noEmit
+                run_guardrail "⚡ Running tsc --noEmit..." "❌ Guardrail failed: TypeScript type errors found." "typescript_guardrail_failed" "TypeScript" npx tsc --noEmit
             fi
 
             if has_npm_script lint; then
                 require_cmd npm
-                run_guardrail "🧹 Running linter..." "❌ Guardrail failed: Linter errors found." "ESLint" npm run lint
+                run_guardrail "🧹 Running linter..." "❌ Guardrail failed: Linter errors found." "lint_guardrail_failed" "ESLint" npm run lint
             fi
 
             if has_npm_script test; then
@@ -497,19 +558,22 @@ case "$COMMAND" in
                 if is_placeholder_test_script; then
                     info "⏭️ Skipping placeholder test script in package.json."
                 else
-                    run_guardrail "🧪 Running tests..." "❌ Guardrail failed: Tests failed." "Tests" npm test
+                    run_guardrail "🧪 Running tests..." "❌ Guardrail failed: Tests failed." "test_guardrail_failed" "Tests" npm test
                 fi
             fi
         fi
 
         info "✅ All guardrails passed."
+        clear_runtime_failure
 
         info "🚀 Pushing to remote..."
+        record_runtime_step
         git -C "$REPO_ROOT" push --set-upstream "$(upstream_remote)" "$(current_branch)" || die "❌ Push failed."
 
         info "✅ Sync complete. Work safely landed."
 
         notify_session_success
+        finish_runtime_session
 
         info "💀 Phase 3: Terminating agent session to release resources..."
         if [ -n "${TMUX:-}" ]; then

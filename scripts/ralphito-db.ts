@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 
-import { readFileSync, readdirSync } from 'fs';
-import path from 'path';
+import { readFileSync } from 'fs';
+import { getGuardrailLogPath, getManagedRuntimeWorktreePath } from '../src/features/engine/runtimeFiles.js';
 import { getRalphitoDatabase, initializeRalphitoDatabase } from '../src/features/persistence/db/index.js';
-
-const AO_DATA_DIR = process.env.AO_DATA_DIR || path.join(process.env.HOME || '', '.agent-orchestrator');
 
 interface SessionChatResult {
   externalChatId: string | null;
@@ -22,21 +20,10 @@ function truncateError(errorText: string): string {
 
 function getGuardrailErrorForSession(sessionId: string): string | null {
   try {
-    const orchestratorDirs = readdirSync(AO_DATA_DIR, { withFileTypes: true }).filter((entry) => entry.isDirectory());
-
-    for (const dir of orchestratorDirs) {
-      const errorPath = path.join(AO_DATA_DIR, dir.name, 'worktrees', sessionId, '.guardrail_error.log');
-      try {
-        return truncateError(readFileSync(errorPath, 'utf8'));
-      } catch {
-        // continue
-      }
-    }
+    return truncateError(readFileSync(getGuardrailLogPath(getManagedRuntimeWorktreePath(sessionId)), 'utf8'));
   } catch {
     return null;
   }
-
-  return null;
 }
 
 function runGetSessionChat(sessionId: string) {
@@ -49,7 +36,7 @@ function runGetSessionChat(sessionId: string) {
         SELECT threads.external_chat_id AS externalChatId
         FROM agent_sessions
         INNER JOIN threads ON threads.id = agent_sessions.thread_id
-        WHERE agent_sessions.ao_session_id = ?
+        WHERE agent_sessions.runtime_session_id = ?
         LIMIT 1
       `,
     )
@@ -60,7 +47,7 @@ function runGetSessionChat(sessionId: string) {
       `
         SELECT id, title
         FROM tasks
-        WHERE ao_session_id = ?
+        WHERE runtime_session_id = ?
         ORDER BY updated_at DESC
         LIMIT 1
       `,

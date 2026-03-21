@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-source "$SCRIPT_DIR/../lib/ao-paths.sh"
+source "$SCRIPT_DIR/../lib/runtime-paths.sh"
 
 SESSION_ID="${1:-}"
 
@@ -17,7 +17,7 @@ fi
 
 if "$REPO_ROOT/scripts/resume.sh" "$SESSION_ID"; then
     # Tras inyectar el error, borramos el log de guardrail para que tool_check_status ya no lo marque como muerto
-    WORKTREE_PATH=$(find_ao_worktree "$SESSION_ID")
+    WORKTREE_PATH=$(find_runtime_worktree "$SESSION_ID")
     if [ -n "$WORKTREE_PATH" ]; then
         rm -f "$WORKTREE_PATH/.guardrail_error.log"
     fi

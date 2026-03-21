@@ -5,7 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { chromium } from 'playwright';
-import type { QAConfig } from '../src/features/ao/spawnExecutorClient.js';
+import type { QAConfig } from '../src/features/engine/qaConfig.js';
 import { startDevServer, stopDevServer, waitForReady, type DevServerHandle } from './lib/dev-server.js';
 
 interface E2EReportRoute {
@@ -100,7 +100,7 @@ function shouldRunE2E(session: SessionState) {
 }
 
 function buildEvidenceDir(session: SessionState, qaConfig: QAConfig | null | undefined) {
-  const root = expandHomeDir(qaConfig?.evidencePath || '~/.agent-orchestrator/e2e-qa');
+  const root = expandHomeDir(qaConfig?.evidencePath || '~/.ralphito/qa/e2e');
   return path.join(root, session.sessionId || 'unknown-session', new Date().toISOString().replace(/[:.]/g, '-'));
 }
 

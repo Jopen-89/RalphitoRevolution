@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import chalk from 'chalk';
-import { getAoStructuredSessions, isActiveAoSession } from '../src/features/ao/aoSessionAdapter.js';
+import { getEngineSessionsStatus } from '../src/features/engine/status.js';
 
 interface Session {
   id: string;
@@ -11,11 +11,11 @@ interface Session {
 
 async function getSessions(): Promise<Session[]> {
   try {
-    const sessions = await getAoStructuredSessions();
+    const sessions = await getEngineSessionsStatus();
     return sessions.map((session) => ({
       id: session.id,
-      status: session.status || 'unknown',
-      title: session.summary || session.issue || session.branch || session.id,
+      status: session.status,
+      title: session.summary || session.branch || session.id,
     }));
   } catch {
     return [];
@@ -24,10 +24,8 @@ async function getSessions(): Promise<Session[]> {
 
 async function render() {
   const sessions = await getSessions();
-  const structuredSessions = await getAoStructuredSessions().catch(() => []);
-  const activeIds = new Set(structuredSessions.filter(isActiveAoSession).map((session) => session.id));
-  const running = sessions.filter((session) => activeIds.has(session.id));
-  const inactive = sessions.filter((session) => !activeIds.has(session.id));
+  const running = sessions.filter((session) => session.status === 'running' || session.status === 'queued');
+  const inactive = sessions.filter((session) => session.status !== 'running' && session.status !== 'queued');
 
   console.clear();
   console.log(chalk.cyan('======================================================'));
