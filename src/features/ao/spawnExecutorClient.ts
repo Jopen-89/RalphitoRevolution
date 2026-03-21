@@ -14,6 +14,8 @@ export interface SpawnExecutorPayload {
   beadPath?: string;
   workItemKey?: string;
   model?: string;
+  beadSpecHash?: string;
+  beadSpecVersion?: string;
   qaConfig?: QAConfig;
 }
 
