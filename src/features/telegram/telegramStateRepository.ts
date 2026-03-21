@@ -46,7 +46,7 @@ interface FingerprintRow {
 }
 
 interface SessionBindingRow {
-  aoSessionId: string;
+  runtimeSessionId: string;
 }
 
 interface HistoryRow {
@@ -162,11 +162,17 @@ export class TelegramStateRepository {
 
     const row = this.db
       .prepare(
-        'SELECT ao_session_id AS aoSessionId FROM agent_sessions WHERE thread_id = ? AND agent_id = ?',
+        `
+          SELECT runtime_session_id AS runtimeSessionId
+          FROM agent_sessions
+          WHERE thread_id = ? AND agent_id = ?
+          ORDER BY updated_at DESC, id DESC
+          LIMIT 1
+        `,
       )
       .get(threadId, agentId) as SessionBindingRow | undefined;
 
-    return row?.aoSessionId || null;
+    return row?.runtimeSessionId || null;
   }
 
   setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string, updatedAt?: string) {
@@ -176,17 +182,36 @@ export class TelegramStateRepository {
     this.db
       .prepare(
         `
-          INSERT INTO agent_sessions (thread_id, agent_id, ao_session_id, status, base_commit_hash, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(thread_id, agent_id)
+          INSERT INTO agent_sessions (
+            thread_id,
+            agent_id,
+            runtime_session_id,
+            status,
+            base_commit_hash,
+            started_at,
+            heartbeat_at,
+            created_at,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(runtime_session_id)
           DO UPDATE SET
-            ao_session_id = excluded.ao_session_id,
+            thread_id = excluded.thread_id,
+            agent_id = excluded.agent_id,
+            runtime_session_id = excluded.runtime_session_id,
             status = excluded.status,
-            base_commit_hash = COALESCE(excluded.base_commit_hash, base_commit_hash),
+            base_commit_hash = excluded.base_commit_hash,
+            started_at = excluded.started_at,
+            heartbeat_at = excluded.heartbeat_at,
+            finished_at = NULL,
+            failure_kind = NULL,
+            failure_summary = NULL,
+            failure_log_tail = NULL,
+            created_at = excluded.created_at,
             updated_at = excluded.updated_at
         `,
       )
-      .run(threadId, agentId, sessionId, 'bound', baseCommitHash || null, timestamp, timestamp);
+      .run(threadId, agentId, sessionId, 'running', baseCommitHash || null, timestamp, timestamp, timestamp, timestamp);
   }
 
   setMessageAgentRoute(chatId: string, messageId: number, agentId: string, updatedAt?: string) {

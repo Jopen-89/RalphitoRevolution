@@ -18,7 +18,7 @@ interface TaskRow {
   componentPath: string | null;
   status: RalphitoTaskStatus;
   assignedAgent: string | null;
-  aoSessionId: string | null;
+  runtimeSessionId: string | null;
   priority: string;
   updatedAt: string;
   completedAt: string | null;
@@ -148,7 +148,7 @@ function getSessionMeta(sessionId: string): DashboardSessionMeta {
           threads.title AS title
         FROM agent_sessions
         INNER JOIN threads ON threads.id = agent_sessions.thread_id
-        WHERE agent_sessions.ao_session_id = ?
+        WHERE agent_sessions.runtime_session_id = ?
         LIMIT 1
       `,
     )
@@ -164,12 +164,12 @@ function getSessionMeta(sessionId: string): DashboardSessionMeta {
           component_path AS componentPath,
           status,
           assigned_agent AS assignedAgent,
-          ao_session_id AS aoSessionId,
+          runtime_session_id AS runtimeSessionId,
           priority,
           updated_at AS updatedAt,
           completed_at AS completedAt
         FROM tasks
-        WHERE ao_session_id = ?
+        WHERE runtime_session_id = ?
         ORDER BY updated_at DESC
         LIMIT 1
       `,
@@ -181,7 +181,7 @@ function getSessionMeta(sessionId: string): DashboardSessionMeta {
       `
         SELECT agent_id AS agentId, status, updated_at AS updatedAt
         FROM agent_sessions
-        WHERE ao_session_id = ?
+        WHERE runtime_session_id = ?
         LIMIT 1
       `,
     )
@@ -288,13 +288,13 @@ export async function updateDashboardTaskStatus(taskId: string, status: Ralphito
   const task = db
     .prepare(
       `
-        SELECT id, source_spec_path AS sourceSpecPath, assigned_agent AS assignedAgent, ao_session_id AS aoSessionId
+        SELECT id, source_spec_path AS sourceSpecPath, assigned_agent AS assignedAgent, runtime_session_id AS runtimeSessionId
         FROM tasks
         WHERE id = ?
         LIMIT 1
       `,
     )
-    .get(taskId) as { id: string; sourceSpecPath: string | null; assignedAgent: string | null; aoSessionId: string | null } | undefined;
+    .get(taskId) as { id: string; sourceSpecPath: string | null; assignedAgent: string | null; runtimeSessionId: string | null } | undefined;
 
   if (!task || !task.sourceSpecPath) {
     return false;
@@ -305,7 +305,7 @@ export async function updateDashboardTaskStatus(taskId: string, status: Ralphito
     taskId,
     status,
     ...(task.assignedAgent ? { assignedAgent: task.assignedAgent } : {}),
-    ...(task.aoSessionId ? { aoSessionId: task.aoSessionId } : {}),
+    ...(task.runtimeSessionId ? { runtimeSessionId: task.runtimeSessionId } : {}),
   });
 
   return true;

@@ -49,7 +49,7 @@ function runGetSessionChat(sessionId: string) {
         SELECT threads.external_chat_id AS externalChatId
         FROM agent_sessions
         INNER JOIN threads ON threads.id = agent_sessions.thread_id
-        WHERE agent_sessions.ao_session_id = ?
+        WHERE agent_sessions.runtime_session_id = ?
         LIMIT 1
       `,
     )
@@ -60,7 +60,7 @@ function runGetSessionChat(sessionId: string) {
       `
         SELECT id, title
         FROM tasks
-        WHERE ao_session_id = ?
+        WHERE runtime_session_id = ?
         ORDER BY updated_at DESC
         LIMIT 1
       `,

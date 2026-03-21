@@ -38,7 +38,7 @@ function normalizeStatus(value: string) {
   return normalizedStatus;
 }
 
-function runUpdateFromTrace(traceabilityPath: string, taskId: string, rawStatus: string, assignedAgent?: string, aoSessionId?: string, failureReason?: string) {
+function runUpdateFromTrace(traceabilityPath: string, taskId: string, rawStatus: string, assignedAgent?: string, runtimeSessionId?: string, failureReason?: string) {
   syncTasksFromTraceability(traceabilityPath);
 
   const status = normalizeStatus(rawStatus);
@@ -48,7 +48,7 @@ function runUpdateFromTrace(traceabilityPath: string, taskId: string, rawStatus:
     taskId,
     status,
     ...(assignedAgent ? { assignedAgent } : {}),
-    ...(aoSessionId ? { aoSessionId } : {}),
+    ...(runtimeSessionId ? { runtimeSessionId } : {}),
     ...(failureReason ? { failureReason } : {}),
   });
 
@@ -85,19 +85,19 @@ function runStatusReport() {
     console.log(
       `- ${task.id} [${task.projectKey}] status=${task.status}` +
         `${task.assignedAgent ? ` agent=${task.assignedAgent}` : ''}` +
-        `${task.aoSessionId ? ` session=${task.aoSessionId}` : ''}`,
+        `${task.runtimeSessionId ? ` session=${task.runtimeSessionId}` : ''}`,
     );
   }
 }
 
 switch (command) {
   case 'update-from-trace': {
-    const [traceabilityPath, taskId, rawStatus, assignedAgent, aoSessionId, failureReason] = args;
+    const [traceabilityPath, taskId, rawStatus, assignedAgent, runtimeSessionId, failureReason] = args;
     if (!traceabilityPath || !taskId || !rawStatus) {
-      throw new Error('Uso: ralphito-tasks.ts update-from-trace <traceability.json> <task_id> <status> [assigned_agent] [ao_session_id] [failure_reason]');
+      throw new Error('Uso: ralphito-tasks.ts update-from-trace <traceability.json> <task_id> <status> [assigned_agent] [runtime_session_id] [failure_reason]');
     }
 
-    runUpdateFromTrace(traceabilityPath, taskId, rawStatus, assignedAgent, aoSessionId, failureReason);
+    runUpdateFromTrace(traceabilityPath, taskId, rawStatus, assignedAgent, runtimeSessionId, failureReason);
     break;
   }
   case 'status-report':

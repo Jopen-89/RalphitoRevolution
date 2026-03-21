@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import { getRalphitoDatabase } from '../persistence/db/index.js';
-import { refreshAoSessionSummary, refreshTaskSummary } from '../memory/summaryService.js';
+import { refreshRuntimeSessionSummary, refreshTaskSummary } from '../memory/summaryService.js';
 
 export type RalphitoTaskStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'failed' | 'cancelled';
 
@@ -29,7 +29,7 @@ export interface UpdateTaskStatusInput {
   taskId: string;
   status: RalphitoTaskStatus;
   assignedAgent?: string;
-  aoSessionId?: string;
+  runtimeSessionId?: string;
   failureReason?: string;
 }
 
@@ -103,7 +103,7 @@ export function syncTasksFromTraceability(sourceSpecPath: string) {
         component_path,
         status,
         assigned_agent,
-        ao_session_id,
+        runtime_session_id,
         priority,
         created_at,
         updated_at,
@@ -153,7 +153,7 @@ export function updateTaskStatus(input: UpdateTaskStatusInput) {
   const eventPayload = JSON.stringify({
     sourceSpecPath: resolvedSourceSpecPath,
     assignedAgent: input.assignedAgent || null,
-    aoSessionId: input.aoSessionId || null,
+    runtimeSessionId: input.runtimeSessionId || null,
     failureReason: input.failureReason || null,
     status: input.status,
   });
@@ -165,7 +165,7 @@ export function updateTaskStatus(input: UpdateTaskStatusInput) {
         SET status = ?,
             source_spec_path = ?,
             assigned_agent = COALESCE(?, assigned_agent),
-            ao_session_id = COALESCE(?, ao_session_id),
+            runtime_session_id = COALESCE(?, runtime_session_id),
             updated_at = ?,
             completed_at = ?
         WHERE id = ?
@@ -174,7 +174,7 @@ export function updateTaskStatus(input: UpdateTaskStatusInput) {
       input.status,
       resolvedSourceSpecPath,
       input.assignedAgent || null,
-      input.aoSessionId || null,
+      input.runtimeSessionId || null,
       now,
       completedAt,
       input.taskId,
@@ -188,8 +188,8 @@ export function updateTaskStatus(input: UpdateTaskStatusInput) {
   updateTransaction();
 
   refreshTaskSummary(input.taskId);
-  if (input.aoSessionId) {
-    refreshAoSessionSummary(input.aoSessionId);
+  if (input.runtimeSessionId) {
+    refreshRuntimeSessionSummary(input.runtimeSessionId);
   }
 }
 
@@ -251,7 +251,7 @@ export function getTaskStatusSummary() {
   const openTasks = db
     .prepare(
       `
-        SELECT id, project_key AS projectKey, status, assigned_agent AS assignedAgent, ao_session_id AS aoSessionId
+        SELECT id, project_key AS projectKey, status, assigned_agent AS assignedAgent, runtime_session_id AS runtimeSessionId
         FROM tasks
         WHERE status NOT IN ('done', 'cancelled')
         ORDER BY updated_at ASC, id ASC
@@ -262,7 +262,7 @@ export function getTaskStatusSummary() {
       projectKey: string;
       status: RalphitoTaskStatus;
       assignedAgent: string | null;
-      aoSessionId: string | null;
+      runtimeSessionId: string | null;
     }>;
 
   return {

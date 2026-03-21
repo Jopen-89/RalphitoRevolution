@@ -205,4 +205,109 @@ export const ralphitoMigrations: RalphitoMigration[] = [
       ALTER TABLE agent_sessions ADD COLUMN base_commit_hash TEXT;
     `,
   },
+  {
+    id: 10,
+    name: 'runtime_sessions_phase_1',
+    sql: `
+      ALTER TABLE tasks RENAME COLUMN ao_session_id TO runtime_session_id;
+      CREATE INDEX IF NOT EXISTS idx_tasks_runtime_session_id
+        ON tasks(runtime_session_id);
+
+      ALTER TABLE agent_sessions RENAME TO agent_sessions_legacy;
+
+      CREATE TABLE agent_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        thread_id INTEGER NOT NULL,
+        agent_id TEXT NOT NULL,
+        runtime_session_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        base_commit_hash TEXT,
+        worktree_path TEXT,
+        pid INTEGER,
+        step_count INTEGER NOT NULL DEFAULT 0,
+        max_steps INTEGER,
+        started_at TEXT,
+        heartbeat_at TEXT,
+        finished_at TEXT,
+        failure_kind TEXT,
+        failure_summary TEXT,
+        failure_log_tail TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO agent_sessions (
+        id,
+        thread_id,
+        agent_id,
+        runtime_session_id,
+        status,
+        base_commit_hash,
+        worktree_path,
+        pid,
+        step_count,
+        max_steps,
+        started_at,
+        heartbeat_at,
+        finished_at,
+        failure_kind,
+        failure_summary,
+        failure_log_tail,
+        created_at,
+        updated_at
+      )
+      SELECT
+        id,
+        thread_id,
+        agent_id,
+        ao_session_id,
+        CASE
+          WHEN status = 'bound' THEN 'running'
+          ELSE status
+        END,
+        base_commit_hash,
+        NULL,
+        NULL,
+        0,
+        NULL,
+        created_at,
+        updated_at,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        created_at,
+        updated_at
+      FROM agent_sessions_legacy;
+
+      DROP TABLE agent_sessions_legacy;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_sessions_runtime_session_id
+        ON agent_sessions(runtime_session_id);
+
+      CREATE INDEX IF NOT EXISTS idx_agent_sessions_thread_agent_updated
+        ON agent_sessions(thread_id, agent_id, updated_at DESC, id DESC);
+
+      CREATE TABLE IF NOT EXISTS runtime_locks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        runtime_session_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        path_kind TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        heartbeat_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        FOREIGN KEY (runtime_session_id) REFERENCES agent_sessions(runtime_session_id) ON DELETE CASCADE
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_locks_path
+        ON runtime_locks(path);
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_locks_runtime_session_id
+        ON runtime_locks(runtime_session_id);
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_locks_expires_at
+        ON runtime_locks(expires_at);
+    `,
+  },
 ];

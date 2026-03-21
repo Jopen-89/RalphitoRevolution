@@ -40,7 +40,7 @@ export interface MemoryContextBundle {
 }
 
 const THREAD_SCOPE = 'thread';
-const SESSION_SCOPE = 'ao_session';
+const SESSION_SCOPE = 'runtime_session';
 const TASK_SCOPE = 'task';
 const MAX_MESSAGE_POINTS = 6;
 const MAX_EVENT_POINTS = 6;
@@ -127,14 +127,14 @@ export function refreshThreadSummary(chatId: string) {
   return persistSummary(THREAD_SCOPE, chatId, summary);
 }
 
-export function refreshAoSessionSummary(sessionId: string) {
+export function refreshRuntimeSessionSummary(sessionId: string) {
   const db = getRalphitoDatabase();
   const sessionTasks = db
     .prepare(
       `
         SELECT id, title, status, updated_at AS updatedAt
         FROM tasks
-        WHERE ao_session_id = ?
+        WHERE runtime_session_id = ?
         ORDER BY updated_at DESC, id DESC
         LIMIT 3
       `,
@@ -148,7 +148,7 @@ export function refreshAoSessionSummary(sessionId: string) {
         FROM agent_sessions
         INNER JOIN threads ON threads.id = agent_sessions.thread_id
         INNER JOIN messages ON messages.thread_id = threads.id
-        WHERE agent_sessions.ao_session_id = ?
+        WHERE agent_sessions.runtime_session_id = ?
         ORDER BY messages.created_at DESC, messages.id DESC
         LIMIT ?
       `,
@@ -157,7 +157,7 @@ export function refreshAoSessionSummary(sessionId: string) {
 
   if (sessionTasks.length === 0 && messages.length === 0) return null;
 
-  const sections: string[] = ['Resumen persistente de la sesion AO:'];
+  const sections: string[] = ['Resumen persistente de la runtime session:'];
 
   if (sessionTasks.length > 0) {
     sections.push(...sessionTasks.map((task) => `- task ${task.id}: ${task.status} (${trimText(task.title, 80)})`));
@@ -228,7 +228,7 @@ export function getLatestTaskIdForSession(sessionId: string) {
       `
         SELECT id
         FROM tasks
-        WHERE ao_session_id = ?
+        WHERE runtime_session_id = ?
         ORDER BY updated_at DESC, id DESC
         LIMIT 1
       `,
@@ -249,7 +249,7 @@ export function refreshMemoryContext(chatId: string, sessionId?: string | null):
     };
   }
 
-  const sessionSummary = refreshAoSessionSummary(sessionId);
+  const sessionSummary = refreshRuntimeSessionSummary(sessionId);
   const taskId = getLatestTaskIdForSession(sessionId);
   const taskSummary = taskId ? refreshTaskSummary(taskId) : null;
 
