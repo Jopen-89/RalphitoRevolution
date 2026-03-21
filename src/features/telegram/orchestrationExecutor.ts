@@ -1,7 +1,5 @@
-import { exec } from 'child_process';
-import * as util from 'util';
+import { getRaymonOrchestrator } from '../engine/raymonOrchestrator.js';
 
-const execAsync = util.promisify(exec);
 const ORCHESTRATOR_PROJECT_ID = 'backend-team';
 
 export interface OrchestrationResult {
@@ -48,9 +46,8 @@ export function classifyIntent(_agentId: string, instruction: string): Orchestra
 export function isExplicitExecutionIntent(instruction: string) {
   const normalized = instruction.trim().toLowerCase();
 
-  // OBLIGA a que la instrucción sea explícitamente técnica o contenga un archivo bead
   const hasBeadOrSpec = /\.bead\.md\b|\.spec\.md\b/i.test(normalized);
-  
+
   const executionPatterns = [
     /^(ejecuta|ejecutar|programa)\b.*\bbead\b/i,
     /^(orquesta|lanza|ejecuta)\b.*\b(código|script|implementación)\b/i,
@@ -61,43 +58,23 @@ export function isExplicitExecutionIntent(instruction: string) {
 }
 
 export async function executeOrchestrationTask(agentId: string, instruction: string): Promise<OrchestrationResult> {
-  try {
-    const prompt = `ROLES: Usa la personalidad definida en agents/roles/ para ${agentId}.\n\nINSTRUCCIÓN:\n${instruction}`;
-    const escapedPrompt = prompt.replace(/"/g, '\\"');
-    const command = `./scripts/tools/tool_spawn_executor.sh "${ORCHESTRATOR_PROJECT_ID}" "${escapedPrompt}"`;
+  const prompt = `ROLES: Usa la personalidad definida en agents/roles/ para ${agentId}.\n\nINSTRUCCIÓN:\n${instruction}`;
 
-    const { stdout, stderr } = await execAsync(command, {
-      cwd: process.cwd(),
-      maxBuffer: 10 * 1024 * 1024,
+  try {
+    const orchestrator = getRaymonOrchestrator();
+    const result = await orchestrator.spawn({
+      project: ORCHESTRATOR_PROJECT_ID,
+      prompt,
     });
 
-    try {
-      const result = JSON.parse(stdout.trim()) as {
-        status?: string;
-        message?: string;
-        session_id?: string;
-        base_commit_hash?: string;
-        details?: string;
-      };
-
-      if (result.status === 'error') {
-        const details = result.details ? `\n${result.details}` : '';
-        const sessionInfo = result.session_id ? `\nSession ID: ${result.session_id}` : '';
-        throw new Error(`${result.message || 'No pude lanzar la tarea.'}${sessionInfo}${details}`);
-      }
-
-      const sessionInfo = result.session_id ? ` He abierto la sesión ${result.session_id}.` : '';
-      return {
-        ...(result.session_id ? { sessionId: result.session_id } : {}),
-        ...(result.base_commit_hash ? { baseCommitHash: result.base_commit_hash } : {}),
-        response: `Lo pongo en marcha.${sessionInfo} ${result.message || 'Puedes seguir el progreso por estado cuando quieras.'}`.trim(),
-      };
-    } catch (parseError) {
-      const diagnosticOutput = [stdout.trim(), stderr.trim()].filter(Boolean).join('\n');
-      throw new Error(diagnosticOutput || 'No pude interpretar la respuesta del orquestador.');
-    }
-  } catch (error: any) {
-    const diagnosticOutput = [error.stdout, error.stderr, error.message].filter(Boolean).join('\n');
-    throw new Error(diagnosticOutput || 'Fallo desconocido al lanzar la tarea en segundo plano.');
+    const sessionInfo = result.runtimeSessionId ? ` He abierto la sesión ${result.runtimeSessionId}.` : '';
+    return {
+      sessionId: result.runtimeSessionId,
+      baseCommitHash: result.baseCommitHash,
+      response: `Lo pongo en marcha.${sessionInfo} Puedes seguir el progreso por estado cuando quieras.`.trim(),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(message || 'Fallo desconocido al lanzar la tarea en segundo plano.');
   }
 }
