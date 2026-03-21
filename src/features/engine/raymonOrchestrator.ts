@@ -42,6 +42,12 @@ export interface RaymonStatusResult {
   autopilotActive: boolean;
 }
 
+export interface RaymonDivergenceResult {
+  status: 'success' | 'partial' | 'error';
+  message: string;
+  failedTeams?: string[];
+}
+
 export class RaymonOrchestrator {
   constructor(
     private readonly sessionSupervisor = new SessionSupervisor(),
@@ -104,6 +110,13 @@ export class RaymonOrchestrator {
     const guardrailFailures = this.findGuardrailFailures();
     const autopilotActive = sessions.some((s) => s.alive && s.status === 'running');
     return { sessions, guardrailFailures, autopilotActive };
+  }
+
+  async launchDivergence(projectId: string, seedIdea: string): Promise<RaymonDivergenceResult> {
+    return {
+      status: 'success',
+      message: 'Fase de Divergencia iniciada. 4 agentes lanzados en paralelo. (Skeleton - implementación pendiente)',
+    };
   }
 
   private extractBeadPathFromPrompt(prompt: string): string | undefined {
