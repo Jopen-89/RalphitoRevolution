@@ -1,0 +1,12 @@
+export const ENGINE_WORKTREE_ROOT = '.agent-worktrees';
+export const DEFAULT_RUNTIME_HEARTBEAT_TTL_MS = 5 * 60_000;
+export const DEFAULT_RUNTIME_LOCK_TTL_MS = DEFAULT_RUNTIME_HEARTBEAT_TTL_MS;
+export const DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_MS = 10_000;
+export const DEFAULT_RUNTIME_MAX_STEPS = 120;
+export const DEFAULT_RUNTIME_MAX_WALL_TIME_MS = 60 * 60_000;
+export const DEFAULT_RUNTIME_MAX_COMMAND_TIME_MS = 10 * 60_000;
+export const DEFAULT_RUNTIME_OUTPUT_LINES = 120;
+export const DEFAULT_RUNTIME_RUNTIME_THREAD_CHANNEL = 'runtime';
+export const RUNTIME_SESSION_FILE_NAME = '.ralphito-session.json';
+export const RUNTIME_FAILURE_FILE_NAME = '.ralphito-runtime-failure.json';
+export const RUNTIME_GUARDRAIL_LOG_NAME = '.guardrail_error.log';

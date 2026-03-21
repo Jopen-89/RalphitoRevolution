@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/ao-paths.sh"
+source "$SCRIPT_DIR/../lib/runtime-paths.sh"
 
 # Uso: ./tool_get_diff.sh <session_id>
 # Para que Juez vea qué ha hecho el Ralphito
@@ -16,7 +16,7 @@ if [ -z "$SESSION_ID" ]; then
 fi
 
 # Buscamos el worktree
-WORKTREE_PATH=$(find_ao_worktree "$SESSION_ID")
+WORKTREE_PATH=$(find_runtime_worktree "$SESSION_ID")
 
 if [ -z "$WORKTREE_PATH" ]; then
     echo '{"error": "No se encontró el worktree para la sesión '$SESSION_ID'"}'

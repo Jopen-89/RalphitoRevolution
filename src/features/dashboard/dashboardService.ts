@@ -1,6 +1,6 @@
-import { readdirSync, readFileSync } from 'fs';
-import path from 'path';
-import { getAoStructuredSessions, type AoStructuredSession } from '../ao/aoSessionAdapter.js';
+import { readFileSync } from 'fs';
+import { getEngineSessionsStatus, type EngineStatusSession } from '../engine/status.js';
+import { getGuardrailLogPath, getManagedRuntimeWorktreePath } from '../engine/runtimeFiles.js';
 import { getRalphitoDatabase } from '../persistence/db/index.js';
 import { updateTaskStatus, type RalphitoTaskStatus } from '../tasks/taskStateService.js';
 
@@ -18,7 +18,7 @@ interface TaskRow {
   componentPath: string | null;
   status: RalphitoTaskStatus;
   assignedAgent: string | null;
-  aoSessionId: string | null;
+  runtimeSessionId: string | null;
   priority: string;
   updatedAt: string;
   completedAt: string | null;
@@ -63,10 +63,10 @@ export interface UnifiedDashboardSession {
   summary: string | null;
   issue: string | null;
   prUrl: string | null;
-  createdAt: string | null;
-  lastActivityAt: string | null;
-  lastActivityLabel: string | null;
-  source: 'dashboard_api' | 'ao_status_json';
+  createdAt: string;
+  lastActivityAt: string;
+  lastActivityLabel: string;
+  source: 'ralphito_engine';
   thread: {
     id: number;
     channel: string;
@@ -106,7 +106,6 @@ export interface UnifiedDashboardSessionDetail {
   }>;
 }
 
-const AO_DATA_DIR = process.env.AO_DATA_DIR || path.join(process.env.HOME || '', '.agent-orchestrator');
 const MESSAGE_LIMIT = 20;
 const TIMELINE_LIMIT = 20;
 
@@ -118,21 +117,10 @@ function truncateError(errorText: string) {
 
 function getGuardrailErrorForSession(sessionId: string) {
   try {
-    const orchestratorDirs = readdirSync(AO_DATA_DIR, { withFileTypes: true }).filter((entry) => entry.isDirectory());
-
-    for (const dir of orchestratorDirs) {
-      const errorPath = path.join(AO_DATA_DIR, dir.name, 'worktrees', sessionId, '.guardrail_error.log');
-      try {
-        return truncateError(readFileSync(errorPath, 'utf8'));
-      } catch {
-        // continue
-      }
-    }
+    return truncateError(readFileSync(getGuardrailLogPath(getManagedRuntimeWorktreePath(sessionId)), 'utf8'));
   } catch {
     return null;
   }
-
-  return null;
 }
 
 function getSessionMeta(sessionId: string): DashboardSessionMeta {
@@ -148,7 +136,7 @@ function getSessionMeta(sessionId: string): DashboardSessionMeta {
           threads.title AS title
         FROM agent_sessions
         INNER JOIN threads ON threads.id = agent_sessions.thread_id
-        WHERE agent_sessions.ao_session_id = ?
+        WHERE agent_sessions.runtime_session_id = ?
         LIMIT 1
       `,
     )
@@ -164,12 +152,12 @@ function getSessionMeta(sessionId: string): DashboardSessionMeta {
           component_path AS componentPath,
           status,
           assigned_agent AS assignedAgent,
-          ao_session_id AS aoSessionId,
+          runtime_session_id AS runtimeSessionId,
           priority,
           updated_at AS updatedAt,
           completed_at AS completedAt
         FROM tasks
-        WHERE ao_session_id = ?
+        WHERE runtime_session_id = ?
         ORDER BY updated_at DESC
         LIMIT 1
       `,
@@ -181,7 +169,7 @@ function getSessionMeta(sessionId: string): DashboardSessionMeta {
       `
         SELECT agent_id AS agentId, status, updated_at AS updatedAt
         FROM agent_sessions
-        WHERE ao_session_id = ?
+        WHERE runtime_session_id = ?
         LIMIT 1
       `,
     )
@@ -195,7 +183,7 @@ function getSessionMeta(sessionId: string): DashboardSessionMeta {
   };
 }
 
-function toUnifiedSession(session: AoStructuredSession, meta: DashboardSessionMeta): UnifiedDashboardSession {
+function toUnifiedSession(session: EngineStatusSession, meta: DashboardSessionMeta): UnifiedDashboardSession {
   return {
     ...session,
     thread: meta.thread
@@ -221,7 +209,7 @@ function toUnifiedSession(session: AoStructuredSession, meta: DashboardSessionMe
 }
 
 export async function getUnifiedDashboardSessions() {
-  const sessions = await getAoStructuredSessions();
+  const sessions = await getEngineSessionsStatus();
 
   return sessions.map((session) => toUnifiedSession(session, getSessionMeta(session.id)));
 }
@@ -288,13 +276,13 @@ export async function updateDashboardTaskStatus(taskId: string, status: Ralphito
   const task = db
     .prepare(
       `
-        SELECT id, source_spec_path AS sourceSpecPath, assigned_agent AS assignedAgent, ao_session_id AS aoSessionId
+        SELECT id, source_spec_path AS sourceSpecPath, assigned_agent AS assignedAgent, runtime_session_id AS runtimeSessionId
         FROM tasks
         WHERE id = ?
         LIMIT 1
       `,
     )
-    .get(taskId) as { id: string; sourceSpecPath: string | null; assignedAgent: string | null; aoSessionId: string | null } | undefined;
+    .get(taskId) as { id: string; sourceSpecPath: string | null; assignedAgent: string | null; runtimeSessionId: string | null } | undefined;
 
   if (!task || !task.sourceSpecPath) {
     return false;
@@ -305,7 +293,7 @@ export async function updateDashboardTaskStatus(taskId: string, status: Ralphito
     taskId,
     status,
     ...(task.assignedAgent ? { assignedAgent: task.assignedAgent } : {}),
-    ...(task.aoSessionId ? { aoSessionId: task.aoSessionId } : {}),
+    ...(task.runtimeSessionId ? { runtimeSessionId: task.runtimeSessionId } : {}),
   });
 
   return true;

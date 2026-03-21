@@ -1,102 +1,66 @@
 # Architecture
 
-La arquitectura del repo se organiza en tres zonas claras: producto, operacion de agentes e infraestructura integrada.
+La arquitectura del repo se organiza en producto, operacion y persistencia.
 
 ## 1. Producto
 
 El codigo del producto vive en `src/`.
 
-- `src/features/` contiene slices funcionales
-- cada feature debe tender a concentrar contratos, mocks e implementacion relacionados
-- `src/` no debe absorber prompts, reglas, specs ni config operativa
+- `src/features/` concentra slices funcionales
+- `src/features/engine/` contiene el runtime propio
+- `src/` no absorbe prompts, reglas ni playbooks
 
-## 2. Operacion de agentes
+## 2. Operacion
 
-La capa operativa coordina como se diseña, ejecuta, valida y reanuda el trabajo de los agentes.
+La capa operativa vive fuera de `src/`.
 
-- `.agent-rules.md` define el workflow duro de ejecucion y cierre
-- `agents/` contiene roles y playbooks del sistema
-- `ops/` concentra configuracion de orquestacion y runtime
-- `scripts/` expone wrappers ejecutables para `bd`, resume y tooling auxiliar
-- `scripts/bd.sh` es el comando unico de aterrizaje: valida, sincroniza y hace push
+- `.agent-rules.md` define el workflow duro
+- `agents/` contiene roles y playbooks
+- `ops/` contiene config y estado operativo
+- `scripts/` expone `bd`, resume, QA y tooling
 
-## Ownership de runtime vs memoria
+## 3. Ownership
 
-- AO posee el lifecycle tecnico de sesiones y agentes
-- Ralphito posee el estado operativo y la memoria propia del producto
-- la capa central objetivo para Ralphito es SQLite
-- no debe existir doble verdad entre AO y artefactos locales mutables
+### Ralphito Engine posee
 
-### AO es fuente de verdad de
-
-- session ids
-- status y activity de sesion
+- `runtime_session_id`
 - branch y worktree
-- timestamps del ciclo de vida
-- PRs y metadata tecnica de sesion
+- locks por path resuelto
+- heartbeats, status, fallos estructurados y resume
 
-### SQLite Ralphito es fuente de verdad de
+### SQLite Ralphito posee
 
 - threads y mensajes
 - relacion chat/agente/sesion
-- tasks y beads
-- eventos operativos y errores
-- summaries persistentes
+- tasks, beads y task events
+- summaries, observabilidad y backups
 - indice documental y de codigo
-- eventos de observabilidad y metricas operativas
 
 ### `traceability.json`
 
-- deja de ser un coordinador transaccional vivo
-- no debe editarse como mecanismo operativo
-- si se mantiene, se genera desde SQLite como snapshot documental
+- no es coordinador vivo
+- se deriva desde SQLite
 
-## 3. Documentacion y specs
+## 4. Superficies operativas
 
-`docs/` es la fuente humana.
+- `src/features/llm-gateway/api/server.ts`: chat, dashboard, search, health y ops status
+- `src/features/dashboard/`: vista operacional engine + SQLite
+- `src/features/search/`: indice FTS5 de codigo y docs
+- `src/features/memory/`: summaries por thread, runtime session y task
+- `src/features/ops/`: health, metricas, eventos y backups
 
-- `docs/AUTOPILOT.md` describe la evolucion del sistema Autopilot
-- `docs/specs/` contiene ideas, specs maestras y beads paralelizables
-- `docs/runbooks/` se reserva para operacion humana repetible
-- `docs/lessons/` se reserva para aprendizaje acumulado
+## 5. Flujo resumido
 
-## 4. Infraestructura integrada
+1. La idea nace en `docs/specs/`.
+2. Arquitectura la divide en beads.
+3. El engine crea sesion, branch, worktree y locks.
+4. SQLite persiste estado y memoria.
+5. `scripts/bd.sh sync` valida y aterriza.
+6. Si falla, `scripts/resume.sh` reinyecta el error estructurado.
 
-`vendor/agent-orchestrator/` es una base externa integrada localmente.
+## 6. Reglas de `bd sync`
 
-- no forma parte del producto principal
-- su funcion es soportar el runtime y la coordinacion del sistema
-- a medio plazo debe aislarse bajo una zona de vendor para evitar contaminar la raiz
-
-## 5. Superficies operativas actuales
-
-- `src/features/llm-gateway/api/server.ts` expone chat, dashboard, search, health y ops status
-- `src/features/dashboard/` concentra la vista operacional AO + SQLite
-- `src/features/context/` arma retrieval determinista para Telegram
-- `src/features/search/` mantiene el indice FTS5 de codigo y docs
-- `src/features/memory/` mantiene summaries persistentes por thread, sesion y task
-- `src/features/ops/` concentra health, metricas, eventos y backups
-
-## Flujo operativo resumido
-
-1. Negocio o usuario define una idea.
-2. Se documenta en `docs/specs/`.
-3. Arquitectura divide el trabajo en beads con scope estricto.
-4. Ralphito persiste estado y memoria propia en SQLite.
-5. Los ejecutores trabajan contra mocks o contratos locales.
-6. `scripts/bd.sh sync` corre guardrails antes del push.
-7. Si fallan, `scripts/resume.sh` reinyecta el error en la sesion.
-
-## Reglas operativas de `bd sync`
-
-- el worktree debe estar limpio de cambios unstaged y archivos untracked
-- los cambios que se quieran aterrizar deben estar staged o ya existir como commits locales
-- si no hay nada que sincronizar, `bd sync` termina sin hacer push
-- fuera de tmux, `bd sync` no mata procesos; termina limpio
-
-## Direccion de la reorganizacion
-
-- mantener la raiz minima
-- mover prompts operativos fuera de la raiz a `agents/roles/`
-- mover config de orquestacion a `ops/`
-- reservar `vendor/` para dependencias integradas de gran tamano
+- worktree limpio: sin unstaged ni untracked
+- cambios staged o commits locales antes de sincronizar
+- si no hay nada que sync, termina sin push
+- fuera de tmux no mata procesos

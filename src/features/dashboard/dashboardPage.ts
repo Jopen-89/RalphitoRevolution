@@ -252,9 +252,9 @@ export function renderDashboardPage() {
   <div class="shell">
     <aside class="sidebar panel">
       <div class="brand">
-        <small>Ralphito / Phase 5</small>
+        <small>Ralphito / Fase 4</small>
         <h1>Control Deck</h1>
-        <p class="muted">AO + SQLite en una sola vista operativa, sin screen scraping.</p>
+        <p class="muted">Engine + SQLite en una sola vista operativa, sin screen scraping.</p>
       </div>
       <div class="stats" id="stats"></div>
       <div>
@@ -345,7 +345,7 @@ export function renderDashboardPage() {
     }
 
     function renderStats() {
-      const active = state.sessions.filter((session) => !['killed','done','terminated','merged','cleanup'].includes(session.status || '')).length;
+      const active = state.sessions.filter((session) => ['queued', 'running'].includes(session.status || '')).length;
       const linkedChats = state.sessions.filter((session) => session.thread).length;
       const withTasks = state.sessions.filter((session) => session.activeTask).length;
       const withErrors = state.sessions.filter((session) => session.lastGuardrailError).length;
@@ -385,7 +385,7 @@ export function renderDashboardPage() {
 
     function renderEmpty() {
       el.hero.innerHTML = '<div><small class="muted">Sin seleccion</small><h2>No hay sesion disponible</h2></div>';
-      el.controlCard.innerHTML = '<div class="muted">Cuando AO o SQLite tengan una sesion enlazada, aparecera aqui.</div>';
+      el.controlCard.innerHTML = '<div class="muted">Cuando el engine o SQLite tengan una sesion enlazada, aparecera aqui.</div>';
       el.chatLog.innerHTML = '<div class="muted">Sin mensajes</div>';
       el.timeline.innerHTML = '<div class="muted">Sin timeline</div>';
       el.contextGrid.innerHTML = '<div class="muted">Sin contexto enlazado</div>';
@@ -448,7 +448,7 @@ export function renderDashboardPage() {
 
       const session = state.detail.session;
       el.hero.innerHTML =
-        '<div><small class="muted">Sesion AO</small><h2>' + session.id + '</h2><p class="muted">' + (session.summary || session.issue || 'Sin resumen operativo') + '</p></div>' +
+        '<div><small class="muted">Runtime session</small><h2>' + session.id + '</h2><p class="muted">' + (session.summary || session.issue || 'Sin resumen operativo') + '</p></div>' +
         '<div class="hero-meta">' +
           chip(session.projectId || 'sin proyecto') +
           chip(session.status || 'sin status') +

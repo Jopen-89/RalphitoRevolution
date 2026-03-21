@@ -1,6 +1,6 @@
 import { mkdir } from 'fs/promises';
 import path from 'path';
-import { getAoStructuredSessions } from '../ao/aoSessionAdapter.js';
+import { getEngineSessionsStatus } from '../engine/status.js';
 import { getRalphitoDatabase, getRalphitoDatabasePath } from '../persistence/db/index.js';
 
 interface EventCountRow {
@@ -24,7 +24,7 @@ interface StuckTaskRow {
   status: string;
   updatedAt: string;
   assignedAgent: string | null;
-  aoSessionId: string | null;
+  runtimeSessionId: string | null;
 }
 
 const BACKUP_DIR = path.join(process.cwd(), 'ops', 'runtime', 'backups', 'ralphito');
@@ -87,13 +87,19 @@ function getAverageRetrievalMs() {
 
 async function getOrphanSessionCount() {
   const db = getRalphitoDatabase();
-  const aoSessions = await getAoStructuredSessions();
-  const activeSessionIds = new Set(aoSessions.map((session) => session.id));
+  const runtimeSessions = await getEngineSessionsStatus();
+  const activeSessionIds = new Set(runtimeSessions.filter((session) => session.alive).map((session) => session.id));
   const rows = db
-    .prepare('SELECT ao_session_id AS aoSessionId FROM agent_sessions')
-    .all() as Array<{ aoSessionId: string }>;
+    .prepare(
+      `
+        SELECT runtime_session_id AS runtimeSessionId
+        FROM agent_sessions
+        WHERE status IN ('queued', 'running')
+      `,
+    )
+    .all() as Array<{ runtimeSessionId: string }>;
 
-  return rows.filter((row) => row.aoSessionId && !activeSessionIds.has(row.aoSessionId)).length;
+  return rows.filter((row) => row.runtimeSessionId && !activeSessionIds.has(row.runtimeSessionId)).length;
 }
 
 function getStuckTasks() {
@@ -102,7 +108,7 @@ function getStuckTasks() {
   return db
     .prepare(
       `
-        SELECT id, status, updated_at AS updatedAt, assigned_agent AS assignedAgent, ao_session_id AS aoSessionId
+        SELECT id, status, updated_at AS updatedAt, assigned_agent AS assignedAgent, runtime_session_id AS runtimeSessionId
         FROM tasks
         WHERE status IN ('pending', 'in_progress', 'blocked')
           AND updated_at < ?
@@ -156,7 +162,7 @@ export async function getOperationalStatus() {
     }
   })();
 
-  const aoHealth = await getAoStructuredSessions()
+  const engineHealth = await getEngineSessionsStatus()
     .then((sessions) => ({ ok: true, sessionCount: sessions.length }))
     .catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
 
@@ -166,7 +172,7 @@ export async function getOperationalStatus() {
   return {
     health: {
       db: dbHealth,
-      ao: aoHealth,
+      engine: engineHealth,
       searchIndex: { ok: true, documentCount: getDocumentCount() },
     },
     metrics: {

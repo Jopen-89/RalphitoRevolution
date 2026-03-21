@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Operar Ralphito sin inspeccion manual constante y recuperar rapido el sistema cuando falle DB, retrieval o bindings AO/Telegram.
+Operar Ralphito sin inspeccion manual constante y recuperar rapido el sistema cuando falle DB, retrieval o bindings engine/Telegram.
 
 ## Health y estado operativo
 
@@ -13,10 +13,10 @@ Operar Ralphito sin inspeccion manual constante y recuperar rapido el sistema cu
 Campos clave a mirar:
 
 - `health.db.ok`: la base SQLite responde
-- `health.ao.ok`: AO responde via integracion estructurada
+- `health.engine.ok`: el engine responde y puede listar sesiones
 - `metrics.failedQueries`: numero de consultas de retrieval/search fallidas
 - `metrics.averageRetrievalMs`: latencia media reciente de retrieval
-- `metrics.orphanSessions`: bindings SQLite -> AO sin sesion viva
+- `metrics.orphanSessions`: bindings SQLite -> engine sin sesion viva
 - `metrics.stuckTasks`: tasks abiertas sin movimiento durante la ventana de alerta
 
 ## Backups SQLite
@@ -44,9 +44,9 @@ Flujo recomendado:
 Si `metrics.orphanSessions` es mayor que 0:
 
 1. Revisar `GET /api/ops/status` o `npm run ops:status`
-2. Confirmar si AO ya no tiene esas sesiones
+2. Confirmar si el engine ya no tiene esas sesiones
 3. Reenlazar la conversacion provocando una nueva interaccion en Telegram con el agente correspondiente
-4. Verificar que `agent_sessions` reciba el nuevo `ao_session_id`
+4. Verificar que `agent_sessions` reciba el nuevo `runtime_session_id`
 
 ## Recovery de tasks atascadas
 
@@ -70,6 +70,6 @@ Si sube `metrics.failedQueries`:
 Antes de declarar el sistema sano:
 
 - `health.db.ok = true`
-- `health.ao.ok = true`
+- `health.engine.ok = true`
 - `metrics.orphanSessions = 0` o explicado
 - `metrics.stuckTasks = 0` o explicado

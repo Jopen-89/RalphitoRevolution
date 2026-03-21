@@ -3,6 +3,7 @@ node_modules/
 .env.*
 !.env.example
 ops/runtime/
+.agent-worktrees/
 .tokens/
 package/
 *.tgz

@@ -1,43 +1,39 @@
 # Project
 
-RalphitoRevolution es un laboratorio de orquestacion autonoma sobre Agent Orchestrator orientado a coordinar agentes efimeros, reducir consumo de contexto y aplicar guardrails locales antes del push.
+RalphitoRevolution es un laboratorio de orquestacion autonoma sobre Ralphito Engine.
 
 ## Objetivo actual
 
-- definir una base clara para el producto y para la operacion de agentes
-- mantener `src/` limpio y separado de prompts, runtime y wrappers
-- usar specs y beads para paralelizar trabajo sin colisiones
+- coordinar agentes efimeros con worktrees, locks y guardrails propios
+- centralizar estado operativo y memoria en SQLite
+- mantener `src/` limpio y usar specs/beads para paralelizar sin colisiones
 
 ## Piezas principales
 
-- `src/`: codigo del producto y prototipos funcionales
-- `docs/specs/`: feature ideas, specs y beads de trabajo
-- `agents/`: roles operativos y playbooks del sistema
-- `ops/`: configuracion de orquestacion, prompts base y hooks
-- `scripts/`: automatizacion local como `bd.sh` y `resume.sh`
+- `src/`: producto, runtime propio, dashboard y persistencia
+- `docs/specs/`: ideas, specs y beads
+- `agents/`: roles y playbooks
+- `ops/`: config viva del runtime y estado operativo
+- `scripts/`: wrappers como `bd.sh`, `resume.sh`, QA y tooling
 - `skills/`: skills locales reutilizables
 
 ## Estado actual
 
-- **Autopilot v2 en Producción:** Sistema estable con orquestación masiva y spawning determinista.
-- **Raymon (Orquestador Maestro):** Coordina múltiples Ralphitos desde Telegram.
-- **Flujo Anti-Drift:** Sincronización basada en commit hashes para evitar colisiones de ramas.
-- **Cártel de QA:** Barreras automáticas (Ricky E2E, Juez CR) vía `bd merge`.
-- **Memoria Persistente:** Estado operativo y conversaciones centralizados en SQLite.
-- **Notificaciones Push:** Telemetría asíncrona a Telegram al finalizar tareas.
-- **Dashboard Operativo:** Vista unificada AO + Ralphito en `/dashboard`.
+- **Ralphito Engine:** runtime vivo para spawn, status, resume, locks y cleanup
+- **SQLite:** fuente canonica para threads, mensajes, tasks, sesiones y observabilidad
+- **QA Pipeline:** Miron, Ricky y Juez via `bd sync` / `bd merge`
+- **Dashboard Operativo:** vista unificada engine + SQLite en `/dashboard`
+- **Notificaciones Push:** telemetria asincrona a Telegram al cerrar trabajo
 
-## Direccion objetivo de estado y memoria
+## Contrato de ownership
 
-- AO sigue siendo el runtime y la fuente de verdad del lifecycle tecnico de sesiones
-- SQLite Ralphito pasa a ser la fuente de verdad de memoria y estado operativo propio
-- `traceability.json` deja de ser el coordinador vivo; si se conserva, sera un artefacto derivado
-- Telegram, tasks/beads, eventos operativos y summaries deben converger en una sola capa persistente
-- dashboard y tooling deben leer interfaces estructuradas, no depender de scraping de CLI o JSONs vivos
+- Ralphito Engine posee lifecycle tecnico, worktrees, locks, heartbeats y resume
+- SQLite Ralphito posee memoria, joins de negocio, tasks/beads, eventos y summaries
+- `traceability.json` queda solo como snapshot derivado
 
-## Principios del repo
+## Principios
 
 - separar producto, operacion e infraestructura
-- priorizar slices funcionales frente a carpetas por herramienta
+- no mantener compatibilidad legacy
+- priorizar contratos explicitos sobre scraping o estado duplicado
 - reducir lecturas innecesarias para agentes y humanos
-- dejar un template repetible para proyectos futuros

@@ -3,7 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/lib/ao-paths.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/lib/runtime-paths.sh"
 
 # Uso: ./scripts/resume.sh <session-id>
 # Ejemplo: ./scripts/resume.sh rr-1
@@ -16,11 +17,9 @@ if [ -z "$SESSION_ID" ]; then
     exit 1
 fi
 
-echo "🔍 Buscando archivo de error en los worktrees..."
+echo "🔍 Buscando archivo de error en los worktrees del engine..."
 
-# Buscamos el archivo de error en el worktree correspondiente a esa sesión.
-# Asumimos la estructura por defecto de AO: ~/.agent-orchestrator/<hash>-<project>/worktrees/<session-id>/
-WORKTREE_PATH=$(find_ao_worktree "$SESSION_ID")
+WORKTREE_PATH=$(find_runtime_worktree "$SESSION_ID")
 
 if [ -z "$WORKTREE_PATH" ]; then
     echo "❌ No se pudo encontrar el worktree para la sesión $SESSION_ID."
@@ -36,16 +35,10 @@ if [ ! -f "$ERROR_FILE" ]; then
 fi
 
 echo "✅ Error encontrado. Preparando inyección de contexto para resucitar al agente..."
-
-# Leemos el error, pero lo truncamos a las últimas 50 líneas para no gastar demasiados tokens.
-ERROR_CONTENT=$(tail -n 50 "$ERROR_FILE")
-
-PROMPT="Los guardrails locales han fallado al intentar hacer 'bd sync'. Tu código no puede ser pusheado hasta que arregles este error. Aquí tienes la salida del fallo:\n\n\`\`\`\n$ERROR_CONTENT\n\`\`\`\n\nPor favor, arréglalo y vuelve a ejecutar 'bd sync'."
-
 echo "🚀 Enviando mensaje a la sesión $SESSION_ID..."
-
-# Usamos el comando nativo de Agent Orchestrator para enviarle el error a la sesión.
-# Esto despertará al agente (si está en pausa) o se pondrá en la cola.
-ao send "$SESSION_ID" "$PROMPT"
+if ! npx tsx "$REPO_ROOT/src/features/engine/cli.ts" resume-session "$SESSION_ID" >/dev/null; then
+    echo "❌ Falló la reanudación estructurada para $SESSION_ID."
+    exit 1
+fi
 
 echo "✅ Contexto inyectado. El agente ha resucitado con el error."
