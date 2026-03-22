@@ -55,7 +55,9 @@ Si `metrics.stuckTasks` es mayor que 0:
 1. Revisar los ids expuestos en `stuckTasks`
 2. Abrir el dashboard en `/dashboard`
 3. Pausar (`blocked`) o cancelar (`cancelled`) si la task no puede continuar
-4. Si aplica, reinyectar el error al ejecutor con `scripts/tools/tool_resume_executor.sh <session-id>`
+4. Si aplica, reinyectar el error al ejecutor:
+   - **Via Raymon**: pidele a Raymon que haga `resume_executor` con el session-id
+   - **Directo (ops)**: `scripts/tools/tool_resume_executor.sh <session-id>`
 
 ## Fallos de retrieval o search
 

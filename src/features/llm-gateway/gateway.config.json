@@ -11,7 +11,8 @@
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "raymon",
@@ -22,6 +23,13 @@
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
         }
+      ],
+      "toolMode": "allowed",
+      "allowedTools": [
+        "spawn_executor",
+        "check_status",
+        "resume_executor",
+        "run_divergence_phase"
       ]
     },
     {
@@ -33,7 +41,8 @@
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "poncho",
@@ -44,7 +53,8 @@
           "provider": "opencode",
           "model": "minimax-m2.7"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "martapepis",
@@ -55,7 +65,8 @@
           "provider": "opencode",
           "model": "minimax-m2.7"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "lola",
@@ -66,7 +77,8 @@
           "provider": "opencode",
           "model": "minimax-m2.7"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "mapito",
@@ -77,7 +89,8 @@
           "provider": "opencode",
           "model": "minimax-m2.7"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "juez",
@@ -88,7 +101,8 @@
           "provider": "opencode",
           "model": "minimax-m2.7"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "tracker",
@@ -99,7 +113,8 @@
           "provider": "opencode",
           "model": "minimax-m2.7"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "ricky",
@@ -110,7 +125,8 @@
           "provider": "opencode",
           "model": "minimax-m2.7"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "miron",
@@ -121,7 +137,8 @@
           "provider": "opencode",
           "model": "minimax-m2.7"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "relleno",
@@ -132,7 +149,8 @@
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
         }
-      ]
+      ],
+      "toolMode": "none"
     },
     {
       "agentId": "ralphito",
@@ -143,7 +161,8 @@
           "provider": "gemini",
           "model": "gemini-3.1-pro-preview"
         }
-      ]
+      ],
+      "toolMode": "none"
     }
   ],
   "models": {

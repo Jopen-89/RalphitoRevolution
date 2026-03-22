@@ -1,7 +1,16 @@
 import type { OAuth2Client } from 'google-auth-library';
-import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult } from '../interfaces/gateway.types.js';
+import type {
+  IVisionProvider,
+  IToolCallingProvider,
+  Provider,
+  Message,
+  QuotaInfo,
+  ToolDefinition,
+  ToolCall,
+  VisionResult,
+} from '../interfaces/gateway.types.js';
 
-export class GeminiProvider implements IVisionProvider {
+export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
   name: Provider = 'gemini';
   private oAuth2Client: OAuth2Client;
   model: string;
@@ -14,27 +23,24 @@ export class GeminiProvider implements IVisionProvider {
 
   async generateResponse(messages: Message[]): Promise<string> {
     console.log(`[GeminiProvider] Enrutando petición a ${this.model} usando Google OAuth...`);
-    
+
     try {
-      // 1. Obtener el token de acceso fresco
       const { token } = await this.oAuth2Client.getAccessToken();
-      
+
       if (!token) {
         throw new Error('No se pudo obtener un token de acceso válido de Google.');
       }
 
-      // 2. Mapear los mensajes de Telegram/Gateway al formato de Gemini
-      const geminiContents = messages.map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : 'user', // Gemini usa 'model' en lugar de 'assistant'
-        parts: [{ text: msg.content }]
+      const geminiContents = messages.map((msg) => ({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }],
       }));
 
-      // 3. Hacer la petición a la API de Gemini usando el token OAuth en la cabecera
       const response = await fetch(`${this.baseUrl}/${this.model}:generateContent`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // Aquí está la magia: enviamos tu token personal
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           contents: geminiContents,
@@ -43,8 +49,8 @@ export class GeminiProvider implements IVisionProvider {
             topK: 40,
             topP: 0.95,
             maxOutputTokens: 8192,
-          }
-        })
+          },
+        }),
       });
 
       if (!response.ok) {
@@ -53,18 +59,100 @@ export class GeminiProvider implements IVisionProvider {
       }
 
       const data = await response.json();
-      
-      // Extraer la respuesta del formato de Gemini
+
       if (data.candidates && data.candidates.length > 0) {
         return data.candidates[0].content.parts[0].text;
       }
-      
-      throw new Error('Respuesta de Gemini vacía o en formato inesperado.');
 
+      throw new Error('Respuesta de Gemini vacía o en formato inesperado.');
     } catch (error) {
       console.error('[GeminiProvider] Fallo al conectar con Gemini:', error);
       throw error;
     }
+  }
+
+  async generateResponseWithTools(
+    messages: Message[],
+    tools: ToolDefinition[],
+  ): Promise<{ text: string; toolCalls: ToolCall[] }> {
+    console.log(`[GeminiProvider] generateResponseWithTools a ${this.model} con ${tools.length} tools...`);
+
+    const { token } = await this.oAuth2Client.getAccessToken();
+    if (!token) {
+      throw new Error('No se pudo obtener un token de acceso válido de Google.');
+    }
+
+    const geminiContents = messages.map((msg) => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts:
+        msg.role === 'tool'
+          ? [{ text: `[tool_call_id=${(msg as unknown as { toolCallId: string }).toolCallId}] ${msg.content}` }]
+          : [{ text: msg.content }],
+    }));
+
+    const functionDeclarations = tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: {
+        type: 'object' as const,
+        properties: Object.fromEntries(
+          Object.entries(tool.parameters).map(([key, param]) => [
+            key,
+            { type: param.type, description: param.description },
+          ]),
+        ),
+        required: Object.entries(tool.parameters)
+          .filter(([, param]) => param.required === true)
+          .map(([key]) => key),
+      },
+    }));
+
+    const requestBody: Record<string, unknown> = {
+      contents: geminiContents,
+      tools: functionDeclarations.length > 0 ? [{ functionDeclarations }] : [],
+      generationConfig: {
+        temperature: 0.7,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 8192,
+      },
+    };
+
+    const response = await fetch(`${this.baseUrl}/${this.model}:generateContent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(`Error de Gemini API: ${response.status} - ${errorData}`);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await response.json() as any;
+
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    const textParts: string[] = [];
+    const toolCalls: ToolCall[] = [];
+
+    for (const part of parts) {
+      if (part.text) {
+        textParts.push(part.text);
+      } else if (part.functionCall) {
+        const fc = part.functionCall;
+        toolCalls.push({
+          id: `gemini-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: fc.name,
+          arguments: fc.args || {},
+        });
+      }
+    }
+
+    return { text: textParts.join('\n'), toolCalls };
   }
 
   async getQuotaStatus(): Promise<QuotaInfo> {

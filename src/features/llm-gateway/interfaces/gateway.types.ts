@@ -5,12 +5,43 @@ export interface Message {
   content: string;
 }
 
+export interface ToolParameter {
+  type: 'string' | 'number' | 'boolean' | 'object';
+  description: string;
+  required?: boolean;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, ToolParameter>;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ToolResult {
+  toolCallId: string;
+  content: string;
+  ok: boolean;
+}
+
+export interface ToolMessage {
+  role: 'tool';
+  toolCallId: string;
+  content: string;
+}
+
 export interface ChatRequest {
   agentId?: string;
   provider?: Provider;
   model?: string;
   sessionId?: string;
   messages: Message[];
+  tools?: ToolDefinition[];
 }
 
 export interface ChatResponse {
@@ -18,7 +49,11 @@ export interface ChatResponse {
   providerUsed: Provider;
   modelUsed: string;
   sessionId?: string;
+  toolCalls?: ToolCall[];
+  toolResults?: ToolResult[];
 }
+
+export type ToolMode = 'none' | 'allowed';
 
 export interface AgentConfig {
   agentId: string;
@@ -28,6 +63,8 @@ export interface AgentConfig {
     provider: Provider;
     model: string;
   }[];
+  toolMode?: ToolMode;
+  allowedTools?: string[];
 }
 
 export interface GatewayConfig {
@@ -79,4 +116,11 @@ export interface ILLMProvider {
   name: Provider;
   generateResponse(messages: Message[]): Promise<string>;
   getQuotaStatus?(): Promise<QuotaInfo>;
+}
+
+export interface IToolCallingProvider extends ILLMProvider {
+  generateResponseWithTools(
+    messages: Message[],
+    tools: ToolDefinition[],
+  ): Promise<{ text: string; toolCalls: ToolCall[] }>;
 }

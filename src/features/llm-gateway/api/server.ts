@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { authenticateGoogle } from '../auth/google-oauth.js';
 import { ProviderFactory } from '../providers/provider.factory.js';
-import type { Provider, Message, AgentConfig, GatewayConfig, ChatRequest, ChatResponse } from '../interfaces/gateway.types.js';
+import type { Provider, Message, AgentConfig, GatewayConfig, ChatRequest, ChatResponse, ToolMode, ToolDefinition } from '../interfaces/gateway.types.js';
 import { initializeRalphitoDatabase } from '../../persistence/db/index.js';
 import { renderDashboardPage } from '../../dashboard/dashboardPage.js';
 import {
@@ -14,6 +14,9 @@ import {
 } from '../../dashboard/dashboardService.js';
 import { backupRalphitoDatabase, getOperationalStatus, recordSystemEvent } from '../../ops/observabilityService.js';
 import { searchIndexedDocuments } from '../../search/codeIndexService.js';
+import { executeToolCallLoop } from '../tools/toolCallingExecutor.js';
+import { createRaymonTools, isRaymonToolName } from '../tools/raymonTools.js';
+import type { IToolCallingProvider } from '../interfaces/gateway.types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -93,8 +96,72 @@ const resolveAgentConfig = (config: GatewayConfig, rawAgentId: string) => {
   return { agentConfig: undefined, resolvedAgentId: undefined, requestedId };
 };
 
+interface ToolPolicy {
+  allowed: ToolDefinition[];
+  denied: string[];
+  mode: ToolMode | undefined;
+}
+
+const RAYMON_LEGACY_TOOLS = ['spawn_executor', 'check_status', 'resume_executor', 'run_divergence_phase'] as const;
+
+const getEffectiveToolPolicy = (
+  agentConfig: AgentConfig | undefined,
+  resolvedAgentId: string | undefined,
+  requestedTools: ToolDefinition[] | undefined,
+): ToolPolicy => {
+  const denied: string[] = [];
+  const allowed: ToolDefinition[] = [];
+
+  if (!resolvedAgentId || !agentConfig) {
+    return { allowed: [], denied: [], mode: undefined };
+  }
+
+  const toolMode = agentConfig.toolMode;
+  const allowedTools = agentConfig.allowedTools;
+
+  if (toolMode === 'none') {
+    if (requestedTools && requestedTools.length > 0) {
+      denied.push(...requestedTools.map((t) => t.name));
+    }
+    return { allowed: [], denied, mode: 'none' };
+  }
+
+  if (toolMode === 'allowed' && allowedTools && allowedTools.length > 0) {
+    if (!requestedTools || requestedTools.length === 0) {
+      return { allowed: [], denied: [], mode: 'allowed' };
+    }
+    for (const tool of requestedTools) {
+      if (allowedTools.includes(tool.name)) {
+        allowed.push(tool);
+      } else {
+        denied.push(tool.name);
+      }
+    }
+    return { allowed, denied, mode: 'allowed' };
+  }
+
+  if (resolvedAgentId === 'raymon') {
+    if (!requestedTools || requestedTools.length === 0) {
+      return { allowed: [], denied: [], mode: toolMode };
+    }
+    for (const tool of requestedTools) {
+      if (RAYMON_LEGACY_TOOLS.includes(tool.name as typeof RAYMON_LEGACY_TOOLS[number])) {
+        allowed.push(tool);
+      } else {
+        denied.push(tool.name);
+      }
+    }
+    return { allowed, denied, mode: toolMode };
+  }
+
+  if (requestedTools && requestedTools.length > 0) {
+    denied.push(...requestedTools.map((t) => t.name));
+  }
+  return { allowed: [], denied, mode: toolMode };
+};
+
 app.post('/v1/chat', async (req, res) => {
-  const { agentId = 'default', provider, model, messages } = req.body as ChatRequest;
+  const { agentId = 'default', provider, model, messages, tools } = req.body as ChatRequest;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'Faltan parámetros messages (debe ser un array)' });
@@ -112,7 +179,6 @@ app.post('/v1/chat', async (req, res) => {
     });
   }
 
-  // Lista de intentos (primario + fallbacks)
   const attempts = provider
     ? [{ provider, model: model || DEFAULT_MODEL_BY_PROVIDER[provider] }]
     : [
@@ -126,12 +192,72 @@ app.post('/v1/chat', async (req, res) => {
         })),
       ];
 
+  const toolPolicy = getEffectiveToolPolicy(agentConfig, resolvedAgentId, tools);
+  const useToolCalling = toolPolicy.mode !== 'none' && toolPolicy.allowed.length > 0;
+  const toolProviders = new Set(['openai', 'gemini']);
+
+  if (useToolCalling && attempts.length > 0 && !toolProviders.has(attempts[0]!.provider)) {
+    return res.status(400).json({
+      error: 'TOOL_CALLING_UNSUPPORTED',
+      message: `Provider ${attempts[0]!.provider} no soporta tool-calling. Usa OpenAI o Gemini.`,
+    });
+  }
+
+  if (useToolCalling) {
+    if (toolPolicy.denied.length > 0) {
+      console.warn(`[Gateway] Tools denegadas para '${resolvedAgentId}': ${toolPolicy.denied.join(', ')}`);
+    }
+
+    const raymonTools = createRaymonTools();
+
+    for (const attempt of attempts) {
+      if (!toolProviders.has(attempt.provider)) continue;
+
+      try {
+        console.log(`[Gateway] Tool-calling con ${attempt.provider} (${attempt.model})...`);
+
+        const auth = {
+          ...(googleAuthClient ? { googleAuthClient } : {}),
+          ...(process.env.OPENAI_API_KEY ? { openAiKey: process.env.OPENAI_API_KEY } : {}),
+          ...(process.env.MINIMAX_API_KEY ? { minimaxKey: process.env.MINIMAX_API_KEY } : {}),
+        };
+
+        const llmProvider = ProviderFactory.create(attempt.provider, attempt.model, auth) as IToolCallingProvider;
+
+        const { text, toolCalls, toolResults } = await executeToolCallLoop(
+          messages,
+          toolPolicy.allowed,
+          raymonTools,
+          llmProvider,
+        );
+
+        const successResponse: ChatResponse = {
+          response: text,
+          providerUsed: attempt.provider,
+          modelUsed: attempt.model,
+          toolCalls,
+          toolResults,
+        };
+
+        return res.json(successResponse);
+      } catch (error) {
+        console.warn(`⚠️ Falló tool-calling con ${attempt.provider}:`, error instanceof Error ? error.message : String(error));
+        continue;
+      }
+    }
+
+    return res.status(502).json({
+      error: 'TOOL_CALLING_FAILED',
+      message: 'Todos los providers con soporte de tool-calling fallaron.',
+    });
+  }
+
   let lastError: any = null;
 
   for (const attempt of attempts) {
     try {
       console.log(`[Gateway] Intentando con ${attempt.provider} (${attempt.model})...`);
-      
+
       const auth = {
         ...(googleAuthClient ? { googleAuthClient } : {}),
         ...(process.env.OPENAI_API_KEY ? { openAiKey: process.env.OPENAI_API_KEY } : {}),
@@ -148,19 +274,16 @@ app.post('/v1/chat', async (req, res) => {
       };
 
       return res.json(successResponse);
-
     } catch (error) {
       console.warn(`⚠️ Falló ${attempt.provider} (${attempt.model}):`, error instanceof Error ? error.message : String(error));
       lastError = error;
-      // Continuar al siguiente fallback
     }
   }
 
-  // Si llegamos aquí, todos los intentos fallaron
   console.error('❌ Todos los proveedores fallaron:', lastError);
-  res.status(502).json({ 
-    error: 'ALL_PROVIDERS_UNAVAILABLE', 
-    details: lastError instanceof Error ? lastError.message : String(lastError) 
+  res.status(502).json({
+    error: 'ALL_PROVIDERS_UNAVAILABLE',
+    details: lastError instanceof Error ? lastError.message : String(lastError),
   });
 });
 
