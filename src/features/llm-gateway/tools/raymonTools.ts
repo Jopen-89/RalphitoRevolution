@@ -1,6 +1,7 @@
 import type { Tool, ToolCall } from './toolRegistry.js';
 import type { ToolDefinition } from '../interfaces/gateway.types.js';
 import { getRaymonOrchestrator } from '../../engine/raymonOrchestrator.js';
+import { sendTelegramMessage, getAllowedChatId } from '../../telegram/telegramSender.js';
 
 function requireString(value: unknown, name: string): string {
   if (typeof value !== 'string' || !value.trim()) {
@@ -19,6 +20,7 @@ export const RAYMON_TOOL_NAMES = [
   'check_status',
   'resume_executor',
   'run_divergence_phase',
+  'summon_agent_to_chat',
 ] as const;
 
 export type RaymonToolName = (typeof RAYMON_TOOL_NAMES)[number];
@@ -102,6 +104,25 @@ export function createRaymonTools(): Tool[] {
         return result;
       },
     },
+    {
+      name: 'summon_agent_to_chat',
+      description:
+        'Invoca a otro agente al chat de Telegram de forma programática, mencionándolo por su nombre. Útil para que Raymon llame a Moncho, Poncho, Lola, etc. cuando necesite su input.',
+      execute: async (params: Record<string, unknown>) => {
+        const agentName = requireString(params.agentName, 'agentName');
+        const message = optionalString(params.message) || `Hey @${agentName}, necesitas intervenir aquí.`;
+
+        const chatId = getAllowedChatId();
+        const result = await sendTelegramMessage(chatId, message);
+
+        return {
+          success: result.success,
+          agentName,
+          message,
+          messageId: result.messageId,
+        };
+      },
+    },
   ];
 }
 
@@ -134,6 +155,14 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
       parameters: {
         projectId: { type: 'string', description: 'ID del proyecto' },
         seedIdea: { type: 'string', description: 'Idea inicial para divergencia' },
+      },
+    },
+    {
+      name: 'summon_agent_to_chat',
+      description: 'Invoca a otro agente al chat de Telegram.',
+      parameters: {
+        agentName: { type: 'string', description: 'Nombre del agente a invocar (sin @)' },
+        message: { type: 'string', description: 'Mensaje opcional de contexto' },
       },
     },
   ];
