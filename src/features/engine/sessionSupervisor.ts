@@ -96,12 +96,12 @@ function shellEscape(str: string): string {
   return `'${escaped}'`;
 }
 
-function buildLaunchCommand(agent: string, model: string | null, prompt: string) {
+function buildLaunchCommand(agent: string, model: string | null) {
   switch (agent) {
     case 'codex':
       return ['codex', '--full-auto', '--no-alt-screen', ...(model ? ['-m', model] : [])].join(' ');
     case 'opencode':
-      return ['opencode', 'run', shellEscape(prompt), ...(model ? ['-m', model] : [])].join(' ');
+      return ['opencode', 'run', '"$RALPHITO_INSTRUCTION"', ...(model ? ['-m', model] : [])].join(' ');
     default:
       throw new Error(`Agent no soportado por Ralphito Engine: ${agent}`);
   }
@@ -206,12 +206,13 @@ export class SessionSupervisor {
       await this.tmuxRuntime.createSession(
         runtimeSessionId,
         worktreePath,
-        buildLaunchCommand(project.agent, model, prompt),
+        buildLaunchCommand(project.agent, model),
         toStringEnv(process.env, {
           RALPHITO_RUNTIME_SESSION_ID: runtimeSessionId,
           RALPHITO_ENGINE_MANAGED: '1',
           RALPHITO_PROJECT_ID: project.id,
           RALPHITO_WORKTREE_PATH: worktreePath,
+          RALPHITO_INSTRUCTION: prompt,
         }),
       );
       tmuxCreated = true;

@@ -1,7 +1,21 @@
 import { mkdir } from 'fs/promises';
 import path from 'path';
+import { EventEmitter } from 'events';
 import { getEngineSessionsStatus } from '../engine/status.js';
 import { getRalphitoDatabase, getRalphitoDatabasePath } from '../persistence/db/index.js';
+
+export interface ReaperSessionReapedEvent {
+  sessionId: string;
+  reason: string;
+  kind: string;
+  ts: string;
+}
+
+export const reaperEvents = new EventEmitter();
+
+export function notifyReaperSessionReaped(sessionId: string, reason: string, kind: string) {
+  reaperEvents.emit('session.reaped', { sessionId, reason, kind, ts: new Date().toISOString() } satisfies ReaperSessionReapedEvent);
+}
 
 interface EventCountRow {
   count: number;

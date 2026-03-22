@@ -59,7 +59,8 @@ export class ExecutorLoop {
     let lastProgressAt = Date.now();
     let lastStatus: string | null = null;
 
-    for (;;) {
+    try {
+      for (;;) {
       const session = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
       if (!session) {
         return {
@@ -221,6 +222,28 @@ export class ExecutorLoop {
           return { terminalStatus: 'failed', reason: refreshedSession.failureKind || 'failed' } satisfies ExecutorLoopResult;
         }
 
+        if (refreshedSession.status === 'running') {
+          const summary = `Sesión marcada running pero tmux murió sin failure record`;
+          if (refreshedSession.worktreePath) {
+            writeRuntimeFailureRecord(refreshedSession.worktreePath, {
+              runtimeSessionId: input.runtimeSessionId,
+              kind: 'silent_exit',
+              summary,
+              logTail: tailOutput(normalizedOutput),
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            });
+          }
+          this.sessionRepository.markStuck({
+            runtimeSessionId: input.runtimeSessionId,
+            failureKind: 'silent_exit',
+            failureSummary: summary,
+            heartbeatAt: nowIso,
+            finishedAt: nowIso,
+          });
+          return { terminalStatus: 'stuck', reason: 'silent_exit' } satisfies ExecutorLoopResult;
+        }
+
         if (refreshedSession.worktreePath) {
           clearRuntimeFailureRecord(refreshedSession.worktreePath);
         }
@@ -234,6 +257,10 @@ export class ExecutorLoop {
       }
 
       await sleep(input.pollMs ?? DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_MS);
+    }
+    } finally {
+      const session = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
+      await this.cleanupTerminalSession(input.runtimeSessionId, session?.worktreePath ?? null, false);
     }
   }
 }

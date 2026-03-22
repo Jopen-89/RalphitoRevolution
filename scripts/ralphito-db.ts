@@ -93,6 +93,23 @@ switch (command) {
     runGetSessionChat(sessionId);
     break;
   }
+  case 'query': {
+    initializeRalphitoDatabase();
+    const db = getRalphitoDatabase();
+    const sql = process.argv[3];
+    if (!sql) {
+      console.error('Usage: ralphito-db.ts query "<SQL>"');
+      process.exit(1);
+    }
+    try {
+      const result = db.prepare(sql).run();
+      console.log(JSON.stringify({ changes: result.changes, lastInsertRowid: result.lastInsertRowid }));
+    } catch (err) {
+      console.error('SQL error:', (err as Error).message);
+      process.exit(1);
+    }
+    break;
+  }
   default:
     console.error(`Unknown command: ${command}`);
     process.exit(1);

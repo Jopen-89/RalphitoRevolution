@@ -2,6 +2,7 @@ import { DEFAULT_RUNTIME_HEARTBEAT_TTL_MS } from './constants.js';
 import { RuntimeLockRepository } from './runtimeLockRepository.js';
 import { RuntimeSessionRepository, type RuntimeSessionRecord } from './runtimeSessionRepository.js';
 import { WorktreeManager } from './worktreeManager.js';
+import { notifyReaperSessionReaped } from '../ops/observabilityService.js';
 
 export interface ReapRuntimeStateInput {
   nowIso?: string;
@@ -44,6 +45,8 @@ export class RuntimeReaper {
         finishedAt: nowIso,
         heartbeatAt: nowIso,
       });
+
+      notifyReaperSessionReaped(session.runtimeSessionId, `Heartbeat vencido. last_seen=${lastSeenAt}`, 'heartbeat_timeout');
 
       releasedLocks += this.lockRepository.releaseForSession(session.runtimeSessionId);
       staleSessions.push(session.runtimeSessionId);

@@ -16,6 +16,7 @@ import { backupRalphitoDatabase, getOperationalStatus, recordSystemEvent } from 
 import { searchIndexedDocuments } from '../../search/codeIndexService.js';
 import { executeToolCallLoop } from '../tools/toolCallingExecutor.js';
 import { createRaymonTools, isRaymonToolName } from '../tools/raymonTools.js';
+import { createDocumentTools, isDocumentToolName, DOCUMENT_TOOL_NAMES } from '../tools/documentTools.js';
 import type { IToolCallingProvider } from '../interfaces/gateway.types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -102,7 +103,7 @@ interface ToolPolicy {
   mode: ToolMode | undefined;
 }
 
-const RAYMON_LEGACY_TOOLS = ['spawn_executor', 'check_status', 'resume_executor', 'run_divergence_phase'] as const;
+const RAYMON_LEGACY_TOOLS = ['spawn_executor', 'check_status', 'resume_executor', 'run_divergence_phase', 'summon_agent_to_chat'] as const;
 
 const getEffectiveToolPolicy = (
   agentConfig: AgentConfig | undefined,
@@ -209,6 +210,8 @@ app.post('/v1/chat', async (req, res) => {
     }
 
     const raymonTools = createRaymonTools();
+    const documentTools = createDocumentTools();
+    const allTools = [...raymonTools, ...documentTools];
 
     for (const attempt of attempts) {
       if (!toolProviders.has(attempt.provider)) continue;
@@ -227,7 +230,7 @@ app.post('/v1/chat', async (req, res) => {
         const { text, toolCalls, toolResults } = await executeToolCallLoop(
           messages,
           toolPolicy.allowed,
-          raymonTools,
+          allTools,
           llmProvider,
         );
 

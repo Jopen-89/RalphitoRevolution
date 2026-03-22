@@ -29,7 +29,8 @@
         "spawn_executor",
         "check_status",
         "resume_executor",
-        "run_divergence_phase"
+        "run_divergence_phase",
+        "summon_agent_to_chat"
       ]
     },
     {
@@ -42,7 +43,11 @@
           "model": "gemini-3.1-pro-preview"
         }
       ],
-      "toolMode": "none"
+      "toolMode": "allowed",
+      "allowedTools": [
+        "write_spec_document",
+        "read_workspace_file"
+      ]
     },
     {
       "agentId": "poncho",
@@ -54,7 +59,12 @@
           "model": "minimax-m2.7"
         }
       ],
-      "toolMode": "none"
+      "toolMode": "allowed",
+      "allowedTools": [
+        "write_spec_document",
+        "read_workspace_file",
+        "write_bead_document"
+      ]
     },
     {
       "agentId": "martapepis",
@@ -66,7 +76,10 @@
           "model": "minimax-m2.7"
         }
       ],
-      "toolMode": "none"
+      "toolMode": "allowed",
+      "allowedTools": [
+        "read_workspace_file"
+      ]
     },
     {
       "agentId": "lola",
@@ -78,7 +91,11 @@
           "model": "minimax-m2.7"
         }
       ],
-      "toolMode": "none"
+      "toolMode": "allowed",
+      "allowedTools": [
+        "read_workspace_file",
+        "write_spec_document"
+      ]
     },
     {
       "agentId": "mapito",
@@ -90,7 +107,10 @@
           "model": "minimax-m2.7"
         }
       ],
-      "toolMode": "none"
+      "toolMode": "allowed",
+      "allowedTools": [
+        "read_workspace_file"
+      ]
     },
     {
       "agentId": "juez",
