@@ -244,8 +244,6 @@ export class SessionSupervisor {
         },
       );
 
-      await this.tmuxRuntime.sendLiteral(runtimeSessionId, prompt);
-
       return {
         runtimeSessionId,
         baseCommitHash,

@@ -1,3 +1,0 @@
-[submodule "vendor/agent-orchestrator"]
-	path = vendor/agent-orchestrator
-	url = https://github.com/Jopen-89/agent-orchestrator.git
