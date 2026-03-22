@@ -5,6 +5,8 @@ import * as convStore from './conversationStore.js';
 import { executeAgentTask } from './chatExecutor.js';
 import { createRaymonToolDefinitions } from '../llm-gateway/tools/raymonTools.js';
 import { initializeRalphitoDatabase } from '../persistence/db/index.js';
+import { reaperEvents } from '../ops/observabilityService.js';
+import { sendTelegramMessage } from './telegramSender.js';
 
 // Capturar errores no manejados para ver el error real y no "[Object: null prototype]"
 process.on('uncaughtException', (err) => {
@@ -31,6 +33,16 @@ const ACTIVE_AGENT_WINDOW_MS = 15 * 60 * 1000;
 const DUPLICATE_MESSAGE_WINDOW_MS = 8 * 1000;
 const processingChats = new Set<string>();
 console.log(`🚀 Agentes detectados: ${agents.map(a => `${a.name} (${a.role})`).join(', ')}`);
+
+reaperEvents.on('session.reaped', async ({ sessionId, reason, kind }) => {
+  const message = `⚠️ Sesión \`${sessionId}\` finalizada por Guardrail\nMotivo: ${kind}\nDetalle: ${reason}`;
+  try {
+    const chatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
+    if (chatId) await sendTelegramMessage(chatId, message);
+  } catch (err) {
+    console.error('[Reaper→Telegram] Notification failed:', err);
+  }
+});
 
 function listAgentNames() {
     return agents.map((agent) => agent.name).join(', ');

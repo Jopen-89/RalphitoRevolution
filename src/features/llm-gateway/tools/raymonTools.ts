@@ -2,6 +2,10 @@ import type { Tool, ToolCall } from './toolRegistry.js';
 import type { ToolDefinition } from '../interfaces/gateway.types.js';
 import { getRaymonOrchestrator } from '../../engine/raymonOrchestrator.js';
 import { sendTelegramMessage, getAllowedChatId } from '../../telegram/telegramSender.js';
+import { TmuxRuntime } from '../../engine/tmuxRuntime.js';
+import { getRuntimeSessionRepository } from '../../engine/runtimeSessionRepository.js';
+import { getRuntimeLockRepository } from '../../engine/runtimeLockRepository.js';
+import { WorktreeManager } from '../../engine/worktreeManager.js';
 
 function requireString(value: unknown, name: string): string {
   if (typeof value !== 'string' || !value.trim()) {
@@ -21,6 +25,8 @@ export const RAYMON_TOOL_NAMES = [
   'resume_executor',
   'run_divergence_phase',
   'summon_agent_to_chat',
+  'cancel_executor',
+  'cleanup_zombies',
 ] as const;
 
 export type RaymonToolName = (typeof RAYMON_TOOL_NAMES)[number];
@@ -123,6 +129,87 @@ export function createRaymonTools(): Tool[] {
         };
       },
     },
+    {
+      name: 'cancel_executor',
+      description:
+        'Cancela y mata una sesión específica de Ralphito. Útil cuando una sesión se queda colgada o necesita detenerse manualmente.',
+      execute: async (params: Record<string, unknown>) => {
+        const sessionId = requireString(params.sessionId, 'sessionId');
+
+        const tmuxRuntime = new TmuxRuntime();
+        const killed = await tmuxRuntime.killSession(sessionId);
+
+        const sessionRepo = getRuntimeSessionRepository();
+        const session = sessionRepo.getByRuntimeSessionId(sessionId);
+
+        if (session) {
+          sessionRepo.fail({
+            runtimeSessionId: sessionId,
+            failureKind: 'cancelled_by_user',
+            failureSummary: 'Sesión cancelada por Raymon via cancel_executor',
+          });
+
+          const lockRepo = getRuntimeLockRepository();
+          lockRepo.releaseForSession(sessionId);
+        }
+
+        return {
+          success: killed,
+          sessionId,
+          killed,
+          message: killed
+            ? `Sesión ${sessionId} cancelada`
+            : `No se pudo matar sesión ${sessionId} (puede que ya esté muerta)`,
+        };
+      },
+    },
+    {
+      name: 'cleanup_zombies',
+      description:
+        'Audita sesiones en la base de datos y marca como stuck/failed cualquier sesión que figure como running pero no tenga proceso TMUX vivo. Limpia locks y worktrees asociados.',
+      execute: async () => {
+        const tmuxRuntime = new TmuxRuntime();
+        const sessionRepo = getRuntimeSessionRepository();
+        const lockRepo = getRuntimeLockRepository();
+        const worktreeManager = new WorktreeManager();
+        const nowIso = new Date().toISOString();
+
+        const sessions = sessionRepo.listActive();
+        const zombies: string[] = [];
+
+        for (const session of sessions) {
+          if (session.status !== 'running') continue;
+
+          const alive = await tmuxRuntime.isAlive(session.runtimeSessionId);
+          if (!alive) {
+            sessionRepo.markStuck({
+              runtimeSessionId: session.runtimeSessionId,
+              failureKind: 'zombie_session',
+              failureSummary: `Sesión marcada running pero tmux murió sin razón`,
+              heartbeatAt: nowIso,
+              finishedAt: nowIso,
+            });
+            lockRepo.releaseForSession(session.runtimeSessionId);
+
+            if (session.worktreePath && worktreeManager.isManagedWorkspace(session.worktreePath)) {
+              await worktreeManager.teardownWorkspacePath(session.worktreePath);
+            }
+
+            zombies.push(session.runtimeSessionId);
+          }
+        }
+
+        return {
+          audited: sessions.length,
+          zombiesFound: zombies.length,
+          zombies,
+          message:
+            zombies.length === 0
+              ? `Auditada ${sessions.length} sesiones. Sin zombies.`
+              : `Auditada ${sessions.length} sesiones. Zombies encontrados: ${zombies.join(', ')}`,
+        };
+      },
+    },
   ];
 }
 
@@ -164,6 +251,18 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
         agentName: { type: 'string', description: 'Nombre del agente a invocar (sin @)' },
         message: { type: 'string', description: 'Mensaje opcional de contexto' },
       },
+    },
+    {
+      name: 'cancel_executor',
+      description: 'Cancela y mata una sesión específica de Ralphito.',
+      parameters: {
+        sessionId: { type: 'string', description: 'ID de la sesión a cancelar' },
+      },
+    },
+    {
+      name: 'cleanup_zombies',
+      description: 'Audita y limpia sesiones zombies (running sin TMUX vivo).',
+      parameters: {},
     },
   ];
 }
