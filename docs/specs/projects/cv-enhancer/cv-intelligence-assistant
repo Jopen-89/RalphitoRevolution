@@ -1,0 +1,100 @@
+# Unified PRD: CV Intelligence Assistant
+**Status**: Draft | **Date**: [Hoy]
+
+## 1. El Problema y la Tesis AI-Native
+
+**El problema real:** Los candidatos pierden tiempo formateando y manteniendo sus CVs actualizados. Las herramientas de IA extraen datos, pero tratan al usuario como un espectador pasivo. Si la IA se equivoca, corregirla es más tedioso que hacerlo desde cero.
+
+**Tesis AI-Native:** Este producto NO tiene sentido sin IA porque:
+- La extracción semántica de experiencia, habilidades y contexto no la puede hacer un humano de forma rápida
+- La comparación contextual con el mercado laboral requiere procesamiento que solo la IA puede ofrecer en tiempo real
+- **Pero** la IA está al servicio del candidato, no al revés. El humano siempre valida y controla el resultado.
+
+**Propuesta de valor:** Subes tu CV → la IA lo interpreta → tú lo validas y ajustas → tienes tu perfil estructurado listo para usar.
+
+---
+
+## 2. Arquetipos de Usuario
+
+| Arquetipo | Rol del sistema | Necesidad principal |
+|-----------|-----------------|---------------------|
+| **Candidato activo** | Steward | Actualizar CV rápido para múltiples plataformas |
+| **Candidato pasivo** | Assistant | Mantener un CV sin esfuerzo, que el sistema le avise de actualizar |
+| **Candidato nervioso** | Companion | Sentir que tiene el control total sobre lo que la IA interpreta |
+
+**Relación:** El sistema es un asistente que trabaja bajo supervisión del usuario. Jamás toma decisiones sobre el contenido sin su validación explícita.
+
+---
+
+## 3. Principios de UX (Lola's Track)
+
+*(Placeholders marcados — necesarios antes de implementación)*
+
+- [ ] **Cero culpa:** Si la IA se equivoca, la culpa es del sistema, no del usuario
+- [ ] **Flow sin fricción:** Máximo 3 clicks desde subida hasta confirmación
+- [ ] **Validación visible:** El usuario ve exactamente qué extrajo la IA y dónde antes de confirmar
+- [ ] **Edición inline:** Corrección en el mismo contexto, sin navegar a otra pantalla
+- [ ] **Transparencia:** Indicación clara de qué es extracción automática y qué es sugerencia
+
+---
+
+## 4. Resolución de Tensiones
+
+| Tensión | Conflicto | Decisión |
+|---------|-----------|----------|
+| **Velocidad vs Control** | Extraer rápido vs dar tiempo para validar | **Control wins.** El usuario puede tomarse el tiempo que necesite. La IA no presiona. |
+| **Personalización vs Privacidad** | Guardar datos para mejorar vs guardar solo lo necesario | **Privacidad wins por defecto.** Datos guardados solo para la sesión a menos que el usuario active explícitamente el guardado. |
+| **Sugerencia vs Decisión** | La IA sugiere correcciones vs el usuario decide | **El usuario siempre decide.** La IA propone, el humano dispone. |
+
+---
+
+## 5. Límites Éticos y Seguridad (Mapito's Track)
+
+*(Placeholders marcados — necesarios antes de implementación)*
+
+**Qué NO hará el sistema:**
+- [ ] No almacenará CVs sin consentimiento explícito
+- [ ] No compartirá datos con terceros sin permiso
+- [ ] No generará contenido falso o夸大 (exageración) sobre la experiencia del usuario
+- [ ] No usará los datos del CV para entrenar modelos sin anonimización completa
+
+**Fronteras inamovibles:**
+- [ ] El usuario puede exportar/borrar sus datos en cualquier momento
+- [ ] Los errores de extracción se comunicarán con claridad, no se ocultarán
+- [ ] No habrá dark patterns para "optimizar" el CV de forma engañosa
+
+---
+
+## 6. Arquitectura Funcional (Poncho's Track)
+
+*(Vista de alto nivel — derivada del análisis de Martapepis)*
+
+```
+[Upload] → [Parser IA] → [Vista Validación] → [Perfil Estructurado] → [Exportar]
+
+Flujo:
+1. Candidato sube PDF/DOCX (drag & drop)
+2. Motor de extracción IA parsea documento
+3. Pantalla de validación muestra:
+   - Datos extraídos
+   - Campos editables inline
+   - Botón "Confirmar" / "Corregir más tarde"
+4. Perfil guardado como estructura (JSON interno)
+5. Exportar a: PDF formateado / Texto plano / Datos para API externa
+```
+
+**Componentes clave:**
+- **Upload Module:** Acepta PDF y DOCX, preprocesa para extracción
+- **AI Parser:** Modelo de extracción con confianza por campo
+- **Validation UI:** Interfaz de validación y corrección
+- **Profile Store:** Almacenamiento estructurado del perfil validado
+- **Export Engine:** Genera salida en múltiples formatos
+
+---
+
+## Próximos pasos
+
+1. **Validar esta estructura** con el equipo
+2. **Completar los placeholders** de Lola y Mapito para tener el documento final
+3. **Derivar a Poncho** para los Beads técnicos de implementación
+4. **Derivar a Lola** para el prototype de la pantalla de validación

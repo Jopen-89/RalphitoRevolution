@@ -145,7 +145,7 @@ export class SessionSupervisor {
     let tmuxCreated = false;
 
     try {
-      const { stdout } = await this.commandRunner.run('git', ['rev-parse', 'HEAD'], {
+      const { stdout } = await this.commandRunner.run('git', ['rev-parse', project.defaultBranch], {
         cwd: project.path,
       });
       const baseCommitHash = stdout.trim();
