@@ -15,7 +15,7 @@ projects:
     sessionPrefix: be
     repo: Jopen-89/RalphitoRevolution
     path: /home/pepu/IAproject/RalphitoRevolution
-    defaultBranch: master
+    defaultBranch: jopen/fix-opencode-spawn
     agentRulesFile: .agent-rules.md
     agent: opencode
     agentConfig:
@@ -25,7 +25,7 @@ projects:
     sessionPrefix: fe
     repo: Jopen-89/RalphitoRevolution
     path: /home/pepu/IAproject/RalphitoRevolution
-    defaultBranch: master
+    defaultBranch: jopen/fix-opencode-spawn
     agentRulesFile: .agent-rules.md
     agent: opencode
     agentConfig:
@@ -35,7 +35,7 @@ projects:
     sessionPrefix: ds
     repo: Jopen-89/RalphitoRevolution
     path: /home/pepu/IAproject/RalphitoRevolution
-    defaultBranch: master
+    defaultBranch: jopen/fix-opencode-spawn
     agentRulesFile: agents/roles/UIDesigner(Lola).md
     agent: opencode
     agentConfig:
@@ -45,7 +45,7 @@ projects:
     sessionPrefix: vq
     repo: Jopen-89/RalphitoRevolution
     path: /home/pepu/IAproject/RalphitoRevolution
-    defaultBranch: master
+    defaultBranch: jopen/fix-opencode-spawn
     agentRulesFile: agents/roles/VisualQA(Miron).md
     agent: opencode
     agentConfig:
@@ -55,7 +55,7 @@ projects:
     sessionPrefix: qa
     repo: Jopen-89/RalphitoRevolution
     path: /home/pepu/IAproject/RalphitoRevolution
-    defaultBranch: master
+    defaultBranch: jopen/fix-opencode-spawn
     agentRulesFile: agents/roles/PreFlightQA(Ricky).md
     agent: opencode
     agentConfig:
@@ -65,7 +65,7 @@ projects:
     sessionPrefix: do
     repo: Jopen-89/RalphitoRevolution
     path: /home/pepu/IAproject/RalphitoRevolution
-    defaultBranch: master
+    defaultBranch: jopen/fix-opencode-spawn
     agentRulesFile: .agent-rules.md
     agent: opencode
     agentConfig:
@@ -75,7 +75,7 @@ projects:
     sessionPrefix: se
     repo: Jopen-89/RalphitoRevolution
     path: /home/pepu/IAproject/RalphitoRevolution
-    defaultBranch: master
+    defaultBranch: jopen/fix-opencode-spawn
     agentRulesFile: agents/roles/SecurityAuditor(Mapito).md
     agent: opencode
     agentConfig:
@@ -85,7 +85,7 @@ projects:
     sessionPrefix: rs
     repo: Jopen-89/RalphitoRevolution
     path: /home/pepu/IAproject/RalphitoRevolution
-    defaultBranch: master
+    defaultBranch: jopen/fix-opencode-spawn
     agentRulesFile: agents/roles/Researcher(Martapepis).md
     agent: opencode
     agentConfig:
@@ -95,7 +95,7 @@ projects:
     sessionPrefix: au
     repo: Jopen-89/RalphitoRevolution
     path: /home/pepu/IAproject/RalphitoRevolution
-    defaultBranch: master
+    defaultBranch: jopen/fix-opencode-spawn
     agentRulesFile: agents/roles/FormFiller(Relleno).md
     agent: opencode
     agentConfig:
