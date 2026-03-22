@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { authenticateGoogle } from '../auth/google-oauth.js';
 import { ProviderFactory } from '../providers/provider.factory.js';
-import type { Provider, Message, AgentConfig, GatewayConfig, ChatRequest, ChatResponse } from '../interfaces/gateway.types.js';
+import type { Provider, Message, AgentConfig, GatewayConfig, ChatRequest, ChatResponse, ToolMode, ToolDefinition } from '../interfaces/gateway.types.js';
 import { initializeRalphitoDatabase } from '../../persistence/db/index.js';
 import { renderDashboardPage } from '../../dashboard/dashboardPage.js';
 import {
@@ -96,6 +96,70 @@ const resolveAgentConfig = (config: GatewayConfig, rawAgentId: string) => {
   return { agentConfig: undefined, resolvedAgentId: undefined, requestedId };
 };
 
+interface ToolPolicy {
+  allowed: ToolDefinition[];
+  denied: string[];
+  mode: ToolMode | undefined;
+}
+
+const RAYMON_LEGACY_TOOLS = ['spawn_executor', 'check_status', 'resume_executor', 'run_divergence_phase'] as const;
+
+const getEffectiveToolPolicy = (
+  agentConfig: AgentConfig | undefined,
+  resolvedAgentId: string | undefined,
+  requestedTools: ToolDefinition[] | undefined,
+): ToolPolicy => {
+  const denied: string[] = [];
+  const allowed: ToolDefinition[] = [];
+
+  if (!resolvedAgentId || !agentConfig) {
+    return { allowed: [], denied: [], mode: undefined };
+  }
+
+  const toolMode = agentConfig.toolMode;
+  const allowedTools = agentConfig.allowedTools;
+
+  if (toolMode === 'none') {
+    if (requestedTools && requestedTools.length > 0) {
+      denied.push(...requestedTools.map((t) => t.name));
+    }
+    return { allowed: [], denied, mode: 'none' };
+  }
+
+  if (toolMode === 'allowed' && allowedTools && allowedTools.length > 0) {
+    if (!requestedTools || requestedTools.length === 0) {
+      return { allowed: [], denied: [], mode: 'allowed' };
+    }
+    for (const tool of requestedTools) {
+      if (allowedTools.includes(tool.name)) {
+        allowed.push(tool);
+      } else {
+        denied.push(tool.name);
+      }
+    }
+    return { allowed, denied, mode: 'allowed' };
+  }
+
+  if (resolvedAgentId === 'raymon') {
+    if (!requestedTools || requestedTools.length === 0) {
+      return { allowed: [], denied: [], mode: toolMode };
+    }
+    for (const tool of requestedTools) {
+      if (RAYMON_LEGACY_TOOLS.includes(tool.name as typeof RAYMON_LEGACY_TOOLS[number])) {
+        allowed.push(tool);
+      } else {
+        denied.push(tool.name);
+      }
+    }
+    return { allowed, denied, mode: toolMode };
+  }
+
+  if (requestedTools && requestedTools.length > 0) {
+    denied.push(...requestedTools.map((t) => t.name));
+  }
+  return { allowed: [], denied, mode: toolMode };
+};
+
 app.post('/v1/chat', async (req, res) => {
   const { agentId = 'default', provider, model, messages, tools } = req.body as ChatRequest;
 
@@ -128,32 +192,20 @@ app.post('/v1/chat', async (req, res) => {
         })),
       ];
 
-  const isRaymon = resolvedAgentId === 'raymon';
-  const useToolCalling = isRaymon && Array.isArray(tools) && tools.length > 0;
+  const toolPolicy = getEffectiveToolPolicy(agentConfig, resolvedAgentId, tools);
+  const useToolCalling = toolPolicy.mode !== 'none' && toolPolicy.allowed.length > 0;
   const toolProviders = new Set(['openai', 'gemini']);
 
   if (useToolCalling && attempts.length > 0 && !toolProviders.has(attempts[0]!.provider)) {
     return res.status(400).json({
       error: 'TOOL_CALLING_UNSUPPORTED',
-      message: `Provider ${attempts[0]!.provider} no soporta tool-calling para Raymon PRO. Usa OpenAI o Gemini.`,
+      message: `Provider ${attempts[0]!.provider} no soporta tool-calling. Usa OpenAI o Gemini.`,
     });
   }
 
   if (useToolCalling) {
-    const toolDefinitions = tools.filter(
-      (t): t is NonNullable<typeof t> =>
-        t !== null && t !== undefined && isRaymonToolName(t.name),
-    );
-
-    if (toolDefinitions.length !== tools.length) {
-      const unknownTools = tools
-        .filter((t) => t && !isRaymonToolName(t.name))
-        .map((t) => (t as { name?: string }).name)
-        .filter(Boolean);
-      return res.status(400).json({
-        error: 'UNKNOWN_TOOLS',
-        message: `Tools desconocidas para Raymon: ${unknownTools.join(', ')}. Solo se permiten: spawn_executor, check_status, resume_executor, run_divergence_phase.`,
-      });
+    if (toolPolicy.denied.length > 0) {
+      console.warn(`[Gateway] Tools denegadas para '${resolvedAgentId}': ${toolPolicy.denied.join(', ')}`);
     }
 
     const raymonTools = createRaymonTools();
@@ -174,7 +226,7 @@ app.post('/v1/chat', async (req, res) => {
 
         const { text, toolCalls, toolResults } = await executeToolCallLoop(
           messages,
-          toolDefinitions,
+          toolPolicy.allowed,
           raymonTools,
           llmProvider,
         );

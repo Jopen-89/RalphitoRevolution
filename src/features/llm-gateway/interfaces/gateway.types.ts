@@ -53,6 +53,8 @@ export interface ChatResponse {
   toolResults?: ToolResult[];
 }
 
+export type ToolMode = 'none' | 'allowed';
+
 export interface AgentConfig {
   agentId: string;
   primaryProvider: Provider;
@@ -61,6 +63,8 @@ export interface AgentConfig {
     provider: Provider;
     model: string;
   }[];
+  toolMode?: ToolMode;
+  allowedTools?: string[];
 }
 
 export interface GatewayConfig {

@@ -1,4 +1,5 @@
 import type { Tool, ToolCall } from './toolRegistry.js';
+import type { ToolDefinition } from '../interfaces/gateway.types.js';
 import { getRaymonOrchestrator } from '../../engine/raymonOrchestrator.js';
 
 function requireString(value: unknown, name: string): string {
@@ -99,6 +100,40 @@ export function createRaymonTools(): Tool[] {
 
         const result = await orchestrator.launchDivergence(projectId, seedIdea);
         return result;
+      },
+    },
+  ];
+}
+
+export function createRaymonToolDefinitions(): ToolDefinition[] {
+  return [
+    {
+      name: 'spawn_executor',
+      description: 'Lanza un Ralphito executor con una tarea de implementación.',
+      parameters: {
+        project: { type: 'string', description: 'Nombre del proyecto backend-team' },
+        prompt: { type: 'string', description: 'Prompt de la tarea a ejecutar' },
+        beadPath: { type: 'string', description: 'Ruta opcional del bead' },
+      },
+    },
+    {
+      name: 'check_status',
+      description: 'Reporta estado consolidado de sesiones y guardrails de Ralphito.',
+      parameters: {},
+    },
+    {
+      name: 'resume_executor',
+      description: 'Resucita un Ralphito que murió por guardrail.',
+      parameters: {
+        sessionId: { type: 'string', description: 'ID de la sesión a resume' },
+      },
+    },
+    {
+      name: 'run_divergence_phase',
+      description: 'Inicia investigación paralela con 4 equipos de agentes.',
+      parameters: {
+        projectId: { type: 'string', description: 'ID del proyecto' },
+        seedIdea: { type: 'string', description: 'Idea inicial para divergencia' },
       },
     },
   ];

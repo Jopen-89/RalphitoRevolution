@@ -3,7 +3,7 @@ import type { AgentInfo } from './agentRegistry.js';
 import { getConversationSessionId, setConversationSessionId, getRecentChatHistory } from './conversationStore.js';
 import { loadDeterministicContext } from '../context/contextLoader.js';
 import { formatMemoryContext, refreshMemoryContext } from '../memory/summaryService.js';
-import type { ChatResponse } from '../llm-gateway/interfaces/gateway.types.js';
+import type { ChatResponse, ToolDefinition } from '../llm-gateway/interfaces/gateway.types.js';
 
 interface ChatResult {
   response: string;
@@ -158,6 +158,7 @@ export async function executeAgentTask(
   chatId: string,
   agent: AgentInfo,
   instruction: string,
+  options: { tools?: ToolDefinition[] } = {},
 ): Promise<ChatResult> {
   const history = getRecentChatHistory(chatId);
   const conversationSessionId = getConversationSessionId(chatId, agent.id);
@@ -194,17 +195,23 @@ export async function executeAgentTask(
 
   const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:3005/v1/chat';
 
+  const requestBody: Record<string, unknown> = {
+    agentId: agent.id,
+    ...(conversationSessionId ? { sessionId: conversationSessionId } : {}),
+    messages,
+  };
+
+  if (options.tools && options.tools.length > 0) {
+    requestBody.tools = options.tools;
+  }
+
   try {
     const response = await fetch(gatewayUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        agentId: agent.id,
-        ...(conversationSessionId ? { sessionId: conversationSessionId } : {}),
-        messages
-      })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {

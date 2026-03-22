@@ -3,8 +3,7 @@ import * as dotenv from 'dotenv';
 import { analyzeAgentMentions, extractMultiAgentInstruction, loadAgentRegistry, getAgentById, type AgentInfo } from './agentRegistry.js';
 import * as convStore from './conversationStore.js';
 import { executeAgentTask } from './chatExecutor.js';
-import { executeOrchestrationTask, isExplicitExecutionIntent, classifyIntent } from './orchestrationExecutor.js';
-import { runAutonomousCoordinatorLoop, shouldUseAutonomousCoordinator } from './ingress/autonomousCoordinatorLoop.js';
+import { createRaymonToolDefinitions } from '../llm-gateway/tools/raymonTools.js';
 import { initializeRalphitoDatabase } from '../persistence/db/index.js';
 
 // Capturar errores no manejados para ver el error real y no "[Object: null prototype]"
@@ -181,20 +180,8 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
         return;
     }
 
-    const intent = classifyIntent(agent.id, instruction);
-    const shouldExecute = intent !== 'chat';
-    const shouldUseCoordinator =
-      intent === 'execution'
-      && isExplicitExecutionIntent(instruction)
-      && shouldUseAutonomousCoordinator(agent.id, instruction);
-    const statusLabel =
-      intent === 'status'
-        ? 'consultando estado'
-        : intent === 'divergence'
-          ? 'activando divergencia'
-          : intent === 'execution'
-            ? 'poniendo la tarea en marcha'
-            : 'analizando tu petición';
+    const statusLabel = 'analizando tu petición';
+
     if (processingChats.has(chatKey)) {
         await ctx.reply(`⏳ ${agent.name} sigue con la petición anterior. Dame unos segundos y vuelve a escribir.`);
         return;
@@ -205,22 +192,8 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
     const statusMessage = await ctx.reply(`⏳ ${agent.name} (${agent.role}) ${statusLabel}...`);
 
     try {
-        if (shouldUseCoordinator) {
-            const result = await runAutonomousCoordinatorLoop(instruction, chatKey);
-            await publishAgentReply(chatId, statusMessage.message_id, agent, result.response);
-            return;
-        }
-
-        if (shouldExecute) {
-            const result = await executeOrchestrationTask(agent.id, instruction);
-            if (result.sessionId) {
-                convStore.setConversationSessionId(chatKey, agent.id, result.sessionId, result.baseCommitHash);
-            }
-            await publishAgentReply(chatId, statusMessage.message_id, agent, result.response);
-            return;
-        }
-
-        const result = await executeAgentTask(String(chatId), agent, instruction);
+        const tools = agent.id === 'raymon' ? createRaymonToolDefinitions() : undefined;
+        const result = await executeAgentTask(String(chatId), agent, instruction, tools ? { tools } : {});
         if (result.sessionId) {
             convStore.setConversationSessionId(chatKey, agent.id, result.sessionId);
         }
@@ -230,9 +203,7 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
             chatId,
             statusMessage.message_id,
             undefined,
-            shouldUseCoordinator
-                ? `⚠️ ${agent.name}: Estoy temporalmente degradado. No he podido completar la ejecucion. Intentalo de nuevo en unos segundos.`
-                : `❌ ${agent.name}: ${normalizeErrorMessage(error)}`
+            `❌ ${agent.name}: ${normalizeErrorMessage(error)}`
         );
     } finally {
         processingChats.delete(chatKey);
