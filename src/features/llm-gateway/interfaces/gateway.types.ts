@@ -40,6 +40,8 @@ export interface ChatRequest {
   provider?: Provider;
   model?: string;
   sessionId?: string;
+  originChatId?: string;
+  originThreadId?: number;
   messages: Message[];
   tools?: ToolDefinition[];
 }

@@ -392,6 +392,14 @@ export class TelegramStateRepository {
       .join('\n');
   }
 
+  getThreadId(chatId: string) {
+    const row = this.db
+      .prepare('SELECT id FROM threads WHERE channel = ? AND external_chat_id = ?')
+      .get(TELEGRAM_CHANNEL, chatId) as ThreadRow | undefined;
+
+    return row?.id || null;
+  }
+
   private ensureThread(chatId: string) {
     const existingThreadId = this.getThreadId(chatId);
     if (existingThreadId) return existingThreadId;
@@ -403,14 +411,6 @@ export class TelegramStateRepository {
       .run(TELEGRAM_CHANNEL, chatId, null, new Date().toISOString(), new Date().toISOString());
 
     return this.getThreadId(chatId)!;
-  }
-
-  private getThreadId(chatId: string) {
-    const row = this.db
-      .prepare('SELECT id FROM threads WHERE channel = ? AND external_chat_id = ?')
-      .get(TELEGRAM_CHANNEL, chatId) as ThreadRow | undefined;
-
-    return row?.id || null;
   }
 }
 

@@ -14,6 +14,7 @@ import { ExecutorLoop } from './executorLoop.js';
 import { getEngineSessionsStatus, formatEngineSessionLine } from './status.js';
 import { resumeRuntimeSession } from './resume.js';
 import { clearRuntimeFailureRecord } from './runtimeFiles.js';
+import { enqueueEngineNotification } from './engineNotifications.js';
 
 function printJson(payload: unknown) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
@@ -290,6 +291,28 @@ async function main() {
       return;
     }
 
+    case 'enqueue-notification': {
+      const rawRuntimeSessionId = args[0];
+      const eventType = args[1];
+      const payloadJson = args[2];
+      const targetChatId = args[3];
+      if (!rawRuntimeSessionId || !eventType || !payloadJson) {
+        throw new Error(
+          'Uso: cli.ts enqueue-notification <runtime_session_id|-> <event_type> <payload_json> [target_chat_id]',
+        );
+      }
+
+      const payload = JSON.parse(payloadJson) as Record<string, unknown>;
+      const notification = enqueueEngineNotification({
+        runtimeSessionId: rawRuntimeSessionId === '-' ? null : rawRuntimeSessionId,
+        eventType: eventType as Parameters<typeof enqueueEngineNotification>[0]['eventType'],
+        payload: payload as never,
+        ...(targetChatId ? { targetChatId } : {}),
+      });
+      printJson({ status: 'ok', notification });
+      return;
+    }
+
     case 'status': {
       const format = args[0] || 'table';
       const sessions = await getEngineSessionsStatus();
@@ -335,6 +358,7 @@ async function main() {
           'cli.ts clear-failure <runtime_session_id>',
           'cli.ts finish-session <runtime_session_id> [done|cancelled]',
           'cli.ts resume-session <runtime_session_id>',
+          'cli.ts enqueue-notification <runtime_session_id|-> <event_type> <payload_json> [target_chat_id]',
           'cli.ts status [table|json|active-count]',
         ].join('\n'),
       );

@@ -147,6 +147,19 @@ run_engine_cli() {
     npx tsx "$ENGINE_CLI" "$@" >/dev/null 2>&1 || true
 }
 
+enqueue_runtime_notification() {
+    local event_type="$1"
+    local payload_json="$2"
+    local session_id
+    session_id="$(get_session_id)"
+
+    if [ -z "$session_id" ]; then
+        return 0
+    fi
+
+    run_engine_cli enqueue-notification "$session_id" "$event_type" "$payload_json"
+}
+
 record_runtime_step() {
     local session_id
     session_id="$(get_session_id)"
@@ -194,8 +207,13 @@ finish_runtime_session() {
 }
 
 get_session_id() {
+    if [ -n "${RALPHITO_RUNTIME_SESSION_ID:-}" ]; then
+        printf '%s\n' "$RALPHITO_RUNTIME_SESSION_ID"
+        return
+    fi
+
     if [ -f "$REPO_ROOT/.ralphito-session.json" ]; then
-        jq -r '.sessionId' "$REPO_ROOT/.ralphito-session.json" 2>/dev/null || echo ""
+        jq -r '.runtimeSessionId // ""' "$REPO_ROOT/.ralphito-session.json" 2>/dev/null || echo ""
     else
         echo ""
     fi
@@ -204,10 +222,6 @@ get_session_id() {
 notify_guardrail_failure() {
     local guardrail_name="$1"
 
-    if [ ! -f "$REPO_ROOT/scripts/notify_telegram.sh" ]; then
-        return
-    fi
-
     local session_id
     session_id="$(get_session_id)"
 
@@ -220,36 +234,31 @@ notify_guardrail_failure() {
     local session_info
     session_info="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null)" || return
 
-    local chat_id bead_id has_error error_message
-    chat_id="$(echo "$session_info" | jq -r '.externalChatId' 2>/dev/null)" || return
-    bead_id="$(echo "$session_info" | jq -r '.beadId' 2>/dev/null)" || return
-    has_error="$(echo "$session_info" | jq -r '.hasGuardrailError' 2>/dev/null)" || return
-    error_message="$(echo "$session_info" | jq -r '.guardrailError' 2>/dev/null)" || return
+    local bead_id title has_error error_message summary snippet payload
+    bead_id="$(echo "$session_info" | jq -r '.beadId // ""' 2>/dev/null)" || return
+    title="$(echo "$session_info" | jq -r '.title // ""' 2>/dev/null)" || return
+    has_error="$(echo "$session_info" | jq -r '.hasGuardrailError // false' 2>/dev/null)" || return
+    error_message="$(echo "$session_info" | jq -r '.guardrailError // ""' 2>/dev/null)" || return
 
-    if [ "$chat_id" = "null" ] || [ -z "$chat_id" ]; then
-        return
+    summary="Fallo en ${guardrail_name}."
+    snippet=""
+    if [ "$has_error" = "true" ] && [ -n "$error_message" ]; then
+        summary="$error_message"
+        snippet="$error_message"
     fi
 
-    local display_bead="UNKNOWN"
-    if [ "$bead_id" != "null" ] && [ -n "$bead_id" ]; then
-        display_bead="$bead_id"
-    fi
+    payload="$(jq -nc \
+        --arg guardrail "$guardrail_name" \
+        --arg beadId "$bead_id" \
+        --arg title "$title" \
+        --arg summary "$summary" \
+        --arg snippet "$snippet" \
+        '{guardrail:$guardrail, beadId:$beadId, title:$title, summary:$summary, snippet:$snippet}')" || return
 
-    local message
-    if [ "$has_error" = "true" ] && [ "$error_message" != "null" ] && [ -n "$error_message" ]; then
-        message="❌ [${display_bead}] Fallo en ${guardrail_name}. Error: ${error_message}"
-    else
-        message="❌ [${display_bead}] Fallo en ${guardrail_name}."
-    fi
-
-    "$REPO_ROOT/scripts/notify_telegram.sh" "$message" "$chat_id" || true
+    enqueue_runtime_notification "session.guardrail_failed" "$payload"
 }
 
 notify_session_success() {
-    if [ ! -f "$REPO_ROOT/scripts/notify_telegram.sh" ]; then
-        return
-    fi
-
     local session_id
     session_id="$(get_session_id)"
 
@@ -262,22 +271,19 @@ notify_session_success() {
     local session_info
     session_info="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null)" || return
 
-    local chat_id bead_id
-    chat_id="$(echo "$session_info" | jq -r '.externalChatId' 2>/dev/null)" || return
-    bead_id="$(echo "$session_info" | jq -r '.beadId' 2>/dev/null)" || return
+    local bead_id title branch payload
+    bead_id="$(echo "$session_info" | jq -r '.beadId // ""' 2>/dev/null)" || return
+    title="$(echo "$session_info" | jq -r '.title // ""' 2>/dev/null)" || return
+    branch="$(current_branch)"
 
-    if [ "$chat_id" = "null" ] || [ -z "$chat_id" ]; then
-        return
-    fi
+    payload="$(jq -nc \
+        --arg beadId "$bead_id" \
+        --arg title "$title" \
+        --arg branchName "$branch" \
+        --arg prUrl "" \
+        '{beadId:$beadId, title:$title, branchName:$branchName, prUrl:$prUrl}')" || return
 
-    local display_bead="UNKNOWN"
-    if [ "$bead_id" != "null" ] && [ -n "$bead_id" ]; then
-        display_bead="$bead_id"
-    fi
-
-    local message="✅ [${display_bead}] Tarea completada y aterrizada en master."
-
-    "$REPO_ROOT/scripts/notify_telegram.sh" "$message" "$chat_id" || true
+    enqueue_runtime_notification "session.synced" "$payload"
 }
 
 run_miron_shadow() {

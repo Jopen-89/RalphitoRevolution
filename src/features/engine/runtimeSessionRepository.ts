@@ -10,10 +10,12 @@ const DEFAULT_RECENT_RUNTIME_SESSION_LIMIT = 40;
 export interface RuntimeSessionRecord {
   id: number;
   threadId: number;
+  originThreadId: number | null;
   agentId: string;
   runtimeSessionId: string;
   status: RuntimeSessionStatus;
   baseCommitHash: string | null;
+  notificationChatId: string | null;
   worktreePath: string | null;
   pid: number | null;
   stepCount: number;
@@ -30,10 +32,12 @@ export interface RuntimeSessionRecord {
 
 export interface CreateRuntimeSessionInput {
   threadId: number;
+  originThreadId?: number;
   agentId: string;
   runtimeSessionId: string;
   status?: RuntimeSessionStatus;
   baseCommitHash?: string;
+  notificationChatId?: string;
   worktreePath?: string;
   pid?: number;
   stepCount?: number;
@@ -118,10 +122,12 @@ export class RuntimeSessionRepository {
         `
           INSERT INTO agent_sessions (
             thread_id,
+            origin_thread_id,
             agent_id,
             runtime_session_id,
             status,
             base_commit_hash,
+            notification_chat_id,
             worktree_path,
             pid,
             step_count,
@@ -134,14 +140,16 @@ export class RuntimeSessionRepository {
             failure_log_tail,
             created_at,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
           ON CONFLICT(runtime_session_id)
           DO UPDATE SET
             thread_id = excluded.thread_id,
+            origin_thread_id = COALESCE(excluded.origin_thread_id, agent_sessions.origin_thread_id),
             agent_id = excluded.agent_id,
             runtime_session_id = excluded.runtime_session_id,
             status = excluded.status,
             base_commit_hash = excluded.base_commit_hash,
+            notification_chat_id = COALESCE(excluded.notification_chat_id, agent_sessions.notification_chat_id),
             worktree_path = excluded.worktree_path,
             pid = excluded.pid,
             step_count = excluded.step_count,
@@ -158,10 +166,12 @@ export class RuntimeSessionRepository {
       )
       .run(
         input.threadId,
+        input.originThreadId || null,
         input.agentId,
         input.runtimeSessionId,
         status,
         input.baseCommitHash || null,
+        input.notificationChatId || null,
         input.worktreePath || null,
         input.pid || null,
         stepCount,
@@ -376,10 +386,12 @@ export class RuntimeSessionRepository {
             SELECT
               id,
               thread_id AS threadId,
+              origin_thread_id AS originThreadId,
               agent_id AS agentId,
               runtime_session_id AS runtimeSessionId,
               status,
               base_commit_hash AS baseCommitHash,
+              notification_chat_id AS notificationChatId,
               worktree_path AS worktreePath,
               pid,
               step_count AS stepCount,
@@ -408,10 +420,12 @@ export class RuntimeSessionRepository {
           SELECT
             id,
             thread_id AS threadId,
+            origin_thread_id AS originThreadId,
             agent_id AS agentId,
             runtime_session_id AS runtimeSessionId,
             status,
             base_commit_hash AS baseCommitHash,
+            notification_chat_id AS notificationChatId,
             worktree_path AS worktreePath,
             pid,
             step_count AS stepCount,
@@ -439,10 +453,12 @@ export class RuntimeSessionRepository {
           SELECT
             id,
             thread_id AS threadId,
+            origin_thread_id AS originThreadId,
             agent_id AS agentId,
             runtime_session_id AS runtimeSessionId,
             status,
             base_commit_hash AS baseCommitHash,
+            notification_chat_id AS notificationChatId,
             worktree_path AS worktreePath,
             pid,
             step_count AS stepCount,

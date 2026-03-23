@@ -35,7 +35,12 @@ export function isRaymonToolName(name: string): name is RaymonToolName {
   return RAYMON_TOOL_NAMES.includes(name as RaymonToolName);
 }
 
-export function createRaymonTools(): Tool[] {
+interface RaymonToolContext {
+  originThreadId?: number;
+  notificationChatId?: string;
+}
+
+export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
   const orchestrator = getRaymonOrchestrator();
 
   return [
@@ -51,6 +56,8 @@ export function createRaymonTools(): Tool[] {
           project,
           prompt,
           ...(beadPath ? { beadPath } : {}),
+          ...(typeof context.originThreadId === 'number' ? { originThreadId: context.originThreadId } : {}),
+          ...(context.notificationChatId ? { notificationChatId: context.notificationChatId } : {}),
         });
 
         return {

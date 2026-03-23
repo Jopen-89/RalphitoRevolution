@@ -10,6 +10,7 @@ import {
   DEFAULT_RUNTIME_RUNTIME_THREAD_CHANNEL,
 } from './constants.js';
 import { buildEnginePrompt } from './promptBuilder.js';
+import { enqueueEngineNotification } from './engineNotifications.js';
 import {
   updateRuntimeSessionFile,
   writeRuntimeSessionFile,
@@ -31,6 +32,8 @@ export interface SpawnRuntimeSessionInput {
   beadSpecHash?: string;
   beadSpecVersion?: string;
   qaConfig?: unknown;
+  originThreadId?: number;
+  notificationChatId?: string;
 }
 
 export interface SpawnRuntimeSessionResult {
@@ -172,6 +175,8 @@ export class SessionSupervisor {
         beadSpecHash: input.beadSpecHash || null,
         beadSpecVersion: input.beadSpecVersion || null,
         qaConfig: input.qaConfig || null,
+        originThreadId: input.originThreadId ?? null,
+        notificationChatId: input.notificationChatId || null,
         maxSteps,
         maxWallTimeMs,
         maxCommandTimeMs,
@@ -181,10 +186,12 @@ export class SessionSupervisor {
 
       sessionRepository.create({
         threadId,
+        ...(input.originThreadId ? { originThreadId: input.originThreadId } : {}),
         agentId: project.id,
         runtimeSessionId,
         status: 'queued',
         baseCommitHash,
+        ...(input.notificationChatId ? { notificationChatId: input.notificationChatId } : {}),
         worktreePath,
         maxSteps,
         startedAt: createdAt,
@@ -208,6 +215,7 @@ export class SessionSupervisor {
         worktreePath,
         buildLaunchCommand(project.agent, model),
         toStringEnv(process.env, {
+          CI: '1',
           RALPHITO_RUNTIME_SESSION_ID: runtimeSessionId,
           RALPHITO_ENGINE_MANAGED: '1',
           RALPHITO_PROJECT_ID: project.id,
@@ -245,6 +253,18 @@ export class SessionSupervisor {
         },
       );
 
+      enqueueEngineNotification({
+        runtimeSessionId,
+        eventType: 'session.started',
+        payload: {
+          projectId: project.id,
+          branchName,
+          beadPath: input.beadPath || null,
+          workItemKey: input.workItemKey || null,
+        },
+        ...(input.notificationChatId ? { targetChatId: input.notificationChatId } : {}),
+      });
+
       return {
         runtimeSessionId,
         baseCommitHash,
@@ -253,6 +273,20 @@ export class SessionSupervisor {
       } satisfies SpawnRuntimeSessionResult;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (input.notificationChatId) {
+        enqueueEngineNotification({
+          runtimeSessionId,
+          eventType: 'session.spawn_failed',
+          targetChatId: input.notificationChatId,
+          payload: {
+            projectId: project.id,
+            branchName,
+            beadPath: input.beadPath || null,
+            workItemKey: input.workItemKey || null,
+            error: message,
+          },
+        });
+      }
 
       if (worktreePath) {
         writeRuntimeFailureRecord(worktreePath, {

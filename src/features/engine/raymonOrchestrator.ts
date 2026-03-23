@@ -16,6 +16,8 @@ export interface RaymonSpawnInput {
   beadSpecHash?: string;
   beadSpecVersion?: string;
   qaConfig?: unknown;
+  originThreadId?: number;
+  notificationChatId?: string;
 }
 
 export interface RaymonSpawnResult {
@@ -83,6 +85,8 @@ export class RaymonOrchestrator {
       ...(input.beadSpecHash ? { beadSpecHash: input.beadSpecHash } : {}),
       ...(input.beadSpecVersion ? { beadSpecVersion: input.beadSpecVersion } : {}),
       ...(input.qaConfig ? { qaConfig: input.qaConfig } : {}),
+      ...(input.originThreadId ? { originThreadId: input.originThreadId } : {}),
+      ...(input.notificationChatId ? { notificationChatId: input.notificationChatId } : {}),
     };
 
     return this.sessionSupervisor.spawn(spawnInput);

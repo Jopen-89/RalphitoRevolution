@@ -1,8 +1,8 @@
 import { DEFAULT_RUNTIME_HEARTBEAT_TTL_MS } from './constants.js';
+import { enqueueEngineNotification } from './engineNotifications.js';
 import { RuntimeLockRepository } from './runtimeLockRepository.js';
 import { RuntimeSessionRepository, type RuntimeSessionRecord } from './runtimeSessionRepository.js';
 import { WorktreeManager } from './worktreeManager.js';
-import { notifyReaperSessionReaped } from '../ops/observabilityService.js';
 
 export interface ReapRuntimeStateInput {
   nowIso?: string;
@@ -24,6 +24,7 @@ export class RuntimeReaper {
     private readonly sessionRepository: RuntimeSessionRepository,
     private readonly lockRepository: RuntimeLockRepository,
     private readonly worktreeManager: WorktreeManager,
+    private readonly enqueueNotification = enqueueEngineNotification,
   ) {}
 
   async reap(input: ReapRuntimeStateInput = {}) {
@@ -46,7 +47,14 @@ export class RuntimeReaper {
         heartbeatAt: nowIso,
       });
 
-      notifyReaperSessionReaped(session.runtimeSessionId, `Heartbeat vencido. last_seen=${lastSeenAt}`, 'heartbeat_timeout');
+      this.enqueueNotification({
+        runtimeSessionId: session.runtimeSessionId,
+        eventType: 'session.reaped',
+        payload: {
+          kind: 'heartbeat_timeout',
+          reason: `Heartbeat vencido. last_seen=${lastSeenAt}`,
+        },
+      });
 
       releasedLocks += this.lockRepository.releaseForSession(session.runtimeSessionId);
       staleSessions.push(session.runtimeSessionId);

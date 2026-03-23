@@ -6,6 +6,7 @@ import { getRalphitoDatabase, initializeRalphitoDatabase } from '../src/features
 
 interface SessionChatResult {
   externalChatId: string | null;
+  notificationChatId: string | null;
   beadId: string | null;
   title: string | null;
   hasGuardrailError: boolean;
@@ -33,14 +34,17 @@ function runGetSessionChat(sessionId: string) {
   const thread = db
     .prepare(
       `
-        SELECT threads.external_chat_id AS externalChatId
+        SELECT
+          agent_sessions.notification_chat_id AS notificationChatId,
+          threads.channel AS channel,
+          threads.external_chat_id AS externalChatId
         FROM agent_sessions
-        INNER JOIN threads ON threads.id = agent_sessions.thread_id
+        LEFT JOIN threads ON threads.id = COALESCE(agent_sessions.origin_thread_id, agent_sessions.thread_id)
         WHERE agent_sessions.runtime_session_id = ?
         LIMIT 1
       `,
     )
-    .get(sessionId) as { externalChatId: string } | undefined;
+    .get(sessionId) as { notificationChatId: string | null; channel: string | null; externalChatId: string | null } | undefined;
 
   const task = db
     .prepare(
@@ -57,7 +61,11 @@ function runGetSessionChat(sessionId: string) {
   const guardrailError = getGuardrailErrorForSession(sessionId);
 
   const result: SessionChatResult = {
-    externalChatId: thread?.externalChatId ?? null,
+    externalChatId:
+      thread?.notificationChatId ??
+      (thread?.channel === 'telegram' ? thread.externalChatId : null) ??
+      null,
+    notificationChatId: thread?.notificationChatId ?? null,
     beadId: task?.id ?? null,
     title: task?.title ?? null,
     hasGuardrailError: guardrailError !== null,

@@ -67,8 +67,8 @@ async function restoreExistingSession() {
 
 async function writeFixtureSession() {
   const payload = {
-    sessionId: 'qa-smoke-session',
-    project: 'frontend-team',
+    runtimeSessionId: 'qa-smoke-session',
+    projectId: 'frontend-team',
     model: 'gpt-5.4',
     prompt: 'Smoke test fixture for Miron and Ricky',
     beadPath: 'docs/specs/projects/qa-pipeline-smoke/bead-1-smoke-fixture.md',

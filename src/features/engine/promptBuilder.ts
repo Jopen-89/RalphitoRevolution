@@ -9,6 +9,7 @@ const BASE_ENGINE_PROMPT = `You are an AI coding agent managed by Ralphito Engin
 - Use the current branch created for this runtime session.
 - Use \`bd sync\` as the only landing command.
 - If guardrails fail, you will receive a structured resume prompt. Fix the issue and continue from the same worktree.
+- You operate in a headless runtime. Never launch servers, watchers, \`tail -f\`, interactive prompts, or commands that do not terminate.
 - Stay scoped to the assigned task.`;
 
 function readProjectRules(project: EngineProjectConfig) {
