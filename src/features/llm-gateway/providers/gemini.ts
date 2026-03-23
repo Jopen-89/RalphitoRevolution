@@ -42,6 +42,7 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
+        signal: AbortSignal.timeout(120000),
         body: JSON.stringify({
           contents: geminiContents,
           generationConfig: {
@@ -142,6 +143,7 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
+      signal: AbortSignal.timeout(120000),
       body: JSON.stringify(requestBody),
     });
 
@@ -206,6 +208,7 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
+        signal: AbortSignal.timeout(120000),
         body: JSON.stringify({
           contents: [{
             role: 'user',
