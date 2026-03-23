@@ -95,16 +95,15 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
         };
         
         // Si hay un toolCallId y no parece ser uno generado localmente (gemini-...), lo incluimos
-        // ya que algunos modelos (como gemini-3.1-pro-preview) parecen estar enviando IDs
         if (msg.toolCallId && !msg.toolCallId.startsWith('gemini-')) {
           (functionResponse as any).id = msg.toolCallId;
         }
 
-        if (lastContent && lastContent.role === 'function') {
+        if (lastContent && lastContent.role === 'user' && lastContent.parts[0]?.functionResponse) {
           lastContent.parts.push({ functionResponse });
         } else {
           lastContent = {
-            role: 'function',
+            role: 'user',
             parts: [{ functionResponse }]
           };
           geminiContents.push(lastContent);
