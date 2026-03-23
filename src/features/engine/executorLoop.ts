@@ -11,12 +11,20 @@ import {
   readRuntimeFailureRecord,
   readRuntimeSessionFile,
   writeRuntimeFailureRecord,
+  isWaitingForLlm,
 } from './runtimeFiles.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
 import { enqueueEngineNotification } from './engineNotifications.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { TmuxRuntime } from './tmuxRuntime.js';
 import { WorktreeManager } from './worktreeManager.js';
+import {
+  detectCredentialPrompt,
+  detectSmartDefault,
+  findMatchingPrompt,
+  getCredentialFromEnv,
+  type PromptMatch,
+} from './promptPatterns.js';
 
 export interface ExecutorLoopContext {
   runtimeSessionId: string;
@@ -27,16 +35,6 @@ export interface ExecutorLoopResult {
   terminalStatus: 'done' | 'failed' | 'stuck';
   reason: string;
 }
-
-const INTERACTIVE_PROMPT_PATTERNS = [
-  /\[[Yy]\/[Nn]\]/,
-  /\[[Nn]\/[Yy]\]/,
-  /\bcontinue\?\b/i,
-  /\bproceed\?\b/i,
-  /\bpress any key\b/i,
-  /\bare you sure\b/i,
-  /\bconfirm(?:ation)?\b/i,
-];
 
 const BLOCKING_DAEMON_PATTERNS = [
   /\bwatch mode\b/i,
@@ -80,11 +78,6 @@ function findMatchingTerminalLine(output: string | null, patterns: RegExp[]) {
   return null;
 }
 
-function getInteractivePromptSummary(output: string | null) {
-  const line = findMatchingTerminalLine(output, INTERACTIVE_PROMPT_PATTERNS);
-  return line ? `Prompt interactivo detectado: ${line}` : null;
-}
-
 function getBlockingDaemonSummary(output: string | null) {
   const line = findMatchingTerminalLine(output, BLOCKING_DAEMON_PATTERNS);
   return line ? `Proceso bloqueante detectado: ${line}` : null;
@@ -99,6 +92,7 @@ export class ExecutorLoop {
   ) {}
 
   private async cleanupTerminalSession(runtimeSessionId: string, worktreePath: string | null, removeWorkspace: boolean) {
+    console.log(`[ExecutorLoop:${runtimeSessionId}] Cleaning up terminal session. Worktree: ${worktreePath}, remove: ${removeWorkspace}`);
     this.lockRepository.releaseForSession(runtimeSessionId);
 
     if (!worktreePath || !removeWorkspace) return;
@@ -110,16 +104,21 @@ export class ExecutorLoop {
   }
 
   async run(input: ExecutorLoopContext) {
+    console.log(`[ExecutorLoop:${input.runtimeSessionId}] Started`);
     let lastOutput = '';
     let lastProgressAt = Date.now();
     let lastStatus: string | null = null;
     let blockingDaemonDetectedAt: number | null = null;
     let blockingDaemonSummary: string | null = null;
+    let currentCommand: string | null = null;
+    let promptRetryCount = 0;
+    let lastPromptMatch: PromptMatch | null = null;
 
     try {
       for (;;) {
       const session = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
       if (!session) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Session missing from DB, aborting.`);
         return {
           terminalStatus: 'failed',
           reason: 'session_missing',
@@ -134,11 +133,15 @@ export class ExecutorLoop {
       const maxCommandTimeMs = sessionFile?.maxCommandTimeMs ?? DEFAULT_RUNTIME_MAX_COMMAND_TIME_MS;
       const sessionMaxSteps = session.maxSteps ?? sessionFile?.maxSteps;
       const startedAtMs = Date.parse(session.startedAt || session.createdAt);
+      
       const alive = await this.tmuxRuntime.isAlive(input.runtimeSessionId);
+      console.log(`[ExecutorLoop:${input.runtimeSessionId}] Polling... status=${session.status}, steps=${session.stepCount}, alive=${alive}`);
+      
       const output = alive ? await this.tmuxRuntime.captureOutput(input.runtimeSessionId, DEFAULT_RUNTIME_OUTPUT_LINES) : '';
       const normalizedOutput = output.trim();
 
       if (lastStatus === 'failed' && session.status === 'running') {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Recovered from failed state, resetting progress timer`);
         lastProgressAt = nowMs;
       }
       lastStatus = session.status;
@@ -156,6 +159,7 @@ export class ExecutorLoop {
       });
 
       if (failure && session.status !== 'failed') {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Failure file detected: ${failure.kind}, marking session failed`);
         this.sessionRepository.fail({
           runtimeSessionId: input.runtimeSessionId,
           failureKind: failure.kind,
@@ -167,61 +171,178 @@ export class ExecutorLoop {
       }
 
       if (session.status === 'running' && normalizedOutput && normalizedOutput !== lastOutput) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] New output detected, updating progress timer`);
         lastOutput = normalizedOutput;
         lastProgressAt = nowMs;
         this.sessionRepository.incrementStepCount({
           runtimeSessionId: input.runtimeSessionId,
           heartbeatAt: nowIso,
         });
+      } else if (session.status === 'running' && session.worktreePath && isWaitingForLlm(session.worktreePath)) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Waiting for LLM detected via marker file, resetting progress timer`);
+        lastProgressAt = nowMs;
       }
 
       const refreshedSession = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
       if (!refreshedSession) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Session missing after heartbeat`);
         return {
           terminalStatus: 'failed',
           reason: 'session_missing_after_heartbeat',
         } satisfies ExecutorLoopResult;
       }
 
-      const interactivePromptSummary =
-        refreshedSession.status === 'running' ? getInteractivePromptSummary(normalizedOutput) : null;
-      if (interactivePromptSummary) {
-        const failureLogTail = tailOutput(normalizedOutput);
-        if (refreshedSession.worktreePath) {
-          writeRuntimeFailureRecord(refreshedSession.worktreePath, {
-            runtimeSessionId: input.runtimeSessionId,
-            kind: 'interactive_prompt_detected',
-            summary: interactivePromptSummary,
-            logTail: failureLogTail,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          });
+      const promptMatch: PromptMatch | null =
+        refreshedSession.status === 'running' || refreshedSession.status === 'suspended_human_input'
+          ? findMatchingPrompt(normalizedOutput)
+          : null;
+
+      if (refreshedSession.status === 'suspended_human_input') {
+        if (!promptMatch) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Suspended but prompt gone, auto-resuming`);
+          this.sessionRepository.resume({ runtimeSessionId: input.runtimeSessionId, heartbeatAt: nowIso });
+          promptRetryCount = 0;
+          lastPromptMatch = null;
+        } else {
+          const suspendedAt = refreshedSession.suspendedAt ? new Date(refreshedSession.suspendedAt) : null;
+          if (suspendedAt && nowMs - suspendedAt.getTime() > 15 * 60 * 1000) {
+            console.log(`[ExecutorLoop:${input.runtimeSessionId}] Suspended timeout exceeded, failing`);
+            this.sessionRepository.fail({
+              runtimeSessionId: input.runtimeSessionId,
+              failureKind: 'human_suspend_timeout',
+              failureSummary: `Suspended for more than 15 min: ${promptMatch.matchedLine}`,
+              heartbeatAt: nowIso,
+              finishedAt: nowIso,
+            });
+            await this.tmuxRuntime.killSession(input.runtimeSessionId);
+            await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
+            return { terminalStatus: 'failed', reason: 'human_suspend_timeout' } satisfies ExecutorLoopResult;
+          }
         }
-        this.sessionRepository.fail({
-          runtimeSessionId: input.runtimeSessionId,
-          failureKind: 'interactive_prompt_detected',
-          failureSummary: interactivePromptSummary,
-          ...(failureLogTail ? { failureLogTail } : {}),
-          heartbeatAt: nowIso,
-          finishedAt: nowIso,
-        });
-        enqueueEngineNotification({
-          runtimeSessionId: input.runtimeSessionId,
-          eventType: 'session.interactive_blocked',
-          payload: {
-            kind: 'interactive_prompt_detected',
-            summary: interactivePromptSummary,
-            hint: 'Revisa el comando y relanza con resume/manual triage.',
-          },
-        });
-        await this.tmuxRuntime.killSession(input.runtimeSessionId);
-        await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
-        return { terminalStatus: 'failed', reason: 'interactive_prompt_detected' } satisfies ExecutorLoopResult;
+      } else if (promptMatch) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Interactive prompt detected: ${promptMatch.matchedLine}, tool=${promptMatch.tool}`);
+
+        const credentialInfo = detectCredentialPrompt(normalizedOutput);
+
+        if (credentialInfo && promptMatch.isCredential) {
+          const envCredential = promptMatch.tool ? getCredentialFromEnv(promptMatch.tool) : null;
+          if (envCredential) {
+            console.log(`[ExecutorLoop:${input.runtimeSessionId}] Using credential from env for ${credentialInfo.tool}`);
+            await this.tmuxRuntime.sendLiteral(input.runtimeSessionId, envCredential);
+            lastProgressAt = nowMs;
+            promptRetryCount = 0;
+          } else {
+            console.log(`[ExecutorLoop:${input.runtimeSessionId}] Credential prompt requires human input, suspending`);
+            this.sessionRepository.suspend({
+              runtimeSessionId: input.runtimeSessionId,
+              suspendedReason: `${credentialInfo.type} prompt for ${credentialInfo.tool}: ${credentialInfo.matchedLine}`,
+              heartbeatAt: nowIso,
+            });
+            enqueueEngineNotification({
+              runtimeSessionId: input.runtimeSessionId,
+              eventType: 'session.suspended_human_input',
+              payload: {
+                kind: 'credential_required',
+                summary: `Credential required: ${credentialInfo.type} for ${credentialInfo.tool}`,
+                prompt: credentialInfo.matchedLine,
+                hint: 'Set the credential via environment variable or resolve directly in tmux.',
+              },
+            });
+            lastProgressAt = nowMs;
+          }
+        } else if (promptRetryCount === 0 && lastPromptMatch?.matchedLine === promptMatch.matchedLine) {
+          promptRetryCount = 1;
+        }
+
+        if (promptRetryCount > 0 && promptRetryCount < 3 && !credentialInfo) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Auto-responding to prompt, attempt ${promptRetryCount}/3`);
+
+          let response = promptMatch.response;
+
+          if (promptRetryCount === 1) {
+            const smartResponse = detectSmartDefault(promptMatch.matchedLine);
+            if (smartResponse !== 'y') {
+              response = smartResponse;
+              console.log(`[ExecutorLoop:${input.runtimeSessionId}] Smart response: ${response}`);
+            }
+          } else if (promptRetryCount === 2) {
+            response = promptMatch.response;
+          } else if (promptRetryCount === 3) {
+            console.log(`[ExecutorLoop:${input.runtimeSessionId}] Attempt 3: sending Ctrl+C to reset`);
+            await this.tmuxRuntime.sendCtrlC(input.runtimeSessionId);
+            await sleep(500);
+            const newOutput = await this.tmuxRuntime.captureOutput(input.runtimeSessionId, DEFAULT_RUNTIME_OUTPUT_LINES);
+            const newPromptMatch = findMatchingPrompt(newOutput);
+            if (newPromptMatch) {
+              console.log(`[ExecutorLoop:${input.runtimeSessionId}] Ctrl+C did not clear prompt, retrying with Enter`);
+              response = '\n';
+            } else {
+              console.log(`[ExecutorLoop:${input.runtimeSessionId}] Ctrl+C cleared prompt successfully`);
+              promptRetryCount = 0;
+              lastPromptMatch = null;
+              lastProgressAt = nowMs;
+              lastOutput = newOutput;
+            }
+          }
+
+          if (promptRetryCount > 0 && promptRetryCount <= 2) {
+            await this.tmuxRuntime.sendLiteral(input.runtimeSessionId, response);
+          }
+
+          if (promptRetryCount < 3) {
+            promptRetryCount++;
+          }
+
+          lastPromptMatch = promptMatch;
+          lastProgressAt = nowMs;
+        } else if (promptRetryCount >= 3 && !credentialInfo) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] All retry attempts exhausted, failing`);
+          const failureLogTail = tailOutput(normalizedOutput);
+          if (refreshedSession.worktreePath) {
+            writeRuntimeFailureRecord(refreshedSession.worktreePath, {
+              runtimeSessionId: input.runtimeSessionId,
+              kind: 'interactive_prompt_unresolved',
+              summary: `Prompt unresolved after 3 attempts: ${promptMatch.matchedLine}`,
+              logTail: failureLogTail,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            });
+          }
+          this.sessionRepository.fail({
+            runtimeSessionId: input.runtimeSessionId,
+            failureKind: 'interactive_prompt_unresolved',
+            failureSummary: `Prompt unresolved after 3 attempts: ${promptMatch.matchedLine}`,
+            ...(failureLogTail ? { failureLogTail } : {}),
+            heartbeatAt: nowIso,
+            finishedAt: nowIso,
+          });
+          enqueueEngineNotification({
+            runtimeSessionId: input.runtimeSessionId,
+            eventType: 'session.interactive_blocked',
+            payload: {
+              kind: 'interactive_prompt_unresolved',
+              summary: promptMatch.matchedLine,
+              hint: 'Revisa el comando y relanza con resume/manual triage.',
+            },
+          });
+          await this.tmuxRuntime.killSession(input.runtimeSessionId);
+          await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
+          return { terminalStatus: 'failed', reason: 'interactive_prompt_unresolved' } satisfies ExecutorLoopResult;
+        }
+      } else {
+        if (promptRetryCount > 0) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Prompt no longer present, resetting retry state`);
+        }
+        promptRetryCount = 0;
+        lastPromptMatch = null;
       }
 
       const blockingDaemonSummaryCandidate =
         refreshedSession.status === 'running' ? getBlockingDaemonSummary(normalizedOutput) : null;
       if (blockingDaemonSummaryCandidate) {
+        if (blockingDaemonDetectedAt === null) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Blocking daemon candidate detected: ${blockingDaemonSummaryCandidate}`);
+        }
         blockingDaemonDetectedAt ??= nowMs;
         blockingDaemonSummary = blockingDaemonSummaryCandidate;
       } else {
@@ -235,6 +356,7 @@ export class ExecutorLoop {
         blockingDaemonSummary &&
         nowMs - blockingDaemonDetectedAt >= this.blockingDaemonGraceMs
       ) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Blocking daemon confirmed after grace period`);
         const failureLogTail = tailOutput(normalizedOutput);
         if (refreshedSession.worktreePath) {
           writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -269,6 +391,7 @@ export class ExecutorLoop {
       }
 
       if (refreshedSession.maxSteps && refreshedSession.stepCount >= refreshedSession.maxSteps) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Max steps exceeded (${refreshedSession.stepCount} >= ${refreshedSession.maxSteps})`);
         const summary = `Se excedio max_steps=${refreshedSession.maxSteps}`;
         if (refreshedSession.worktreePath) {
           writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -295,6 +418,7 @@ export class ExecutorLoop {
       }
 
       if (nowMs - startedAtMs > maxWallTimeMs) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Max wall time exceeded`);
         const summary = `Se excedio max_wall_time_ms=${maxWallTimeMs}`;
         if (refreshedSession.worktreePath) {
           writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -330,6 +454,7 @@ export class ExecutorLoop {
       }
 
       if (refreshedSession.status === 'running' && nowMs - lastProgressAt > maxCommandTimeMs) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Max command time exceeded (${nowMs - lastProgressAt}ms > ${maxCommandTimeMs}ms)`);
         const summary = `Se excedio max_command_time_ms=${maxCommandTimeMs}`;
         if (refreshedSession.worktreePath) {
           writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -365,8 +490,10 @@ export class ExecutorLoop {
       }
 
       if (!alive) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Tmux session is no longer alive`);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, false);
         if (failure) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Exited with failure: ${failure.kind}`);
           this.sessionRepository.fail({
             runtimeSessionId: input.runtimeSessionId,
             failureKind: failure.kind,
@@ -379,10 +506,12 @@ export class ExecutorLoop {
         }
 
         if (refreshedSession.status === 'failed') {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Exited but was already marked failed`);
           return { terminalStatus: 'failed', reason: refreshedSession.failureKind || 'failed' } satisfies ExecutorLoopResult;
         }
 
         if (refreshedSession.status === 'running') {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Silent exit detected`);
           const summary = `Sesión marcada running pero tmux murió sin failure record`;
           if (refreshedSession.worktreePath) {
             writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -404,6 +533,7 @@ export class ExecutorLoop {
           return { terminalStatus: 'stuck', reason: 'silent_exit' } satisfies ExecutorLoopResult;
         }
 
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Clean exit`);
         if (refreshedSession.worktreePath) {
           clearRuntimeFailureRecord(refreshedSession.worktreePath);
         }
@@ -419,6 +549,7 @@ export class ExecutorLoop {
       await sleep(input.pollMs ?? DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_MS);
     }
     } finally {
+      console.log(`[ExecutorLoop:${input.runtimeSessionId}] Loop exiting, performing final cleanup`);
       const session = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
       await this.cleanupTerminalSession(input.runtimeSessionId, session?.worktreePath ?? null, false);
     }

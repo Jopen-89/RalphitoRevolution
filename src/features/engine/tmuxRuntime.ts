@@ -70,6 +70,12 @@ export class TmuxRuntime {
     await this.tmux(['send-keys', '-t', sessionId, 'Enter']);
   }
 
+  async sendCtrlC(sessionId: string) {
+    assertSafeSessionId(sessionId);
+    await this.tmux(['send-keys', '-t', sessionId, 'C-c']);
+    await sleep(300);
+  }
+
   async captureOutput(sessionId: string, lines = 50) {
     try {
       return await this.tmux(['capture-pane', '-t', sessionId, '-p', '-S', `-${lines}`]);

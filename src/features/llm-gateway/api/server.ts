@@ -17,6 +17,7 @@ import { searchIndexedDocuments } from '../../search/codeIndexService.js';
 import { executeToolCallLoop } from '../tools/toolCallingExecutor.js';
 import { createAllToolImplementations, resolveAllowedToolDefinitions } from '../tools/toolCatalog.js';
 import type { IToolCallingProvider } from '../interfaces/gateway.types.js';
+import { RUNTIME_LLM_WAITING_FILE_NAME } from '../../engine/constants.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -98,10 +99,33 @@ const resolveAgentConfig = (config: GatewayConfig, rawAgentId: string) => {
 
 app.post('/v1/chat', async (req, res) => {
   const { agentId = 'default', provider, model, messages, originChatId, originThreadId } = req.body as ChatRequest;
+  const worktreePath = req.headers['x-ralphito-worktree-path'] as string | undefined;
+  const waitingFilePath = worktreePath ? path.join(worktreePath, RUNTIME_LLM_WAITING_FILE_NAME) : null;
 
-  if (!messages || !Array.isArray(messages)) {
-    return res.status(400).json({ error: 'Faltan parámetros messages (debe ser un array)' });
+  const cleanupWaitingFile = () => {
+    if (waitingFilePath && fs.existsSync(waitingFilePath)) {
+      try {
+        fs.unlinkSync(waitingFilePath);
+      } catch {
+        // noop
+      }
+    }
+  };
+
+  if (waitingFilePath) {
+    try {
+      fs.writeFileSync(waitingFilePath, new Date().toISOString(), 'utf8');
+    } catch (error) {
+      console.warn(`[Gateway] No pude escribir marker de espera en ${waitingFilePath}:`, error);
+    }
   }
+
+  try {
+    if (!messages || !Array.isArray(messages)) {
+      cleanupWaitingFile();
+      return res.status(400).json({ error: 'Faltan parámetros messages (debe ser un array)' });
+    }
+...
 
   const config = getConfig();
   const { agentConfig, resolvedAgentId, requestedId } = resolveAgentConfig(config, agentId);
@@ -223,6 +247,9 @@ app.post('/v1/chat', async (req, res) => {
     error: 'ALL_PROVIDERS_UNAVAILABLE',
     details: lastError instanceof Error ? lastError.message : String(lastError),
   });
+  } finally {
+    cleanupWaitingFile();
+  }
 });
 
 app.get('/dashboard', (_req, res) => {

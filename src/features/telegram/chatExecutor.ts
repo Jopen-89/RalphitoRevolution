@@ -208,7 +208,8 @@ export async function executeAgentTask(
     const response = await fetch(gatewayUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(process.env.RALPHITO_WORKTREE_PATH ? { 'x-ralphito-worktree-path': process.env.RALPHITO_WORKTREE_PATH } : {}),
       },
       body: JSON.stringify(requestBody)
     });

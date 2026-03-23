@@ -283,7 +283,7 @@ test('ExecutorLoop marca done cuando la sesion termina limpia', async () => {
   });
 });
 
-test('ExecutorLoop mata sesion cuando detecta prompt interactivo', async () => {
+test('ExecutorLoop auto-responde prompts y falla tras 3 intentos', async () => {
   await withTempRuntime(async ({ repoRoot, headCommit }) => {
     const runtimeSessionId = 'be-loop-prompt';
     const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
@@ -344,12 +344,19 @@ test('ExecutorLoop mata sesion cuando detecta prompt interactivo', async () => {
     });
 
     let alive = true;
+    let sendCount = 0;
     const tmuxRuntime = {
       async isAlive() {
         return alive;
       },
       async captureOutput() {
         return 'Continue? [Y/n]';
+      },
+      async sendLiteral() {
+        sendCount++;
+      },
+      async sendCtrlC() {
+        sendCount++;
       },
       async killSession() {
         alive = false;
@@ -365,10 +372,11 @@ test('ExecutorLoop mata sesion cuando detecta prompt interactivo', async () => {
 
     const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
     assert.equal(result.terminalStatus, 'failed');
-    assert.equal(result.reason, 'interactive_prompt_detected');
-    assert.equal(session?.failureKind, 'interactive_prompt_detected');
+    assert.equal(result.reason, 'interactive_prompt_unresolved');
+    assert.equal(session?.failureKind, 'interactive_prompt_unresolved');
     assert.equal(getEngineNotificationRepository().listAll()[0]?.eventType, 'session.interactive_blocked');
     assert.equal(getEngineNotificationRepository().listAll()[0]?.runtimeSessionId, runtimeSessionId);
+    assert.ok(sendCount >= 2, 'Should have attempted auto-response');
   });
 });
 

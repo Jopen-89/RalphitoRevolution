@@ -25,15 +25,19 @@ export async function resumeRuntimeSession(runtimeSessionId: string, tmuxRuntime
   }
 
   const failure = readRuntimeFailureRecord(session.worktreePath);
-  if (!failure) {
-    throw new Error(`No hay fallo estructurado para ${runtimeSessionId}`);
-  }
 
   if (!(await tmuxRuntime.isAlive(runtimeSessionId))) {
     throw new Error(`La sesion ${runtimeSessionId} no esta viva; no puedo reinyectar contexto.`);
   }
 
-  await tmuxRuntime.sendLiteral(runtimeSessionId, buildResumePrompt(failure.summary, failure.logTail));
-  clearRuntimeFailureRecord(session.worktreePath);
+  if (failure) {
+    await tmuxRuntime.sendLiteral(runtimeSessionId, buildResumePrompt(failure.summary, failure.logTail));
+    clearRuntimeFailureRecord(session.worktreePath);
+  }
+
+  if (session.status === 'suspended_human_input') {
+    console.log(`[resumeRuntimeSession:${runtimeSessionId}] Resuming from suspended state, prompt may have been resolved manually`);
+  }
+
   sessionRepository.resume({ runtimeSessionId });
 }

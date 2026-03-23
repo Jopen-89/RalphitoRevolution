@@ -2,9 +2,9 @@ import { getRalphitoDatabase } from '../persistence/db/index.js';
 
 type RalphitoDatabase = ReturnType<typeof getRalphitoDatabase>;
 
-export type RuntimeSessionStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled' | 'stuck';
+export type RuntimeSessionStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled' | 'stuck' | 'suspended_human_input';
 type FinishableRuntimeSessionStatus = Extract<RuntimeSessionStatus, 'done' | 'cancelled'>;
-const ACTIVE_RUNTIME_SESSION_STATUSES = ['queued', 'running'] as const;
+const ACTIVE_RUNTIME_SESSION_STATUSES = ['queued', 'running', 'suspended_human_input'] as const;
 const DEFAULT_RECENT_RUNTIME_SESSION_LIMIT = 40;
 
 export interface RuntimeSessionRecord {
@@ -28,6 +28,9 @@ export interface RuntimeSessionRecord {
   failureLogTail: string | null;
   createdAt: string;
   updatedAt: string;
+  currentCommand: string | null;
+  suspendedAt: string | null;
+  suspendedReason: string | null;
 }
 
 export interface CreateRuntimeSessionInput {
@@ -54,6 +57,7 @@ export interface HeartbeatRuntimeSessionInput {
   status?: RuntimeSessionStatus;
   worktreePath?: string;
   maxSteps?: number;
+  currentCommand?: string | null;
 }
 
 export interface AttachPidRuntimeSessionInput {
@@ -103,6 +107,12 @@ export interface MarkStuckRuntimeSessionInput {
 
 export interface ResumeRuntimeSessionInput {
   runtimeSessionId: string;
+  heartbeatAt?: string;
+}
+
+export interface SuspendRuntimeSessionInput {
+  runtimeSessionId: string;
+  suspendedReason: string;
   heartbeatAt?: string;
 }
 
@@ -196,7 +206,8 @@ export class RuntimeSessionRepository {
               updated_at = ?,
               status = COALESCE(?, status),
               worktree_path = COALESCE(?, worktree_path),
-              max_steps = COALESCE(?, max_steps)
+              max_steps = COALESCE(?, max_steps),
+              current_command = ?
           WHERE runtime_session_id = ?
         `,
       )
@@ -206,6 +217,7 @@ export class RuntimeSessionRepository {
         input.status || null,
         input.worktreePath || null,
         input.maxSteps || null,
+        input.currentCommand ?? null,
         input.runtimeSessionId,
       );
 
@@ -371,11 +383,47 @@ export class RuntimeSessionRepository {
   }
 
   resume(input: ResumeRuntimeSessionInput) {
-    return this.clearFailure({
-      runtimeSessionId: input.runtimeSessionId,
-      ...(input.heartbeatAt ? { heartbeatAt: input.heartbeatAt } : {}),
-      status: 'running',
-    });
+    const heartbeatAt = input.heartbeatAt || new Date().toISOString();
+
+    this.db
+      .prepare(
+        `
+          UPDATE agent_sessions
+          SET status = 'running',
+              heartbeat_at = ?,
+              updated_at = ?,
+              failure_kind = NULL,
+              failure_summary = NULL,
+              failure_log_tail = NULL,
+              suspended_at = NULL,
+              suspended_reason = NULL
+          WHERE runtime_session_id = ?
+        `,
+      )
+      .run(heartbeatAt, heartbeatAt, input.runtimeSessionId);
+
+    return this.getByRuntimeSessionId(input.runtimeSessionId);
+  }
+
+  suspend(input: SuspendRuntimeSessionInput) {
+    const heartbeatAt = input.heartbeatAt || new Date().toISOString();
+    const suspendedAt = heartbeatAt;
+
+    this.db
+      .prepare(
+        `
+          UPDATE agent_sessions
+          SET status = 'suspended_human_input',
+              heartbeat_at = ?,
+              updated_at = ?,
+              suspended_at = ?,
+              suspended_reason = ?
+          WHERE runtime_session_id = ?
+        `,
+      )
+      .run(heartbeatAt, heartbeatAt, suspendedAt, input.suspendedReason, input.runtimeSessionId);
+
+    return this.getByRuntimeSessionId(input.runtimeSessionId);
   }
 
   getByRuntimeSessionId(runtimeSessionId: string) {
@@ -403,7 +451,10 @@ export class RuntimeSessionRepository {
               failure_summary AS failureSummary,
               failure_log_tail AS failureLogTail,
               created_at AS createdAt,
-              updated_at AS updatedAt
+              updated_at AS updatedAt,
+              current_command AS currentCommand,
+              suspended_at AS suspendedAt,
+              suspended_reason AS suspendedReason
             FROM agent_sessions
             WHERE runtime_session_id = ?
             LIMIT 1
@@ -437,13 +488,16 @@ export class RuntimeSessionRepository {
             failure_summary AS failureSummary,
             failure_log_tail AS failureLogTail,
             created_at AS createdAt,
-            updated_at AS updatedAt
+            updated_at AS updatedAt,
+            current_command AS currentCommand,
+            suspended_at AS suspendedAt,
+            suspended_reason AS suspendedReason
           FROM agent_sessions
-          WHERE status IN (?, ?)
+          WHERE status IN (?, ?, ?)
           ORDER BY updated_at DESC, id DESC
         `,
       )
-      .all(...ACTIVE_RUNTIME_SESSION_STATUSES) as RuntimeSessionRecord[];
+      .all(...ACTIVE_RUNTIME_SESSION_STATUSES, 'suspended_human_input') as RuntimeSessionRecord[];
   }
 
   listRecent(limit = DEFAULT_RECENT_RUNTIME_SESSION_LIMIT) {
@@ -470,7 +524,10 @@ export class RuntimeSessionRepository {
             failure_summary AS failureSummary,
             failure_log_tail AS failureLogTail,
             created_at AS createdAt,
-            updated_at AS updatedAt
+            updated_at AS updatedAt,
+            current_command AS currentCommand,
+            suspended_at AS suspendedAt,
+            suspended_reason AS suspendedReason
           FROM agent_sessions
           ORDER BY updated_at DESC, id DESC
           LIMIT ?
