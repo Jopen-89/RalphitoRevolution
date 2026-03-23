@@ -48,7 +48,7 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
       name: 'spawn_executor',
       description: 'Lanza un Ralphito executor con una tarea de implementación.',
       execute: async (params: Record<string, unknown>) => {
-        const project = requireString(params.project, 'project');
+        const project = optionalString(params.project) || 'backend-team';
         const prompt = requireString(params.prompt, 'prompt');
         const beadPath = optionalString(params.beadPath);
 
@@ -226,50 +226,76 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
       name: 'spawn_executor',
       description: 'Lanza un Ralphito executor con una tarea de implementación.',
       parameters: {
-        project: { type: 'string', description: 'Nombre del proyecto backend-team' },
-        prompt: { type: 'string', description: 'Prompt de la tarea a ejecutar' },
-        beadPath: { type: 'string', description: 'Ruta opcional del bead' },
+        type: 'object',
+        properties: {
+          project: { type: 'string', description: 'Nombre del proyecto (opcional, por defecto: backend-team)' },
+          prompt: { type: 'string', description: 'Prompt de la tarea a ejecutar' },
+          beadPath: { type: 'string', description: 'Ruta opcional del bead' },
+        },
+        required: ['prompt'],
       },
     },
     {
       name: 'check_status',
       description: 'Reporta estado consolidado de sesiones y guardrails de Ralphito.',
-      parameters: {},
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
     },
     {
       name: 'resume_executor',
       description: 'Resucita un Ralphito que murió por guardrail.',
       parameters: {
-        sessionId: { type: 'string', description: 'ID de la sesión a resume' },
+        type: 'object',
+        properties: {
+          sessionId: { type: 'string', description: 'ID de la sesión a resume' },
+        },
+        required: ['sessionId'],
       },
     },
     {
       name: 'run_divergence_phase',
       description: 'Inicia investigación paralela con 4 equipos de agentes.',
       parameters: {
-        projectId: { type: 'string', description: 'ID del proyecto' },
-        seedIdea: { type: 'string', description: 'Idea inicial para divergencia' },
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'ID del proyecto' },
+          seedIdea: { type: 'string', description: 'Idea inicial para divergencia' },
+        },
+        required: ['projectId', 'seedIdea'],
       },
     },
     {
       name: 'summon_agent_to_chat',
       description: 'Invoca a otro agente al chat de Telegram.',
       parameters: {
-        agentName: { type: 'string', description: 'Nombre del agente a invocar (sin @)' },
-        message: { type: 'string', description: 'Mensaje opcional de contexto' },
+        type: 'object',
+        properties: {
+          agentName: { type: 'string', description: 'Nombre del agente a invocar (sin @)' },
+          message: { type: 'string', description: 'Mensaje opcional de contexto' },
+        },
+        required: ['agentName'],
       },
     },
     {
       name: 'cancel_executor',
       description: 'Cancela y mata una sesión específica de Ralphito.',
       parameters: {
-        sessionId: { type: 'string', description: 'ID de la sesión a cancelar' },
+        type: 'object',
+        properties: {
+          sessionId: { type: 'string', description: 'ID de la sesión a cancelar' },
+        },
+        required: ['sessionId'],
       },
     },
     {
       name: 'cleanup_zombies',
       description: 'Audita y limpia sesiones zombies (running sin TMUX vivo).',
-      parameters: {},
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
     },
   ];
 }

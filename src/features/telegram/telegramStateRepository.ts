@@ -342,7 +342,7 @@ export class TelegramStateRepository {
     this.db
       .prepare(
         `
-          INSERT INTO messages (
+          INSERT OR IGNORE INTO messages (
             thread_id,
             external_message_id,
             sender_type,

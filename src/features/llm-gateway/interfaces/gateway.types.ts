@@ -3,6 +3,9 @@ export type Provider = 'gemini' | 'openai' | 'opencode' | 'codex';
 export interface Message {
   role: string;
   content: string;
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
+  name?: string;
 }
 
 export interface ToolParameter {
@@ -18,9 +21,10 @@ export interface ToolDefinition {
 }
 
 export interface ToolCall {
-  id: string;
+  id?: string;
   name: string;
   arguments: Record<string, unknown>;
+  metadata?: any;
 }
 
 export interface ToolResult {

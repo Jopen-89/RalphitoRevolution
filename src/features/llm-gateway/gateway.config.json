@@ -30,7 +30,10 @@
         "check_status",
         "resume_executor",
         "run_divergence_phase",
-        "summon_agent_to_chat"
+        "summon_agent_to_chat",
+        "cancel_executor",
+        "cleanup_zombies",
+        "read_workspace_file"
       ]
     },
     {

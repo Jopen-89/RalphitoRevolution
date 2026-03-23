@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 
-function getToken() {
+function getToken(): string {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token || token === 'pega_tu_token_aqui_sin_comillas') {
     throw new Error('TELEGRAM_BOT_TOKEN no configurado');

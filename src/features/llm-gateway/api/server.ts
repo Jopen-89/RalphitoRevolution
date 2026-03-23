@@ -103,7 +103,7 @@ interface ToolPolicy {
   mode: ToolMode | undefined;
 }
 
-const RAYMON_LEGACY_TOOLS = ['spawn_executor', 'check_status', 'resume_executor', 'run_divergence_phase', 'summon_agent_to_chat'] as const;
+const RAYMON_LEGACY_TOOLS = ['spawn_executor', 'check_status', 'resume_executor', 'run_divergence_phase', 'summon_agent_to_chat', 'cancel_executor', 'cleanup_zombies', 'read_workspace_file'] as const;
 
 const getEffectiveToolPolicy = (
   agentConfig: AgentConfig | undefined,
@@ -195,12 +195,12 @@ app.post('/v1/chat', async (req, res) => {
 
   const toolPolicy = getEffectiveToolPolicy(agentConfig, resolvedAgentId, tools);
   const useToolCalling = toolPolicy.mode !== 'none' && toolPolicy.allowed.length > 0;
-  const toolProviders = new Set(['openai', 'gemini']);
+  const toolProviders = new Set(['openai', 'gemini', 'opencode']);
 
   if (useToolCalling && attempts.length > 0 && !toolProviders.has(attempts[0]!.provider)) {
     return res.status(400).json({
       error: 'TOOL_CALLING_UNSUPPORTED',
-      message: `Provider ${attempts[0]!.provider} no soporta tool-calling. Usa OpenAI o Gemini.`,
+      message: `Provider ${attempts[0]!.provider} no soporta tool-calling. Usa OpenAI, Gemini o Opencode.`,
     });
   }
 
