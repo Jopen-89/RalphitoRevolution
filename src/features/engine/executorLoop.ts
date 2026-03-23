@@ -99,6 +99,7 @@ export class ExecutorLoop {
   ) {}
 
   private async cleanupTerminalSession(runtimeSessionId: string, worktreePath: string | null, removeWorkspace: boolean) {
+    console.log(`[ExecutorLoop:${runtimeSessionId}] Cleaning up terminal session. Worktree: ${worktreePath}, remove: ${removeWorkspace}`);
     this.lockRepository.releaseForSession(runtimeSessionId);
 
     if (!worktreePath || !removeWorkspace) return;
@@ -110,6 +111,7 @@ export class ExecutorLoop {
   }
 
   async run(input: ExecutorLoopContext) {
+    console.log(`[ExecutorLoop:${input.runtimeSessionId}] Started`);
     let lastOutput = '';
     let lastProgressAt = Date.now();
     let lastStatus: string | null = null;
@@ -120,6 +122,7 @@ export class ExecutorLoop {
       for (;;) {
       const session = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
       if (!session) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Session missing from DB, aborting.`);
         return {
           terminalStatus: 'failed',
           reason: 'session_missing',
@@ -134,11 +137,15 @@ export class ExecutorLoop {
       const maxCommandTimeMs = sessionFile?.maxCommandTimeMs ?? DEFAULT_RUNTIME_MAX_COMMAND_TIME_MS;
       const sessionMaxSteps = session.maxSteps ?? sessionFile?.maxSteps;
       const startedAtMs = Date.parse(session.startedAt || session.createdAt);
+      
       const alive = await this.tmuxRuntime.isAlive(input.runtimeSessionId);
+      console.log(`[ExecutorLoop:${input.runtimeSessionId}] Polling... status=${session.status}, steps=${session.stepCount}, alive=${alive}`);
+      
       const output = alive ? await this.tmuxRuntime.captureOutput(input.runtimeSessionId, DEFAULT_RUNTIME_OUTPUT_LINES) : '';
       const normalizedOutput = output.trim();
 
       if (lastStatus === 'failed' && session.status === 'running') {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Recovered from failed state, resetting progress timer`);
         lastProgressAt = nowMs;
       }
       lastStatus = session.status;
@@ -156,6 +163,7 @@ export class ExecutorLoop {
       });
 
       if (failure && session.status !== 'failed') {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Failure file detected: ${failure.kind}, marking session failed`);
         this.sessionRepository.fail({
           runtimeSessionId: input.runtimeSessionId,
           failureKind: failure.kind,
@@ -167,6 +175,7 @@ export class ExecutorLoop {
       }
 
       if (session.status === 'running' && normalizedOutput && normalizedOutput !== lastOutput) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] New output detected, updating progress timer`);
         lastOutput = normalizedOutput;
         lastProgressAt = nowMs;
         this.sessionRepository.incrementStepCount({
@@ -177,6 +186,7 @@ export class ExecutorLoop {
 
       const refreshedSession = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
       if (!refreshedSession) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Session missing after heartbeat`);
         return {
           terminalStatus: 'failed',
           reason: 'session_missing_after_heartbeat',
@@ -186,6 +196,7 @@ export class ExecutorLoop {
       const interactivePromptSummary =
         refreshedSession.status === 'running' ? getInteractivePromptSummary(normalizedOutput) : null;
       if (interactivePromptSummary) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Interactive prompt detected: ${interactivePromptSummary}`);
         const failureLogTail = tailOutput(normalizedOutput);
         if (refreshedSession.worktreePath) {
           writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -222,6 +233,9 @@ export class ExecutorLoop {
       const blockingDaemonSummaryCandidate =
         refreshedSession.status === 'running' ? getBlockingDaemonSummary(normalizedOutput) : null;
       if (blockingDaemonSummaryCandidate) {
+        if (blockingDaemonDetectedAt === null) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Blocking daemon candidate detected: ${blockingDaemonSummaryCandidate}`);
+        }
         blockingDaemonDetectedAt ??= nowMs;
         blockingDaemonSummary = blockingDaemonSummaryCandidate;
       } else {
@@ -235,6 +249,7 @@ export class ExecutorLoop {
         blockingDaemonSummary &&
         nowMs - blockingDaemonDetectedAt >= this.blockingDaemonGraceMs
       ) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Blocking daemon confirmed after grace period`);
         const failureLogTail = tailOutput(normalizedOutput);
         if (refreshedSession.worktreePath) {
           writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -269,6 +284,7 @@ export class ExecutorLoop {
       }
 
       if (refreshedSession.maxSteps && refreshedSession.stepCount >= refreshedSession.maxSteps) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Max steps exceeded (${refreshedSession.stepCount} >= ${refreshedSession.maxSteps})`);
         const summary = `Se excedio max_steps=${refreshedSession.maxSteps}`;
         if (refreshedSession.worktreePath) {
           writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -295,6 +311,7 @@ export class ExecutorLoop {
       }
 
       if (nowMs - startedAtMs > maxWallTimeMs) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Max wall time exceeded`);
         const summary = `Se excedio max_wall_time_ms=${maxWallTimeMs}`;
         if (refreshedSession.worktreePath) {
           writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -330,6 +347,7 @@ export class ExecutorLoop {
       }
 
       if (refreshedSession.status === 'running' && nowMs - lastProgressAt > maxCommandTimeMs) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Max command time exceeded (${nowMs - lastProgressAt}ms > ${maxCommandTimeMs}ms)`);
         const summary = `Se excedio max_command_time_ms=${maxCommandTimeMs}`;
         if (refreshedSession.worktreePath) {
           writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -365,8 +383,10 @@ export class ExecutorLoop {
       }
 
       if (!alive) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Tmux session is no longer alive`);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, false);
         if (failure) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Exited with failure: ${failure.kind}`);
           this.sessionRepository.fail({
             runtimeSessionId: input.runtimeSessionId,
             failureKind: failure.kind,
@@ -379,10 +399,12 @@ export class ExecutorLoop {
         }
 
         if (refreshedSession.status === 'failed') {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Exited but was already marked failed`);
           return { terminalStatus: 'failed', reason: refreshedSession.failureKind || 'failed' } satisfies ExecutorLoopResult;
         }
 
         if (refreshedSession.status === 'running') {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Silent exit detected`);
           const summary = `Sesión marcada running pero tmux murió sin failure record`;
           if (refreshedSession.worktreePath) {
             writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -404,6 +426,7 @@ export class ExecutorLoop {
           return { terminalStatus: 'stuck', reason: 'silent_exit' } satisfies ExecutorLoopResult;
         }
 
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Clean exit`);
         if (refreshedSession.worktreePath) {
           clearRuntimeFailureRecord(refreshedSession.worktreePath);
         }
@@ -419,6 +442,7 @@ export class ExecutorLoop {
       await sleep(input.pollMs ?? DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_MS);
     }
     } finally {
+      console.log(`[ExecutorLoop:${input.runtimeSessionId}] Loop exiting, performing final cleanup`);
       const session = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
       await this.cleanupTerminalSession(input.runtimeSessionId, session?.worktreePath ?? null, false);
     }
