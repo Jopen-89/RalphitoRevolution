@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import path from 'path';
+import { getRalphitoDatabasePath } from '../persistence/db/index.js';
 import { getRalphitoDatabase } from '../persistence/db/index.js';
 import { CommandRunner } from './commandRunner.js';
 import { resolveEngineProjectConfig } from './config.js';
@@ -216,6 +217,7 @@ export class SessionSupervisor {
         buildLaunchCommand(project.agent, model),
         toStringEnv(process.env, {
           CI: '1',
+          RALPHITO_DB_PATH: getRalphitoDatabasePath(),
           RALPHITO_RUNTIME_SESSION_ID: runtimeSessionId,
           RALPHITO_ENGINE_MANAGED: '1',
           RALPHITO_PROJECT_ID: project.id,

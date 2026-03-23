@@ -91,6 +91,7 @@ export {
 export {
   ENGINE_NOTIFICATION_EVENT_TYPES,
   EngineNotificationRepository,
+  type EngineNotificationSummary,
   enqueueEngineNotification,
   getEngineNotificationRepository,
   resetEngineNotificationRepository,

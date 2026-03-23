@@ -2,6 +2,7 @@ import {
   DEFAULT_ENGINE_NOTIFICATION_MAX_ATTEMPTS,
   DEFAULT_ENGINE_NOTIFICATION_POLL_INTERVAL_MS,
   getEngineNotificationRepository,
+  type EngineNotificationSummary,
   type EngineNotificationRecord,
   type SessionGuardrailFailedNotificationPayload,
   type SessionInteractiveBlockedNotificationPayload,
@@ -12,6 +13,15 @@ import {
   type SessionTimeoutNotificationPayload,
 } from '../engine/index.js';
 import { sendTelegramMessage, type SendTelegramMessageResult } from './telegramSender.js';
+
+export interface EngineNotificationPollResult {
+  scanned: number;
+  claimed: number;
+  delivered: number;
+  failed: number;
+  busy: boolean;
+  summary: EngineNotificationSummary;
+}
 
 function escapeHtml(text: string) {
   return text
@@ -183,9 +193,22 @@ export class EngineNotificationDispatcher {
   start() {
     if (this.timer) return;
 
-    void this.pollOnce();
+    console.log(
+      `[EngineNotificationDispatcher] started interval_ms=${this.pollIntervalMs}`,
+    );
+    void this.pollOnce().catch((error: unknown) => {
+      console.error(
+        '[EngineNotificationDispatcher] initial poll failed:',
+        error instanceof Error ? error.message : String(error),
+      );
+    });
     this.timer = setInterval(() => {
-      void this.pollOnce();
+      void this.pollOnce().catch((error: unknown) => {
+        console.error(
+          '[EngineNotificationDispatcher] interval poll failed:',
+          error instanceof Error ? error.message : String(error),
+        );
+      });
     }, this.pollIntervalMs);
 
     this.timer.unref?.();
@@ -195,21 +218,53 @@ export class EngineNotificationDispatcher {
     if (!this.timer) return;
     clearInterval(this.timer);
     this.timer = null;
+    console.log('[EngineNotificationDispatcher] stopped');
   }
 
   async pollOnce(limit = 20) {
-    if (this.running) return;
+    if (this.running) {
+      return {
+        scanned: 0,
+        claimed: 0,
+        delivered: 0,
+        failed: 0,
+        busy: true,
+        summary: this.repository.getSummary(),
+      } satisfies EngineNotificationPollResult;
+    }
     this.running = true;
+    const result = {
+      scanned: 0,
+      claimed: 0,
+      delivered: 0,
+      failed: 0,
+      busy: false,
+      summary: this.repository.getSummary(),
+    } satisfies EngineNotificationPollResult;
 
     try {
       const nowIso = new Date().toISOString();
       const notifications = this.repository.listDeliverable(nowIso, limit);
+      result.scanned = notifications.length;
 
       for (const notification of notifications) {
         const claimed = this.repository.claim(notification.eventId, nowIso);
         if (!claimed) continue;
-        await this.deliver(claimed);
+        result.claimed += 1;
+        const outcome = await this.deliver(claimed);
+        if (outcome === 'delivered') {
+          result.delivered += 1;
+        } else {
+          result.failed += 1;
+        }
       }
+      result.summary = this.repository.getSummary();
+      if (result.scanned > 0 || result.failed > 0) {
+        console.log(
+          `[EngineNotificationDispatcher] poll scanned=${result.scanned} claimed=${result.claimed} delivered=${result.delivered} failed=${result.failed} pending=${result.summary.pending} delivering=${result.summary.delivering}`,
+        );
+      }
+      return result;
     } finally {
       this.running = false;
     }
@@ -239,13 +294,17 @@ export class EngineNotificationDispatcher {
         failedAt,
         terminal: true,
       });
-      return;
+      console.error(
+        `[EngineNotificationDispatcher] failed event=${notification.eventId} type=${notification.eventType} reason=no_target_chat_id`,
+      );
+      return 'failed' as const;
     }
 
     try {
       const message = formatEngineNotificationMessage(notification);
       await this.send(targetChatId, message);
       this.repository.markDelivered(notification.eventId, new Date().toISOString());
+      return 'delivered' as const;
     } catch (error) {
       const attemptCount = notification.attemptCount + 1;
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -256,6 +315,10 @@ export class EngineNotificationDispatcher {
         failedAt,
         terminal: attemptCount >= DEFAULT_ENGINE_NOTIFICATION_MAX_ATTEMPTS,
       });
+      console.error(
+        `[EngineNotificationDispatcher] failed event=${notification.eventId} type=${notification.eventType} attempt=${attemptCount} error=${errorMessage}`,
+      );
+      return 'failed' as const;
     }
   }
 }

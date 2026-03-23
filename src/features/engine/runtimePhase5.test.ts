@@ -22,11 +22,13 @@ function withTempRuntime<T>(fn: (repoRoot: string) => Promise<T> | T) {
   const previousCwd = process.cwd();
   const previousDbPath = process.env.RALPHITO_DB_PATH;
   const previousAllowedChatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
+  const previousDisableKick = process.env.RALPHITO_DISABLE_NOTIFICATION_KICK;
   const repoRoot = createTempDirectory('rr-engine-phase5-');
 
   process.chdir(repoRoot);
   process.env.RALPHITO_DB_PATH = path.join(repoRoot, 'ops', 'runtime', 'ralphito', 'ralphito.sqlite');
   process.env.TELEGRAM_ALLOWED_CHAT_ID = 'ops-chat';
+  process.env.RALPHITO_DISABLE_NOTIFICATION_KICK = '1';
   closeRalphitoDatabase();
   resetEngineNotificationRepository();
   initializeRalphitoDatabase();
@@ -45,6 +47,11 @@ function withTempRuntime<T>(fn: (repoRoot: string) => Promise<T> | T) {
         process.env.TELEGRAM_ALLOWED_CHAT_ID = previousAllowedChatId;
       } else {
         delete process.env.TELEGRAM_ALLOWED_CHAT_ID;
+      }
+      if (previousDisableKick) {
+        process.env.RALPHITO_DISABLE_NOTIFICATION_KICK = previousDisableKick;
+      } else {
+        delete process.env.RALPHITO_DISABLE_NOTIFICATION_KICK;
       }
       process.chdir(previousCwd);
       rmSync(repoRoot, { force: true, recursive: true });
@@ -123,5 +130,54 @@ test('EngineNotificationDispatcher reintenta y deja failed terminal al agotar in
     assert.equal(notification?.status, 'failed');
     assert.equal(notification?.attemptCount, 5);
     assert.match(notification?.errorMessage || '', /telegram down/);
+  });
+});
+
+test('EngineNotificationRepository resume outbox state para status', async () => {
+  await withTempRuntime(async () => {
+    enqueueEngineNotification({
+      eventType: 'session.started',
+      targetChatId: 'chat-1',
+      payload: {
+        projectId: 'backend-team',
+        branchName: 'jopen/demo',
+        beadPath: null,
+        workItemKey: null,
+      },
+    });
+
+    enqueueEngineNotification({
+      eventType: 'session.spawn_failed',
+      payload: {
+        projectId: 'backend-team',
+        branchName: 'jopen/demo',
+        beadPath: null,
+        workItemKey: null,
+        error: 'boom',
+      },
+    });
+
+    const repository = getEngineNotificationRepository();
+    const [first, second] = repository.listRecent(10).reverse();
+
+    assert.equal(first?.status, 'pending');
+    assert.equal(second?.status, 'pending');
+
+    repository.markDelivered(first!.eventId);
+    repository.markFailed({
+      eventId: second!.eventId,
+      attemptCount: 1,
+      errorMessage: 'No target chat id for engine notification',
+      terminal: true,
+    });
+
+    const summary = repository.getSummary();
+
+    assert.equal(summary.total, 2);
+    assert.equal(summary.pending, 0);
+    assert.equal(summary.delivered, 1);
+    assert.equal(summary.failed, 1);
+    assert.equal(summary.pendingWithoutTarget, 0);
+    assert.ok(summary.newestCreatedAt);
   });
 });

@@ -10,8 +10,16 @@ source "$SCRIPT_DIR/../lib/runtime-paths.sh"
 
 # Primero mostramos el estado que conoce Ralphito Engine
 echo "=== STATUS DE SESIONES (RALPHITO ENGINE) ==="
-ENGINE_STATUS=$(npx tsx "$REPO_ROOT/scripts/engine-status.ts" table || echo "")
+ENGINE_STATUS=$(node --import tsx "$REPO_ROOT/scripts/engine-status.ts" table || echo "")
 echo "$ENGINE_STATUS"
+
+echo ""
+echo "=== ENGINE NOTIFICATIONS OUTBOX ==="
+node --import tsx "$REPO_ROOT/scripts/engine-status.ts" notification-summary || true
+
+echo ""
+echo "=== ULTIMAS NOTIFICACIONES ==="
+node --import tsx "$REPO_ROOT/scripts/engine-status.ts" notifications || true
 
 echo ""
 echo "=== BUSCANDO RALPHITOS CAÍDOS (GUARDRAILS FALLIDOS) ==="
@@ -37,7 +45,7 @@ fi
 
 echo ""
 echo "=== AUTOPILOT QUEUE CHECK ==="
-ACTIVE_COUNT=$(npx tsx "$REPO_ROOT/scripts/engine-status.ts" active-count || echo "0")
+ACTIVE_COUNT=$(node --import tsx "$REPO_ROOT/scripts/engine-status.ts" active-count || echo "0")
 
 if [ "$ACTIVE_COUNT" = "0" ]; then
     echo "⚠️ [AUTOPILOT TRIGGER] La fábrica está parada. No hay Ralphitos trabajando."

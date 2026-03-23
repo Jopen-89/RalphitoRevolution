@@ -1,4 +1,6 @@
+import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
+import { fileURLToPath } from 'url';
 import { getRalphitoDatabase } from '../persistence/db/index.js';
 import {
   DEFAULT_ENGINE_NOTIFICATION_DELIVERY_LEASE_MS,
@@ -94,6 +96,17 @@ export interface EngineNotificationRecord<T extends EngineNotificationEventType 
   errorMessage: string | null;
 }
 
+export interface EngineNotificationSummary {
+  total: number;
+  pending: number;
+  delivering: number;
+  delivered: number;
+  failed: number;
+  pendingWithoutTarget: number;
+  oldestOutstandingAt: string | null;
+  newestCreatedAt: string | null;
+}
+
 export interface EnqueueEngineNotificationInput<T extends EngineNotificationEventType = EngineNotificationEventType> {
   eventId?: string;
   runtimeSessionId?: string | null;
@@ -118,6 +131,17 @@ interface SessionTargetChatRow {
   externalChatId: string | null;
 }
 
+interface NotificationStatusCountRow {
+  status: EngineNotificationStatus;
+  count: number;
+}
+
+interface NotificationTimestampRow {
+  createdAt: string;
+}
+
+const ENGINE_CLI_PATH = fileURLToPath(new URL('./cli.ts', import.meta.url));
+
 function normalizeOptionalText(value: unknown) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
@@ -134,6 +158,34 @@ function addMilliseconds(isoTimestamp: string, milliseconds: number) {
 
 function getRetryDelayMs(attemptCount: number) {
   return DEFAULT_ENGINE_NOTIFICATION_RETRY_BASE_MS * 2 ** Math.max(attemptCount - 1, 0);
+}
+
+function shouldKickNotificationDelivery() {
+  if (process.env.RALPHITO_DISABLE_NOTIFICATION_KICK === '1') return false;
+  if (process.env.RALPHITO_NOTIFICATION_DELIVERY_CHILD === '1') return false;
+  return true;
+}
+
+function kickNotificationDelivery() {
+  if (!shouldKickNotificationDelivery()) return;
+
+  try {
+    const child = spawn(
+      process.execPath,
+      ['--import', 'tsx', ENGINE_CLI_PATH, 'deliver-notifications', '20'],
+      {
+        detached: true,
+        stdio: 'ignore',
+        env: {
+          ...process.env,
+          RALPHITO_NOTIFICATION_DELIVERY_CHILD: '1',
+        },
+      },
+    );
+    child.unref();
+  } catch {
+    // El poller del bot sigue siendo la red de seguridad.
+  }
 }
 
 function mapNotificationRow(row: Record<string, unknown>) {
@@ -247,6 +299,7 @@ export class EngineNotificationRepository {
         createdAt,
       );
 
+    kickNotificationDelivery();
     return this.getByEventId<T>(eventId);
   }
 
@@ -366,6 +419,106 @@ export class EngineNotificationRepository {
       )
       .all()
       .map((row) => mapNotificationRow(row as Record<string, unknown>));
+  }
+
+  listRecent(limit = 20) {
+    return this.db
+      .prepare(
+        `
+          SELECT
+            event_id AS eventId,
+            runtime_session_id AS runtimeSessionId,
+            event_type AS eventType,
+            payload_json AS payloadJson,
+            target_chat_id AS targetChatId,
+            status,
+            attempt_count AS attemptCount,
+            next_attempt_at AS nextAttemptAt,
+            created_at AS createdAt,
+            delivered_at AS deliveredAt,
+            error_message AS errorMessage
+          FROM engine_notifications
+          ORDER BY created_at DESC, event_id DESC
+          LIMIT ?
+        `,
+      )
+      .all(limit)
+      .map((row) => mapNotificationRow(row as Record<string, unknown>));
+  }
+
+  getSummary() {
+    const counts = new Map<EngineNotificationStatus, number>([
+      ['pending', 0],
+      ['delivering', 0],
+      ['delivered', 0],
+      ['failed', 0],
+    ]);
+
+    const statusRows = this.db
+      .prepare(
+        `
+          SELECT status, COUNT(*) AS count
+          FROM engine_notifications
+          GROUP BY status
+        `,
+      )
+      .all() as NotificationStatusCountRow[];
+
+    for (const row of statusRows) {
+      counts.set(row.status, row.count);
+    }
+
+    const oldestOutstanding = this.db
+      .prepare(
+        `
+          SELECT created_at AS createdAt
+          FROM engine_notifications
+          WHERE status IN ('pending', 'delivering')
+          ORDER BY created_at ASC, event_id ASC
+          LIMIT 1
+        `,
+      )
+      .get() as NotificationTimestampRow | undefined;
+
+    const newestCreated = this.db
+      .prepare(
+        `
+          SELECT created_at AS createdAt
+          FROM engine_notifications
+          ORDER BY created_at DESC, event_id DESC
+          LIMIT 1
+        `,
+      )
+      .get() as NotificationTimestampRow | undefined;
+
+    const pendingWithoutTarget = (
+      this.db
+        .prepare(
+          `
+            SELECT COUNT(*) AS count
+            FROM engine_notifications
+            WHERE status IN ('pending', 'delivering')
+              AND (target_chat_id IS NULL OR TRIM(target_chat_id) = '')
+          `,
+        )
+        .get() as { count: number }
+    ).count;
+
+    const pending = counts.get('pending') || 0;
+    const delivering = counts.get('delivering') || 0;
+    const delivered = counts.get('delivered') || 0;
+    const failed = counts.get('failed') || 0;
+
+    return {
+      total: pending + delivering + delivered + failed,
+      pending,
+      delivering,
+      delivered,
+      failed,
+      pendingWithoutTarget,
+      oldestOutstandingAt: normalizeOptionalText(oldestOutstanding?.createdAt),
+      newestCreatedAt: normalizeOptionalText(newestCreated?.createdAt),
+    } satisfies EngineNotificationSummary;
   }
 }
 
