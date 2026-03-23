@@ -125,7 +125,6 @@ app.post('/v1/chat', async (req, res) => {
       cleanupWaitingFile();
       return res.status(400).json({ error: 'Faltan parámetros messages (debe ser un array)' });
     }
-...
 
   const config = getConfig();
   const { agentConfig, resolvedAgentId, requestedId } = resolveAgentConfig(config, agentId);
