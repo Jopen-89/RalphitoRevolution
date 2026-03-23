@@ -355,6 +355,10 @@ test('ExecutorLoop marca done si la sesion running sale con exit code 0', async 
       createdAt: now,
       updatedAt: now,
     });
+    getRuntimeLockRepository().acquireForSession({
+      runtimeSessionId,
+      targets: [{ path: path.join(repoRoot, 'docs', 'done-lock.txt'), pathKind: 'file' }],
+    });
 
     const tmuxRuntime = {
       async isAlive() {
@@ -379,6 +383,193 @@ test('ExecutorLoop marca done si la sesion running sale con exit code 0', async 
     assert.equal(result.reason, 'process_exited');
     assert.equal(session?.status, 'done');
     assert.equal(clearRuntimeExitCode(worktreePath), false);
+    assert.equal(getRuntimeLockRepository().listByRuntimeSessionId(runtimeSessionId).length, 0);
+  });
+});
+
+test('ExecutorLoop marca failed si la sesion running sale con exit code != 0', async () => {
+  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+    const runtimeSessionId = 'be-loop-exit-nonzero';
+    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    mkdirSync(worktreePath, { recursive: true });
+    const now = new Date().toISOString();
+
+    writeRuntimeSessionFile(worktreePath, {
+      runtimeSessionId,
+      projectId: 'backend-team',
+      agentId: 'backend-team',
+      agent: 'opencode',
+      model: 'minimax/MiniMax-M2.7',
+      baseCommitHash: headCommit,
+      branchName: `jopen/${runtimeSessionId}`,
+      worktreePath,
+      tmuxSessionId: runtimeSessionId,
+      pid: 123,
+      prompt: 'hola',
+      beadPath: null,
+      workItemKey: null,
+      beadSpecHash: null,
+      beadSpecVersion: null,
+      qaConfig: null,
+      originThreadId: null,
+      notificationChatId: null,
+      maxSteps: 10,
+      maxWallTimeMs: 60 * 60_000,
+      maxCommandTimeMs: 60_000,
+      createdAt: now,
+      updatedAt: now,
+    });
+    writeFileSync(getRuntimeExitCodeFilePath(worktreePath), '7\n', 'utf8');
+
+    const db = getRalphitoDatabase();
+    const threadId = Number(
+      db
+        .prepare(
+          `
+            INSERT INTO threads (channel, external_chat_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+        )
+        .run('runtime', runtimeSessionId, runtimeSessionId, now, now).lastInsertRowid,
+    );
+
+    getRuntimeSessionRepository().create({
+      threadId,
+      agentId: 'backend-team',
+      runtimeSessionId,
+      status: 'running',
+      baseCommitHash: headCommit,
+      worktreePath,
+      pid: 123,
+      maxSteps: 10,
+      startedAt: now,
+      heartbeatAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    getRuntimeLockRepository().acquireForSession({
+      runtimeSessionId,
+      targets: [{ path: path.join(repoRoot, 'docs', 'nonzero-lock.txt'), pathKind: 'file' }],
+    });
+
+    const tmuxRuntime = {
+      async isAlive() {
+        return false;
+      },
+      async captureOutput() {
+        return 'boom';
+      },
+      async killSession() {
+        return true;
+      },
+    };
+
+    const result = await new ExecutorLoop(
+      tmuxRuntime as never,
+      getRuntimeSessionRepository(),
+      getRuntimeLockRepository(),
+    ).run({ runtimeSessionId, pollMs: 1 });
+
+    const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
+    assert.equal(result.terminalStatus, 'failed');
+    assert.equal(result.reason, 'process_exit_nonzero');
+    assert.equal(session?.status, 'failed');
+    assert.equal(session?.failureKind, 'process_exit_nonzero');
+    assert.equal(getRuntimeLockRepository().listByRuntimeSessionId(runtimeSessionId).length, 0);
+    assert.match(readFileSync(path.join(worktreePath, '.ralphito-runtime-failure.json'), 'utf8'), /process_exit_nonzero/);
+    assert.equal(clearRuntimeExitCode(worktreePath), false);
+  });
+});
+
+test('ExecutorLoop marca stuck si la sesion running muere sin exit file ni failure record', async () => {
+  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+    const runtimeSessionId = 'be-loop-silent-exit';
+    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    mkdirSync(worktreePath, { recursive: true });
+    const now = new Date().toISOString();
+
+    writeRuntimeSessionFile(worktreePath, {
+      runtimeSessionId,
+      projectId: 'backend-team',
+      agentId: 'backend-team',
+      agent: 'opencode',
+      model: 'minimax/MiniMax-M2.7',
+      baseCommitHash: headCommit,
+      branchName: `jopen/${runtimeSessionId}`,
+      worktreePath,
+      tmuxSessionId: runtimeSessionId,
+      pid: 123,
+      prompt: 'hola',
+      beadPath: null,
+      workItemKey: null,
+      beadSpecHash: null,
+      beadSpecVersion: null,
+      qaConfig: null,
+      originThreadId: null,
+      notificationChatId: null,
+      maxSteps: 10,
+      maxWallTimeMs: 60 * 60_000,
+      maxCommandTimeMs: 60_000,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const db = getRalphitoDatabase();
+    const threadId = Number(
+      db
+        .prepare(
+          `
+            INSERT INTO threads (channel, external_chat_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+        )
+        .run('runtime', runtimeSessionId, runtimeSessionId, now, now).lastInsertRowid,
+    );
+
+    getRuntimeSessionRepository().create({
+      threadId,
+      agentId: 'backend-team',
+      runtimeSessionId,
+      status: 'running',
+      baseCommitHash: headCommit,
+      worktreePath,
+      pid: 123,
+      maxSteps: 10,
+      startedAt: now,
+      heartbeatAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    getRuntimeLockRepository().acquireForSession({
+      runtimeSessionId,
+      targets: [{ path: path.join(repoRoot, 'docs', 'silent-lock.txt'), pathKind: 'file' }],
+    });
+
+    const tmuxRuntime = {
+      async isAlive() {
+        return false;
+      },
+      async captureOutput() {
+        return 'last line before death';
+      },
+      async killSession() {
+        return true;
+      },
+    };
+
+    const result = await new ExecutorLoop(
+      tmuxRuntime as never,
+      getRuntimeSessionRepository(),
+      getRuntimeLockRepository(),
+    ).run({ runtimeSessionId, pollMs: 1 });
+
+    const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
+    assert.equal(result.terminalStatus, 'stuck');
+    assert.equal(result.reason, 'silent_exit');
+    assert.equal(session?.status, 'stuck');
+    assert.equal(session?.failureKind, 'silent_exit');
+    assert.equal(getRuntimeLockRepository().listByRuntimeSessionId(runtimeSessionId).length, 0);
+    assert.match(readFileSync(path.join(worktreePath, '.ralphito-runtime-failure.json'), 'utf8'), /silent_exit/);
   });
 });
 
@@ -441,6 +632,10 @@ test('ExecutorLoop auto-responde prompts y falla tras 3 intentos', async () => {
       createdAt: now,
       updatedAt: now,
     });
+    getRuntimeLockRepository().acquireForSession({
+      runtimeSessionId,
+      targets: [{ path: path.join(repoRoot, 'docs', 'prompt-lock.txt'), pathKind: 'file' }],
+    });
 
     let alive = true;
     let sendCount = 0;
@@ -476,6 +671,7 @@ test('ExecutorLoop auto-responde prompts y falla tras 3 intentos', async () => {
     assert.equal(getEngineNotificationRepository().listAll()[0]?.eventType, 'session.interactive_blocked');
     assert.equal(getEngineNotificationRepository().listAll()[0]?.runtimeSessionId, runtimeSessionId);
     assert.ok(sendCount >= 2, 'Should have attempted auto-response');
+    assert.equal(getRuntimeLockRepository().listByRuntimeSessionId(runtimeSessionId).length, 0);
   });
 });
 
