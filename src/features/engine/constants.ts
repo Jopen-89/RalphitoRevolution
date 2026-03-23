@@ -14,4 +14,5 @@ export const DEFAULT_ENGINE_NOTIFICATION_DELIVERY_LEASE_MS = 60_000;
 export const DEFAULT_ENGINE_NOTIFICATION_POLL_INTERVAL_MS = 5_000;
 export const RUNTIME_SESSION_FILE_NAME = '.ralphito-session.json';
 export const RUNTIME_FAILURE_FILE_NAME = '.ralphito-runtime-failure.json';
+export const RUNTIME_LLM_WAITING_FILE_NAME = '.ralphito-llm-waiting';
 export const RUNTIME_GUARDRAIL_LOG_NAME = '.guardrail_error.log';

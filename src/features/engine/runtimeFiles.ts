@@ -3,6 +3,7 @@ import path from 'path';
 import {
   RUNTIME_FAILURE_FILE_NAME,
   RUNTIME_GUARDRAIL_LOG_NAME,
+  RUNTIME_LLM_WAITING_FILE_NAME,
   RUNTIME_SESSION_FILE_NAME,
 } from './constants.js';
 
@@ -98,4 +99,8 @@ export function clearRuntimeFailureRecord(worktreePath: string) {
   if (!existsSync(filePath)) return false;
   unlinkSync(filePath);
   return true;
+}
+
+export function isWaitingForLlm(worktreePath: string) {
+  return existsSync(path.join(worktreePath, RUNTIME_LLM_WAITING_FILE_NAME));
 }

@@ -11,6 +11,7 @@ import {
   readRuntimeFailureRecord,
   readRuntimeSessionFile,
   writeRuntimeFailureRecord,
+  isWaitingForLlm,
 } from './runtimeFiles.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
 import { enqueueEngineNotification } from './engineNotifications.js';
@@ -182,6 +183,9 @@ export class ExecutorLoop {
           runtimeSessionId: input.runtimeSessionId,
           heartbeatAt: nowIso,
         });
+      } else if (session.status === 'running' && session.worktreePath && isWaitingForLlm(session.worktreePath)) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Waiting for LLM detected via marker file, resetting progress timer`);
+        lastProgressAt = nowMs;
       }
 
       const refreshedSession = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
