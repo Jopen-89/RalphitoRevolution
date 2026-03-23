@@ -12,6 +12,7 @@
     "ops:status": "tsx scripts/ralphito-backup.ts status",
     "search:index": "tsx scripts/ralphito-search.ts index",
     "search": "tsx scripts/ralphito-search.ts search",
+    "engine:clean": "tsx src/features/engine/cli.ts reap-stale",
     "tasks:status": "tsx scripts/ralphito-tasks.ts status-report",
     "gateway": "npx tsx scripts/gateway-dashboard.ts status",
     "test": "echo \"Error: no test specified\" && exit 1"

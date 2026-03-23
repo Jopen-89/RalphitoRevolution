@@ -23,6 +23,7 @@ import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { TmuxRuntime } from './tmuxRuntime.js';
 import { WorktreeManager } from './worktreeManager.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
+import { RuntimeReaper } from './runtimeReaper.js';
 
 export interface SpawnRuntimeSessionInput {
   project: string;
@@ -131,15 +132,31 @@ export class SessionSupervisor {
     private readonly commandRunner = new CommandRunner(),
     private readonly tmuxRuntime = new TmuxRuntime(),
     private readonly worktreeManagerFactory = (repoRoot: string) => new WorktreeManager(repoRoot),
+    private readonly reaperFactory = (
+      sessionRepo: ReturnType<typeof getRuntimeSessionRepository>,
+      lockRepo: ReturnType<typeof getRuntimeLockRepository>,
+      wtManager: WorktreeManager,
+      tmux: TmuxRuntime,
+    ) => new RuntimeReaper(sessionRepo, lockRepo, wtManager, tmux),
   ) {}
 
   async spawn(input: SpawnRuntimeSessionInput) {
     const project = resolveEngineProjectConfig(input.project);
-    const runtimeSessionId = createRuntimeSessionId(project.sessionPrefix);
-    const branchName = `jopen/${runtimeSessionId}`;
-    const worktreeManager = this.worktreeManagerFactory(project.path);
     const sessionRepository = getRuntimeSessionRepository();
     const lockRepository = getRuntimeLockRepository();
+    const worktreeManager = this.worktreeManagerFactory(project.path);
+
+    // Limpieza proactiva de sesiones y worktrees zombis antes de spawn
+    const reaper = this.reaperFactory(
+      sessionRepository,
+      lockRepository,
+      worktreeManager,
+      this.tmuxRuntime,
+    );
+    await reaper.reap();
+
+    const runtimeSessionId = createRuntimeSessionId(project.sessionPrefix);
+    const branchName = `jopen/${runtimeSessionId}`;
     const beadPath = resolveBeadPath(project.path, input.beadPath);
     const model = input.model || project.model;
     const maxSteps = DEFAULT_RUNTIME_MAX_STEPS;
