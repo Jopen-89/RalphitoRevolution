@@ -1,5 +1,6 @@
 import { mkdir } from 'fs/promises';
 import path from 'path';
+import { getEngineNotificationRepository } from '../engine/engineNotifications.js';
 import { getEngineSessionsStatus } from '../engine/status.js';
 import { getRalphitoDatabase, getRalphitoDatabasePath } from '../persistence/db/index.js';
 
@@ -168,6 +169,7 @@ export async function getOperationalStatus() {
 
   const stuckTasks = getStuckTasks();
   const orphanSessions = await getOrphanSessionCount();
+  const notificationSummary = getEngineNotificationRepository().getSummary();
 
   return {
     health: {
@@ -181,6 +183,7 @@ export async function getOperationalStatus() {
       orphanSessions,
       stuckTasks: stuckTasks.length,
       summaries: getSummaryCount(),
+      notificationOutbox: notificationSummary,
     },
     stuckTasks,
     recentEvents: getRecentEvents(),

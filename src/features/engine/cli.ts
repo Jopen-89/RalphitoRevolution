@@ -14,7 +14,11 @@ import { ExecutorLoop } from './executorLoop.js';
 import { getEngineSessionsStatus, formatEngineSessionLine } from './status.js';
 import { resumeRuntimeSession } from './resume.js';
 import { clearRuntimeFailureRecord } from './runtimeFiles.js';
-import { enqueueEngineNotification } from './engineNotifications.js';
+import {
+  enqueueEngineNotification,
+  getEngineNotificationRepository,
+} from './engineNotifications.js';
+import { EngineNotificationDispatcher } from '../telegram/engineNotificationDispatcher.js';
 
 function printJson(payload: unknown) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
@@ -313,6 +317,40 @@ async function main() {
       return;
     }
 
+    case 'deliver-notifications': {
+      const limitArg = args[0];
+      const limit = limitArg ? Number.parseInt(limitArg, 10) : 20;
+      if (Number.isNaN(limit) || limit <= 0) {
+        throw new Error('Uso: cli.ts deliver-notifications [limit_positivo]');
+      }
+
+      const dispatcher = new EngineNotificationDispatcher();
+      const result = await dispatcher.pollOnce(limit);
+      printJson({ status: 'ok', ...result });
+      return;
+    }
+
+    case 'notification-status': {
+      const format = args[0] || 'summary';
+      const limitArg = args[1];
+      const limit = limitArg ? Number.parseInt(limitArg, 10) : 20;
+      if (Number.isNaN(limit) || limit <= 0) {
+        throw new Error('Uso: cli.ts notification-status [summary|json] [limit_positivo]');
+      }
+
+      const repository = getEngineNotificationRepository();
+      switch (format) {
+        case 'summary':
+          printJson(repository.getSummary());
+          return;
+        case 'json':
+          printJson(repository.listRecent(limit));
+          return;
+        default:
+          throw new Error('Uso: cli.ts notification-status [summary|json] [limit_positivo]');
+      }
+    }
+
     case 'status': {
       const format = args[0] || 'table';
       const sessions = await getEngineSessionsStatus();
@@ -359,6 +397,8 @@ async function main() {
           'cli.ts finish-session <runtime_session_id> [done|cancelled]',
           'cli.ts resume-session <runtime_session_id>',
           'cli.ts enqueue-notification <runtime_session_id|-> <event_type> <payload_json> [target_chat_id]',
+          'cli.ts deliver-notifications [limit_positivo]',
+          'cli.ts notification-status [summary|json] [limit_positivo]',
           'cli.ts status [table|json|active-count]',
         ].join('\n'),
       );

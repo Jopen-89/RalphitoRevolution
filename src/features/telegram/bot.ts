@@ -330,10 +330,19 @@ bot.catch((err, ctx) => {
     console.error('↳ Chat:', ctx.chat?.id, 'Update:', ctx.updateType);
 });
 
-bot.launch().then(() => {
+async function startTelegramBot() {
     notificationDispatcher.start();
-    console.log('✅ Bot de Telegram iniciado correctamente.');
-}).catch((err) => {
+
+    try {
+        await bot.launch();
+        console.log('✅ Bot de Telegram iniciado correctamente.');
+    } catch (err) {
+        notificationDispatcher.stop();
+        throw err;
+    }
+}
+
+void startTelegramBot().catch((err) => {
     console.error('❌ Error al iniciar el bot:', err);
 });
 process.once('SIGINT', () => {

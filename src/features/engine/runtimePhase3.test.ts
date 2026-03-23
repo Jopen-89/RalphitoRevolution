@@ -72,10 +72,12 @@ function createTempRepo() {
 function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string }) => Promise<T> | T) {
   const previousCwd = process.cwd();
   const previousDbPath = process.env.RALPHITO_DB_PATH;
+  const previousDisableKick = process.env.RALPHITO_DISABLE_NOTIFICATION_KICK;
   const { repoRoot, headCommit } = createTempRepo();
 
   process.chdir(repoRoot);
   process.env.RALPHITO_DB_PATH = path.join(repoRoot, 'ops', 'runtime', 'ralphito', 'ralphito.sqlite');
+  process.env.RALPHITO_DISABLE_NOTIFICATION_KICK = '1';
   closeRalphitoDatabase();
   resetRuntimeSessionRepository();
   resetRuntimeLockRepository();
@@ -93,6 +95,11 @@ function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string }) 
         process.env.RALPHITO_DB_PATH = previousDbPath;
       } else {
         delete process.env.RALPHITO_DB_PATH;
+      }
+      if (previousDisableKick) {
+        process.env.RALPHITO_DISABLE_NOTIFICATION_KICK = previousDisableKick;
+      } else {
+        delete process.env.RALPHITO_DISABLE_NOTIFICATION_KICK;
       }
       process.chdir(previousCwd);
       rmSync(repoRoot, { force: true, recursive: true });
@@ -178,6 +185,7 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     assert.deepEqual(createdSessions, [result.runtimeSessionId]);
     assert.match(launchCommands[0] || '', /(?:codex --full-auto --no-alt-screen|opencode run "\$RALPHITO_INSTRUCTION")/);
     assert.equal(createdEnvs[0]?.CI, '1');
+    assert.equal(createdEnvs[0]?.RALPHITO_DB_PATH, path.join(repoRoot, 'ops', 'runtime', 'ralphito', 'ralphito.sqlite'));
     assert.equal(detachedCalls.length, 1);
     assert.match(createdEnvs[0]?.RALPHITO_INSTRUCTION || '', /Implementa la fase 3\./);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"pid": 987/);
