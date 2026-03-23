@@ -396,4 +396,13 @@ export const ralphitoMigrations: RalphitoMigration[] = [
         ON engine_notifications(created_at DESC);
     `,
   },
+  {
+    id: 14,
+    name: 'agent_sessions_suspended_state',
+    sql: `
+      ALTER TABLE agent_sessions ADD COLUMN current_command TEXT;
+      ALTER TABLE agent_sessions ADD COLUMN suspended_at TEXT;
+      ALTER TABLE agent_sessions ADD COLUMN suspended_reason TEXT;
+    `,
+  },
 ];

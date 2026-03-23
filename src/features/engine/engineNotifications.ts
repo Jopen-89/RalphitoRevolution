@@ -18,6 +18,7 @@ export const ENGINE_NOTIFICATION_EVENT_TYPES = [
   'session.guardrail_failed',
   'session.synced',
   'session.reaped',
+  'session.suspended_human_input',
 ] as const;
 
 export type EngineNotificationEventType = (typeof ENGINE_NOTIFICATION_EVENT_TYPES)[number];
@@ -45,8 +46,15 @@ export interface SessionTimeoutNotificationPayload {
 }
 
 export interface SessionInteractiveBlockedNotificationPayload {
-  kind: 'interactive_prompt_detected' | 'blocked_daemon_detected';
+  kind: 'interactive_prompt_detected' | 'blocked_daemon_detected' | 'interactive_prompt_unresolved';
   summary: string;
+  hint: string | null;
+}
+
+export interface SessionSuspendedHumanInputNotificationPayload {
+  kind: 'credential_required' | 'human_timeout';
+  summary: string;
+  prompt: string | null;
   hint: string | null;
 }
 
@@ -78,6 +86,7 @@ export interface EngineNotificationPayloadMap {
   'session.guardrail_failed': SessionGuardrailFailedNotificationPayload;
   'session.synced': SessionSyncedNotificationPayload;
   'session.reaped': SessionReapedNotificationPayload;
+  'session.suspended_human_input': SessionSuspendedHumanInputNotificationPayload;
 }
 
 export type AnyEngineNotificationPayload = EngineNotificationPayloadMap[EngineNotificationEventType];

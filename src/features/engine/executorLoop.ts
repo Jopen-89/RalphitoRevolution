@@ -18,6 +18,13 @@ import { enqueueEngineNotification } from './engineNotifications.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { TmuxRuntime } from './tmuxRuntime.js';
 import { WorktreeManager } from './worktreeManager.js';
+import {
+  detectCredentialPrompt,
+  detectSmartDefault,
+  findMatchingPrompt,
+  getCredentialFromEnv,
+  type PromptMatch,
+} from './promptPatterns.js';
 
 export interface ExecutorLoopContext {
   runtimeSessionId: string;
@@ -28,16 +35,6 @@ export interface ExecutorLoopResult {
   terminalStatus: 'done' | 'failed' | 'stuck';
   reason: string;
 }
-
-const INTERACTIVE_PROMPT_PATTERNS = [
-  /\[[Yy]\/[Nn]\]/,
-  /\[[Nn]\/[Yy]\]/,
-  /\bcontinue\?\b/i,
-  /\bproceed\?\b/i,
-  /\bpress any key\b/i,
-  /\bare you sure\b/i,
-  /\bconfirm(?:ation)?\b/i,
-];
 
 const BLOCKING_DAEMON_PATTERNS = [
   /\bwatch mode\b/i,
@@ -81,11 +78,6 @@ function findMatchingTerminalLine(output: string | null, patterns: RegExp[]) {
   return null;
 }
 
-function getInteractivePromptSummary(output: string | null) {
-  const line = findMatchingTerminalLine(output, INTERACTIVE_PROMPT_PATTERNS);
-  return line ? `Prompt interactivo detectado: ${line}` : null;
-}
-
 function getBlockingDaemonSummary(output: string | null) {
   const line = findMatchingTerminalLine(output, BLOCKING_DAEMON_PATTERNS);
   return line ? `Proceso bloqueante detectado: ${line}` : null;
@@ -118,6 +110,9 @@ export class ExecutorLoop {
     let lastStatus: string | null = null;
     let blockingDaemonDetectedAt: number | null = null;
     let blockingDaemonSummary: string | null = null;
+    let currentCommand: string | null = null;
+    let promptRetryCount = 0;
+    let lastPromptMatch: PromptMatch | null = null;
 
     try {
       for (;;) {
@@ -197,41 +192,149 @@ export class ExecutorLoop {
         } satisfies ExecutorLoopResult;
       }
 
-      const interactivePromptSummary =
-        refreshedSession.status === 'running' ? getInteractivePromptSummary(normalizedOutput) : null;
-      if (interactivePromptSummary) {
-        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Interactive prompt detected: ${interactivePromptSummary}`);
-        const failureLogTail = tailOutput(normalizedOutput);
-        if (refreshedSession.worktreePath) {
-          writeRuntimeFailureRecord(refreshedSession.worktreePath, {
-            runtimeSessionId: input.runtimeSessionId,
-            kind: 'interactive_prompt_detected',
-            summary: interactivePromptSummary,
-            logTail: failureLogTail,
-            createdAt: nowIso,
-            updatedAt: nowIso,
-          });
+      const promptMatch: PromptMatch | null =
+        refreshedSession.status === 'running' || refreshedSession.status === 'suspended_human_input'
+          ? findMatchingPrompt(normalizedOutput)
+          : null;
+
+      if (refreshedSession.status === 'suspended_human_input') {
+        if (!promptMatch) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Suspended but prompt gone, auto-resuming`);
+          this.sessionRepository.resume({ runtimeSessionId: input.runtimeSessionId, heartbeatAt: nowIso });
+          promptRetryCount = 0;
+          lastPromptMatch = null;
+        } else {
+          const suspendedAt = refreshedSession.suspendedAt ? new Date(refreshedSession.suspendedAt) : null;
+          if (suspendedAt && nowMs - suspendedAt.getTime() > 15 * 60 * 1000) {
+            console.log(`[ExecutorLoop:${input.runtimeSessionId}] Suspended timeout exceeded, failing`);
+            this.sessionRepository.fail({
+              runtimeSessionId: input.runtimeSessionId,
+              failureKind: 'human_suspend_timeout',
+              failureSummary: `Suspended for more than 15 min: ${promptMatch.matchedLine}`,
+              heartbeatAt: nowIso,
+              finishedAt: nowIso,
+            });
+            await this.tmuxRuntime.killSession(input.runtimeSessionId);
+            await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
+            return { terminalStatus: 'failed', reason: 'human_suspend_timeout' } satisfies ExecutorLoopResult;
+          }
         }
-        this.sessionRepository.fail({
-          runtimeSessionId: input.runtimeSessionId,
-          failureKind: 'interactive_prompt_detected',
-          failureSummary: interactivePromptSummary,
-          ...(failureLogTail ? { failureLogTail } : {}),
-          heartbeatAt: nowIso,
-          finishedAt: nowIso,
-        });
-        enqueueEngineNotification({
-          runtimeSessionId: input.runtimeSessionId,
-          eventType: 'session.interactive_blocked',
-          payload: {
-            kind: 'interactive_prompt_detected',
-            summary: interactivePromptSummary,
-            hint: 'Revisa el comando y relanza con resume/manual triage.',
-          },
-        });
-        await this.tmuxRuntime.killSession(input.runtimeSessionId);
-        await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
-        return { terminalStatus: 'failed', reason: 'interactive_prompt_detected' } satisfies ExecutorLoopResult;
+      } else if (promptMatch) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Interactive prompt detected: ${promptMatch.matchedLine}, tool=${promptMatch.tool}`);
+
+        const credentialInfo = detectCredentialPrompt(normalizedOutput);
+
+        if (credentialInfo && promptMatch.isCredential) {
+          const envCredential = promptMatch.tool ? getCredentialFromEnv(promptMatch.tool) : null;
+          if (envCredential) {
+            console.log(`[ExecutorLoop:${input.runtimeSessionId}] Using credential from env for ${credentialInfo.tool}`);
+            await this.tmuxRuntime.sendLiteral(input.runtimeSessionId, envCredential);
+            lastProgressAt = nowMs;
+            promptRetryCount = 0;
+          } else {
+            console.log(`[ExecutorLoop:${input.runtimeSessionId}] Credential prompt requires human input, suspending`);
+            this.sessionRepository.suspend({
+              runtimeSessionId: input.runtimeSessionId,
+              suspendedReason: `${credentialInfo.type} prompt for ${credentialInfo.tool}: ${credentialInfo.matchedLine}`,
+              heartbeatAt: nowIso,
+            });
+            enqueueEngineNotification({
+              runtimeSessionId: input.runtimeSessionId,
+              eventType: 'session.suspended_human_input',
+              payload: {
+                kind: 'credential_required',
+                summary: `Credential required: ${credentialInfo.type} for ${credentialInfo.tool}`,
+                prompt: credentialInfo.matchedLine,
+                hint: 'Set the credential via environment variable or resolve directly in tmux.',
+              },
+            });
+            lastProgressAt = nowMs;
+          }
+        } else if (promptRetryCount === 0 && lastPromptMatch?.matchedLine === promptMatch.matchedLine) {
+          promptRetryCount = 1;
+        }
+
+        if (promptRetryCount > 0 && promptRetryCount < 3 && !credentialInfo) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Auto-responding to prompt, attempt ${promptRetryCount}/3`);
+
+          let response = promptMatch.response;
+
+          if (promptRetryCount === 1) {
+            const smartResponse = detectSmartDefault(promptMatch.matchedLine);
+            if (smartResponse !== 'y') {
+              response = smartResponse;
+              console.log(`[ExecutorLoop:${input.runtimeSessionId}] Smart response: ${response}`);
+            }
+          } else if (promptRetryCount === 2) {
+            response = promptMatch.response;
+          } else if (promptRetryCount === 3) {
+            console.log(`[ExecutorLoop:${input.runtimeSessionId}] Attempt 3: sending Ctrl+C to reset`);
+            await this.tmuxRuntime.sendCtrlC(input.runtimeSessionId);
+            await sleep(500);
+            const newOutput = await this.tmuxRuntime.captureOutput(input.runtimeSessionId, DEFAULT_RUNTIME_OUTPUT_LINES);
+            const newPromptMatch = findMatchingPrompt(newOutput);
+            if (newPromptMatch) {
+              console.log(`[ExecutorLoop:${input.runtimeSessionId}] Ctrl+C did not clear prompt, retrying with Enter`);
+              response = '\n';
+            } else {
+              console.log(`[ExecutorLoop:${input.runtimeSessionId}] Ctrl+C cleared prompt successfully`);
+              promptRetryCount = 0;
+              lastPromptMatch = null;
+              lastProgressAt = nowMs;
+              lastOutput = newOutput;
+            }
+          }
+
+          if (promptRetryCount > 0 && promptRetryCount <= 2) {
+            await this.tmuxRuntime.sendLiteral(input.runtimeSessionId, response);
+          }
+
+          if (promptRetryCount < 3) {
+            promptRetryCount++;
+          }
+
+          lastPromptMatch = promptMatch;
+          lastProgressAt = nowMs;
+        } else if (promptRetryCount >= 3 && !credentialInfo) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] All retry attempts exhausted, failing`);
+          const failureLogTail = tailOutput(normalizedOutput);
+          if (refreshedSession.worktreePath) {
+            writeRuntimeFailureRecord(refreshedSession.worktreePath, {
+              runtimeSessionId: input.runtimeSessionId,
+              kind: 'interactive_prompt_unresolved',
+              summary: `Prompt unresolved after 3 attempts: ${promptMatch.matchedLine}`,
+              logTail: failureLogTail,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            });
+          }
+          this.sessionRepository.fail({
+            runtimeSessionId: input.runtimeSessionId,
+            failureKind: 'interactive_prompt_unresolved',
+            failureSummary: `Prompt unresolved after 3 attempts: ${promptMatch.matchedLine}`,
+            ...(failureLogTail ? { failureLogTail } : {}),
+            heartbeatAt: nowIso,
+            finishedAt: nowIso,
+          });
+          enqueueEngineNotification({
+            runtimeSessionId: input.runtimeSessionId,
+            eventType: 'session.interactive_blocked',
+            payload: {
+              kind: 'interactive_prompt_unresolved',
+              summary: promptMatch.matchedLine,
+              hint: 'Revisa el comando y relanza con resume/manual triage.',
+            },
+          });
+          await this.tmuxRuntime.killSession(input.runtimeSessionId);
+          await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
+          return { terminalStatus: 'failed', reason: 'interactive_prompt_unresolved' } satisfies ExecutorLoopResult;
+        }
+      } else {
+        if (promptRetryCount > 0) {
+          console.log(`[ExecutorLoop:${input.runtimeSessionId}] Prompt no longer present, resetting retry state`);
+        }
+        promptRetryCount = 0;
+        lastPromptMatch = null;
       }
 
       const blockingDaemonSummaryCandidate =
