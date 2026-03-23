@@ -122,6 +122,18 @@ export class RuntimeReaper {
       // Root no existe o inaccesible
     }
 
+    // 3. Limpieza de Locks huérfanos (Locks de sesiones que ya no están vivas en tmux)
+    const activeLocks = this.lockRepository.listAllActive();
+    for (const lock of activeLocks) {
+      const isTmuxAlive = await this.tmuxRuntime.isAlive(lock.runtimeSessionId);
+      if (!isTmuxAlive) {
+        releasedLocks += this.lockRepository.releaseForSession(lock.runtimeSessionId);
+        if (!staleSessions.includes(lock.runtimeSessionId)) {
+          staleSessions.push(lock.runtimeSessionId);
+        }
+      }
+    }
+
     return {
       staleSessions,
       releasedLocks,

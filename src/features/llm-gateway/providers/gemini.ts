@@ -93,11 +93,6 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
           name: msg.name || 'tool',
           response: { result: msg.content }
         };
-        
-        // Si hay un toolCallId y no parece ser uno generado localmente (gemini-...), lo incluimos
-        if (msg.toolCallId && !msg.toolCallId.startsWith('gemini-')) {
-          (functionResponse as any).id = msg.toolCallId;
-        }
 
         if (lastContent && lastContent.role === 'user' && lastContent.parts[0]?.functionResponse) {
           lastContent.parts.push({ functionResponse });
@@ -119,9 +114,7 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
               name: tc.name,
               args: tc.arguments,
             };
-            if (tc.id && !tc.id.startsWith('gemini-')) {
-              fc.id = tc.id;
-            }
+            // Remove 'id' from functionCall in history as it's not supported by Gemini v1beta REST API
             return {
               functionCall: fc,
               ...( (tc.metadata as any)?.thoughtSignature ? { thoughtSignature: (tc.metadata as any).thoughtSignature } : {})
