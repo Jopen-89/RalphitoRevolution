@@ -1,4 +1,4 @@
-import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult, IToolCallingProvider, ToolDefinition, ToolCallResult } from '../interfaces/gateway.types.js';
+import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult, IToolCallingProvider, ToolDefinition, ToolCall } from '../interfaces/gateway.types.js';
 
 type AnthropicMessage = {
   role: 'user' | 'assistant';
@@ -41,7 +41,7 @@ export class OpencodeProvider implements IVisionProvider, IToolCallingProvider {
     return result.text;
   }
 
-  async generateResponseWithTools(messages: Message[], tools: ToolDefinition[]): Promise<ToolCallResult> {
+  async generateResponseWithTools(messages: Message[], tools: ToolDefinition[]): Promise<{ text: string; toolCalls: ToolCall[] }> {
     console.log(`[OpencodeProvider] Enrutando petición a ${this.model} con ${tools.length} tools...`);
 
     const { systemPrompt, conversation } = this.toAnthropicPayload(messages);
@@ -82,7 +82,7 @@ export class OpencodeProvider implements IVisionProvider, IToolCallingProvider {
       }
 
       let text = '';
-      const toolCalls: { id: string; name: string; arguments: Record<string, unknown> }[] = [];
+      const toolCalls: ToolCall[] = [];
 
       for (const item of (data.content || [])) {
         if (item.type === 'text' && typeof item.text === 'string') {
@@ -98,7 +98,7 @@ export class OpencodeProvider implements IVisionProvider, IToolCallingProvider {
 
       return {
         text: text.trim(),
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined
+        toolCalls,
       };
 
     } catch (error) {
@@ -113,7 +113,7 @@ export class OpencodeProvider implements IVisionProvider, IToolCallingProvider {
       description: tool.description,
       input_schema: {
         type: 'object',
-        properties: tool.parameters.properties || {},
+        properties: tool.parameters.properties,
         required: tool.parameters.required || [],
       },
     }));

@@ -3,7 +3,6 @@ import * as dotenv from 'dotenv';
 import { analyzeAgentMentions, extractMultiAgentInstruction, loadAgentRegistry, getAgentById, type AgentInfo } from './agentRegistry.js';
 import * as convStore from './conversationStore.js';
 import { executeAgentTask } from './chatExecutor.js';
-import { createRaymonToolDefinitions } from '../llm-gateway/tools/raymonTools.js';
 import { initializeRalphitoDatabase } from '../persistence/db/index.js';
 import { EngineNotificationDispatcher } from './engineNotificationDispatcher.js';
 
@@ -194,8 +193,7 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
     const statusMessage = await ctx.reply(`⏳ ${agent.name} (${agent.role}) ${statusLabel}...`);
 
     try {
-        const tools = agent.id === 'raymon' ? createRaymonToolDefinitions() : undefined;
-        const result = await executeAgentTask(String(chatId), agent, instruction, tools ? { tools } : {});
+        const result = await executeAgentTask(String(chatId), agent, instruction);
         if (result.sessionId) {
             convStore.setConversationSessionId(chatKey, agent.id, result.sessionId);
         }

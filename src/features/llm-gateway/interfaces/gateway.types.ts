@@ -8,23 +8,30 @@ export interface Message {
   name?: string;
 }
 
-export interface ToolParameter {
-  type: 'string' | 'number' | 'boolean' | 'object';
+export interface ToolSchemaProperty {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
   description: string;
-  required?: boolean;
+  properties?: Record<string, ToolSchemaProperty>;
+  items?: ToolSchemaProperty;
+}
+
+export interface ToolParametersSchema {
+  type: 'object';
+  properties: Record<string, ToolSchemaProperty>;
+  required?: string[];
 }
 
 export interface ToolDefinition {
   name: string;
   description: string;
-  parameters: Record<string, ToolParameter>;
+  parameters: ToolParametersSchema;
 }
 
 export interface ToolCall {
   id?: string;
   name: string;
   arguments: Record<string, unknown>;
-  metadata?: any;
+  metadata?: unknown;
 }
 
 export interface ToolResult {
@@ -47,7 +54,6 @@ export interface ChatRequest {
   originChatId?: string;
   originThreadId?: number;
   messages: Message[];
-  tools?: ToolDefinition[];
 }
 
 export interface ChatResponse {

@@ -3,7 +3,7 @@ import type { AgentInfo } from './agentRegistry.js';
 import { getConversationSessionId, getRecentChatHistory, getThreadId, setConversationSessionId } from './conversationStore.js';
 import { loadDeterministicContext } from '../context/contextLoader.js';
 import { formatMemoryContext, refreshMemoryContext } from '../memory/summaryService.js';
-import type { ChatResponse, ToolDefinition } from '../llm-gateway/interfaces/gateway.types.js';
+import type { ChatResponse } from '../llm-gateway/interfaces/gateway.types.js';
 
 interface ChatResult {
   response: string;
@@ -159,7 +159,6 @@ export async function executeAgentTask(
   chatId: string,
   agent: AgentInfo,
   instruction: string,
-  options: { tools?: ToolDefinition[] } = {},
 ): Promise<ChatResult> {
   const history = getRecentChatHistory(chatId);
   const conversationSessionId = getConversationSessionId(chatId, agent.id);
@@ -204,10 +203,6 @@ export async function executeAgentTask(
     ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
     messages,
   };
-
-  if (options.tools && options.tools.length > 0) {
-    requestBody.tools = options.tools;
-  }
 
   try {
     const response = await fetch(gatewayUrl, {

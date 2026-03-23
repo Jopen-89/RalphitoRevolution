@@ -33,7 +33,8 @@
         "summon_agent_to_chat",
         "cancel_executor",
         "cleanup_zombies",
-        "read_workspace_file"
+        "read_workspace_file",
+        "inspect_workspace_path"
       ]
     },
     {
@@ -66,7 +67,8 @@
       "allowedTools": [
         "write_spec_document",
         "read_workspace_file",
-        "write_bead_document"
+        "write_bead_document",
+        "inspect_workspace_path"
       ]
     },
     {

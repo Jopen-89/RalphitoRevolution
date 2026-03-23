@@ -30,7 +30,7 @@ function sanitizePath(base: string, userPath: string): string {
   return resolved;
 }
 
-export const DOCUMENT_TOOL_NAMES = ['write_spec_document', 'read_workspace_file', 'write_bead_document'] as const;
+export const DOCUMENT_TOOL_NAMES = ['write_spec_document', 'read_workspace_file', 'write_bead_document', 'inspect_workspace_path'] as const;
 
 export type DocumentToolName = (typeof DOCUMENT_TOOL_NAMES)[number];
 
@@ -119,6 +119,25 @@ export function createDocumentTools(): Tool[] {
         };
       },
     },
+    {
+      name: 'inspect_workspace_path',
+      description:
+        'Verifica si una ruta del workspace existe realmente en disco y devuelve su tipo y ruta resuelta.',
+      execute: async (params: Record<string, unknown>) => {
+        const requestedPath = requireString(params.path, 'path');
+        const fullPath = sanitizePath(REPO_ROOT, requestedPath);
+        const exists = fs.existsSync(fullPath);
+        const resolvedPath = exists ? fs.realpathSync.native(fullPath) : fullPath;
+        const kind = exists ? (fs.statSync(fullPath).isDirectory() ? 'directory' : 'file') : 'missing';
+
+        return {
+          requestedPath,
+          resolvedPath,
+          exists,
+          kind,
+        };
+      },
+    },
   ];
 }
 
@@ -159,6 +178,17 @@ export function createDocumentToolDefinitions(): ToolDefinition[] {
           content: { type: 'string', description: 'Contenido markdown del bead' },
         },
         required: ['beadPath', 'projectKey', 'title', 'content'],
+      },
+    },
+    {
+      name: 'inspect_workspace_path',
+      description: 'Comprueba si una ruta existe en disco dentro del workspace.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Ruta relativa al repo root' },
+        },
+        required: ['path'],
       },
     },
   ];

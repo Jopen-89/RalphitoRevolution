@@ -99,14 +99,17 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
       if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
         return {
           role: 'model',
-          parts: msg.toolCalls.map(tc => ({
-            functionCall: {
-              name: tc.name,
-              args: tc.arguments,
-              id: tc.id
-            },
-            ...(tc.metadata?.thoughtSignature ? { thoughtSignature: tc.metadata.thoughtSignature } : {})
-          }))
+          parts: msg.toolCalls.map((tc) => {
+            const metadata = tc.metadata as { thoughtSignature?: string } | undefined;
+            return {
+              functionCall: {
+                name: tc.name,
+                args: tc.arguments,
+                id: tc.id
+              },
+              ...(metadata?.thoughtSignature ? { thoughtSignature: metadata.thoughtSignature } : {})
+            };
+          })
         };
       }
 
@@ -119,18 +122,7 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
     const functionDeclarations = tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      parameters: {
-        type: 'object' as const,
-        properties: Object.fromEntries(
-          Object.entries(tool.parameters).map(([key, param]) => [
-            key,
-            { type: param.type, description: param.description },
-          ]),
-        ),
-        required: Object.entries(tool.parameters)
-          .filter(([, param]) => param.required === true)
-          .map(([key]) => key),
-      },
+      parameters: tool.parameters,
     }));
 
     const requestBody: Record<string, unknown> = {
