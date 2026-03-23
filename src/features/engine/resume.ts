@@ -33,6 +33,11 @@ function buildResumePrompt(summary: string, tail: string | null) {
   return sections.join('\n\n');
 }
 
+function buildResumedTaskPrompt(originalPrompt: string, resumePrompt: string | null) {
+  if (!resumePrompt) return originalPrompt;
+  return `${originalPrompt}\n\n## Resume Context\n${resumePrompt}`;
+}
+
 function resolveBeadPath(repoRoot: string, beadPath: string | null) {
   if (!beadPath) return null;
   return path.isAbsolute(beadPath) ? beadPath : path.join(repoRoot, beadPath);
@@ -72,7 +77,11 @@ export async function resumeRuntimeSession(
 
     clearRuntimeExitCode(session.worktreePath);
 
-    const prompt = buildEnginePrompt(project, sessionFile.prompt, sessionFile.branchName);
+    const prompt = buildEnginePrompt(
+      project,
+      buildResumedTaskPrompt(sessionFile.prompt, resumePrompt),
+      sessionFile.branchName,
+    );
 
     await tmuxRuntime.createSession(
       runtimeSessionId,
@@ -107,7 +116,6 @@ export async function resumeRuntimeSession(
     }
 
     if (resumePrompt) {
-      await tmuxRuntime.sendLiteral(runtimeSessionId, resumePrompt);
       clearRuntimeFailureRecord(session.worktreePath);
     }
 

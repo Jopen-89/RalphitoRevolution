@@ -26,6 +26,7 @@ import {
 import { SessionSupervisor } from './sessionSupervisor.js';
 
 const GIT_BIN = '/usr/bin/git';
+const SOURCE_REPO_ROOT = process.cwd();
 
 function createTempDirectory(prefix: string) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -764,9 +765,91 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
     assert.equal(createdSessions[0]?.workspacePath, worktreePath);
     assert.match(createdSessions[0]?.launchCommand || '', /^exec \/bin\/sh -lc /);
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /## Task/);
-    assert.match(prompts[0] || '', /Resumen corto: Fallo tsc/);
-    assert.match(prompts[0] || '', /src\/a\.ts:1 error TS1005/);
+    assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /Resumen corto: Fallo tsc/);
+    assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /src\/a\.ts:1 error TS1005/);
+    assert.equal(prompts.length, 0);
     assert.equal(detachedCalls.length, 1);
     assert.equal(detachedCalls[0]?.args.at(-1), runtimeSessionId);
+  });
+});
+
+test('cli record-failure persiste failure record en DB y archivo', async () => {
+  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+    const runtimeSessionId = 'be-record-failure';
+    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    mkdirSync(worktreePath, { recursive: true });
+    const logPath = path.join(worktreePath, '.guardrail_error.log');
+    writeFileSync(logPath, 'src/a.ts:1 error TS1005\n', 'utf8');
+
+    const db = getRalphitoDatabase();
+    const now = '2026-03-21T10:00:00.000Z';
+    const threadId = Number(
+      db
+        .prepare(
+          `
+            INSERT INTO threads (channel, external_chat_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+        )
+        .run('runtime', runtimeSessionId, runtimeSessionId, now, now).lastInsertRowid,
+    );
+
+    getRuntimeSessionRepository().create({
+      threadId,
+      agentId: 'backend-team',
+      runtimeSessionId,
+      status: 'running',
+      baseCommitHash: headCommit,
+      worktreePath,
+      pid: 456,
+      maxSteps: 10,
+      startedAt: now,
+      heartbeatAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    execFileSync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        path.join(SOURCE_REPO_ROOT, 'src/features/engine/cli.ts'),
+        'record-failure',
+        runtimeSessionId,
+        'typescript_guardrail_failed',
+        'Fallo tsc',
+        logPath,
+      ],
+      {
+        cwd: SOURCE_REPO_ROOT,
+        env: {
+          ...process.env,
+          RALPHITO_DB_PATH: path.join(repoRoot, 'ops', 'runtime', 'ralphito', 'ralphito.sqlite'),
+        },
+        stdio: 'ignore',
+      },
+    );
+
+    closeRalphitoDatabase();
+    resetRuntimeSessionRepository();
+    initializeRalphitoDatabase();
+
+    const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
+    const failure = JSON.parse(
+      readFileSync(path.join(worktreePath, '.ralphito-runtime-failure.json'), 'utf8'),
+    ) as {
+      kind: string;
+      summary: string;
+      logTail: string | null;
+    };
+
+    assert.equal(session?.status, 'failed');
+    assert.equal(session?.failureKind, 'typescript_guardrail_failed');
+    assert.equal(session?.failureSummary, 'Fallo tsc');
+    assert.match(session?.failureLogTail || '', /TS1005/);
+    assert.equal(failure.kind, 'typescript_guardrail_failed');
+    assert.equal(failure.summary, 'Fallo tsc');
+    assert.match(failure.logTail || '', /TS1005/);
   });
 });
