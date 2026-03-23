@@ -3,7 +3,7 @@ import type { AgentInfo } from './agentRegistry.js';
 import { getConversationSessionId, getRecentChatHistory, getThreadId, setConversationSessionId } from './conversationStore.js';
 import { loadDeterministicContext } from '../context/contextLoader.js';
 import { formatMemoryContext, refreshMemoryContext } from '../memory/summaryService.js';
-import type { ChatResponse, ToolDefinition } from '../llm-gateway/interfaces/gateway.types.js';
+import type { ChatResponse } from '../llm-gateway/interfaces/gateway.types.js';
 
 interface ChatResult {
   response: string;
@@ -138,8 +138,9 @@ function buildSystemPrompt(agent: AgentInfo): string {
     '- Responde de forma natural, útil y breve.',
     '- Mantén la personalidad y límites del agente definidos en el rol.',
     '- No hables de session IDs, worktrees, comandos internos ni del runtime.',
-    '- No ejecutes herramientas ni simules acciones del sistema salvo que el usuario pida explícitamente ejecutar algo.',
-    '- Si la petición es simple, responde como una persona del equipo, no como un lanzador de tareas.',
+    '- Si la petición es puramente conversacional (preguntas, consejos, debate), responde de forma natural sin usar herramientas.',
+    '- Si la petición implica CREAR, GUARDAR o EJECUTAR algo, ESTÁS OBLIGADO a usar la herramienta correspondiente (Tool Calling).',
+    '- NUNCA imprimas en el chat el contenido de documentos, código o tablas largas. Si creas un documento, guárdalo con la herramienta y devuelve solo un breve mensaje de confirmación.',
     '- No repitas tu nombre en cada respuesta; el bot ya te presenta visualmente.',
     '- Evita sonar como un asistente neutro o intercambiable con otro agente.',
     '',
@@ -158,7 +159,6 @@ export async function executeAgentTask(
   chatId: string,
   agent: AgentInfo,
   instruction: string,
-  options: { tools?: ToolDefinition[] } = {},
 ): Promise<ChatResult> {
   const history = getRecentChatHistory(chatId);
   const conversationSessionId = getConversationSessionId(chatId, agent.id);
@@ -203,10 +203,6 @@ export async function executeAgentTask(
     ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
     messages,
   };
-
-  if (options.tools && options.tools.length > 0) {
-    requestBody.tools = options.tools;
-  }
 
   try {
     const response = await fetch(gatewayUrl, {

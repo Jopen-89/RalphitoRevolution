@@ -82,29 +82,47 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
       throw new Error('No se pudo obtener un token de acceso válido de Google.');
     }
 
-    const geminiContents = messages.map((msg) => ({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts:
-        msg.role === 'tool'
-          ? [{ text: `[tool_call_id=${(msg as unknown as { toolCallId: string }).toolCallId}] ${msg.content}` }]
-          : [{ text: msg.content }],
-    }));
+    const geminiContents = messages.map((msg) => {
+      if (msg.role === 'tool') {
+        return {
+          role: 'user',
+          parts: [{
+            functionResponse: {
+              name: msg.name || 'tool',
+              id: msg.toolCallId,
+              response: { result: msg.content }
+            }
+          }]
+        };
+      }
+      
+      if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
+        return {
+          role: 'model',
+          parts: msg.toolCalls.map((tc) => {
+            const metadata = tc.metadata as { thoughtSignature?: string } | undefined;
+            return {
+              functionCall: {
+                name: tc.name,
+                args: tc.arguments,
+                id: tc.id
+              },
+              ...(metadata?.thoughtSignature ? { thoughtSignature: metadata.thoughtSignature } : {})
+            };
+          })
+        };
+      }
+
+      return {
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content || ' ' }],
+      };
+    });
 
     const functionDeclarations = tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
-      parameters: {
-        type: 'object' as const,
-        properties: Object.fromEntries(
-          Object.entries(tool.parameters).map(([key, param]) => [
-            key,
-            { type: param.type, description: param.description },
-          ]),
-        ),
-        required: Object.entries(tool.parameters)
-          .filter(([, param]) => param.required === true)
-          .map(([key]) => key),
-      },
+      parameters: tool.parameters,
     }));
 
     const requestBody: Record<string, unknown> = {
@@ -143,11 +161,13 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
       if (part.text) {
         textParts.push(part.text);
       } else if (part.functionCall) {
+        console.log('[GeminiProvider] Received functionCall part:', JSON.stringify(part, null, 2));
         const fc = part.functionCall;
         toolCalls.push({
-          id: `gemini-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          id: fc.id || `gemini-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           name: fc.name,
           arguments: fc.args || {},
+          metadata: { thoughtSignature: part.thoughtSignature }
         });
       }
     }

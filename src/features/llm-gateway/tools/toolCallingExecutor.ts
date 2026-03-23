@@ -27,6 +27,12 @@ export async function executeToolCallLoop(
       return { text, toolCalls: allToolCalls, toolResults: allToolResults };
     }
 
+    messages.push({
+      role: 'assistant',
+      content: text || '',
+      toolCalls: calls,
+    });
+
     for (const call of calls) {
       const toolId = call.id || randomUUID();
       const tool = toolMap.get(call.name);
@@ -48,6 +54,7 @@ export async function executeToolCallLoop(
       messages.push({
         role: 'tool',
         toolCallId: toolId,
+        name: call.name,
         content: result.content,
       } as Message);
 

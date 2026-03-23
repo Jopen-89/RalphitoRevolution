@@ -21,14 +21,16 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function sanitizePath(base: string, userPath: string): string {
-  const resolved = path.resolve(base, userPath);
+  // Remueve barras iniciales para que path.resolve no lo interprete como ruta absoluta externa
+  const cleanUserPath = userPath.replace(/^\/+/, '');
+  const resolved = path.resolve(base, cleanUserPath);
   if (!resolved.startsWith(base)) {
     throw new Error(`Path traversal detected: ${userPath}`);
   }
   return resolved;
 }
 
-export const DOCUMENT_TOOL_NAMES = ['write_spec_document', 'read_workspace_file', 'write_bead_document'] as const;
+export const DOCUMENT_TOOL_NAMES = ['write_spec_document', 'read_workspace_file', 'write_bead_document', 'inspect_workspace_path'] as const;
 
 export type DocumentToolName = (typeof DOCUMENT_TOOL_NAMES)[number];
 
@@ -117,6 +119,25 @@ export function createDocumentTools(): Tool[] {
         };
       },
     },
+    {
+      name: 'inspect_workspace_path',
+      description:
+        'Verifica si una ruta del workspace existe realmente en disco y devuelve su tipo y ruta resuelta.',
+      execute: async (params: Record<string, unknown>) => {
+        const requestedPath = requireString(params.path, 'path');
+        const fullPath = sanitizePath(REPO_ROOT, requestedPath);
+        const exists = fs.existsSync(fullPath);
+        const resolvedPath = exists ? fs.realpathSync.native(fullPath) : fullPath;
+        const kind = exists ? (fs.statSync(fullPath).isDirectory() ? 'directory' : 'file') : 'missing';
+
+        return {
+          requestedPath,
+          resolvedPath,
+          exists,
+          kind,
+        };
+      },
+    },
   ];
 }
 
@@ -126,25 +147,48 @@ export function createDocumentToolDefinitions(): ToolDefinition[] {
       name: 'write_spec_document',
       description: 'Guarda documento en /docs/specs/.',
       parameters: {
-        path: { type: 'string', description: 'Ruta relativa dentro de /docs/specs/' },
-        content: { type: 'string', description: 'Contenido del documento' },
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Ruta relativa dentro de /docs/specs/' },
+          content: { type: 'string', description: 'Contenido del documento' },
+        },
+        required: ['path', 'content'],
       },
     },
     {
       name: 'read_workspace_file',
       description: 'Lee archivo del workspace.',
       parameters: {
-        filePath: { type: 'string', description: 'Ruta relativa al repo root' },
+        type: 'object',
+        properties: {
+          filePath: { type: 'string', description: 'Ruta relativa al repo root' },
+        },
+        required: ['filePath'],
       },
     },
     {
       name: 'write_bead_document',
       description: 'Guarda bead + registra Task en SQLite.',
       parameters: {
-        beadPath: { type: 'string', description: 'Ruta relativa del .md del bead' },
-        projectKey: { type: 'string', description: 'Project key (ej: test-opencode-spawn-fix)' },
-        title: { type: 'string', description: 'Título de la task' },
-        content: { type: 'string', description: 'Contenido markdown del bead' },
+        type: 'object',
+        properties: {
+          beadPath: { type: 'string', description: 'Ruta relativa del .md del bead' },
+          projectKey: { type: 'string', description: 'Project key (ej: test-opencode-spawn-fix)' },
+          title: { type: 'string', description: 'Título de la task' },
+          content: { type: 'string', description: 'Contenido markdown del bead' },
+        },
+        required: ['beadPath', 'projectKey', 'title', 'content'],
+      },
+    },
+    {
+      name: 'inspect_workspace_path',
+      description: 'Comprueba si una ruta existe en disco dentro del workspace.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Ruta relativa al repo root' },
+        },
+        required: ['path'],
       },
     },
   ];

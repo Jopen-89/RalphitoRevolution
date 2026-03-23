@@ -55,18 +55,7 @@ export class OpenAIProvider implements IVisionProvider, IToolCallingProvider {
       function: {
         name: tool.name,
         description: tool.description,
-        parameters: {
-          type: 'object' as const,
-          properties: Object.fromEntries(
-            Object.entries(tool.parameters).map(([key, param]) => [
-              key,
-              { type: param.type, description: param.description },
-            ]),
-          ),
-          required: Object.entries(tool.parameters)
-            .filter(([, param]) => param.required === true)
-            .map(([key]) => key),
-        },
+        parameters: tool.parameters as unknown as Record<string, unknown>,
       },
     }));
 
