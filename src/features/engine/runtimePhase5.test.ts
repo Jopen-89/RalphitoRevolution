@@ -12,7 +12,10 @@ import {
   getEngineNotificationRepository,
   resetEngineNotificationRepository,
 } from './engineNotifications.js';
-import { EngineNotificationDispatcher } from '../telegram/engineNotificationDispatcher.js';
+import {
+  EngineNotificationDispatcher,
+  formatEngineNotificationMessage,
+} from '../telegram/engineNotificationDispatcher.js';
 
 function createTempDirectory(prefix: string) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -180,4 +183,29 @@ test('EngineNotificationRepository resume outbox state para status', async () =>
     assert.equal(summary.pendingWithoutTarget, 0);
     assert.ok(summary.newestCreatedAt);
   });
+});
+
+test('formatEngineNotificationMessage cubre suspended_human_input', () => {
+  const message = formatEngineNotificationMessage({
+    eventId: 'evt-1',
+    runtimeSessionId: 'rt-1',
+    eventType: 'session.suspended_human_input',
+    payload: {
+      kind: 'credential_required',
+      summary: 'Credential required: token for opencode',
+      prompt: 'Paste token:',
+      hint: 'Set OPENCODE_TOKEN',
+    },
+    targetChatId: 'chat-1',
+    status: 'pending',
+    attemptCount: 0,
+    nextAttemptAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    deliveredAt: null,
+    errorMessage: null,
+  });
+
+  assert.match(message, /sesion pausada por input humano/i);
+  assert.match(message, /credential_required/i);
+  assert.match(message, /Paste token:/);
 });

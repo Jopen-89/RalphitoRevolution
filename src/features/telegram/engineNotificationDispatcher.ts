@@ -12,6 +12,7 @@ import {
   type SessionSyncedNotificationPayload,
   type SessionTimeoutNotificationPayload,
 } from '../engine/index.js';
+import type { SessionSuspendedHumanInputNotificationPayload } from '../engine/engineNotifications.js';
 import { sendTelegramMessage, type SendTelegramMessageResult } from './telegramSender.js';
 
 export interface EngineNotificationPollResult {
@@ -104,6 +105,22 @@ function formatInteractiveBlocked(
     .join('\n');
 }
 
+function formatSuspendedHumanInput(
+  runtimeSessionId: string | null,
+  payload: SessionSuspendedHumanInputNotificationPayload,
+) {
+  return [
+    'Autopilot: sesion pausada por input humano',
+    compactLine('Sesion', runtimeSessionId),
+    compactLine('Tipo', payload.kind),
+    compactLine('Detalle', truncate(payload.summary)),
+    compactLine('Prompt', truncate(payload.prompt, 320)),
+    compactLine('Hint', truncate(payload.hint)),
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 function formatGuardrailFailed(
   runtimeSessionId: string | null,
   payload: SessionGuardrailFailedNotificationPayload,
@@ -168,6 +185,11 @@ export function formatEngineNotificationMessage(notification: EngineNotification
         notification.runtimeSessionId,
         notification.payload as SessionInteractiveBlockedNotificationPayload,
       );
+    case 'session.suspended_human_input':
+      return formatSuspendedHumanInput(
+        notification.runtimeSessionId,
+        notification.payload as SessionSuspendedHumanInputNotificationPayload,
+      );
     case 'session.guardrail_failed':
       return formatGuardrailFailed(
         notification.runtimeSessionId,
@@ -178,6 +200,9 @@ export function formatEngineNotificationMessage(notification: EngineNotification
     case 'session.reaped':
       return formatReaped(notification.runtimeSessionId, notification.payload as SessionReapedNotificationPayload);
   }
+
+  const unhandledEventType: never = notification.eventType;
+  throw new Error(`Engine notification type no soportado: ${unhandledEventType}`);
 }
 
 export class EngineNotificationDispatcher {

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import path from 'path';
 import {
+  RUNTIME_EXIT_CODE_FILE_NAME,
   RUNTIME_FAILURE_FILE_NAME,
   RUNTIME_GUARDRAIL_LOG_NAME,
   RUNTIME_LLM_WAITING_FILE_NAME,
@@ -50,6 +51,10 @@ export function getRuntimeFailureFilePath(worktreePath: string) {
   return path.join(worktreePath, RUNTIME_FAILURE_FILE_NAME);
 }
 
+export function getRuntimeExitCodeFilePath(worktreePath: string) {
+  return path.join(worktreePath, RUNTIME_EXIT_CODE_FILE_NAME);
+}
+
 export function getGuardrailLogPath(worktreePath: string) {
   return path.join(worktreePath, RUNTIME_GUARDRAIL_LOG_NAME);
 }
@@ -96,6 +101,24 @@ export function writeRuntimeFailureRecord(worktreePath: string, failure: Runtime
 
 export function clearRuntimeFailureRecord(worktreePath: string) {
   const filePath = getRuntimeFailureFilePath(worktreePath);
+  if (!existsSync(filePath)) return false;
+  unlinkSync(filePath);
+  return true;
+}
+
+export function readRuntimeExitCode(worktreePath: string) {
+  const filePath = getRuntimeExitCodeFilePath(worktreePath);
+  if (!existsSync(filePath)) return null;
+
+  const rawValue = readFileSync(filePath, 'utf8').trim();
+  if (!rawValue) return null;
+
+  const exitCode = Number.parseInt(rawValue, 10);
+  return Number.isInteger(exitCode) ? exitCode : null;
+}
+
+export function clearRuntimeExitCode(worktreePath: string) {
+  const filePath = getRuntimeExitCodeFilePath(worktreePath);
   if (!existsSync(filePath)) return false;
   unlinkSync(filePath);
   return true;

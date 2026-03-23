@@ -135,6 +135,10 @@ export class RuntimeLockRepository {
     return this.findFirstConflict(targets, activeLocks);
   }
 
+  listAllActive(nowIso = new Date().toISOString()) {
+    return this.listActiveInternal(nowIso);
+  }
+
   acquireForSession(input: AcquireRuntimeLocksInput) {
     const heartbeatAt = input.heartbeatAt || new Date().toISOString();
     const expiresAt = addMilliseconds(heartbeatAt, input.ttlMs ?? DEFAULT_RUNTIME_LOCK_TTL_MS);

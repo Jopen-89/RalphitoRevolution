@@ -7,7 +7,9 @@ import {
   DEFAULT_RUNTIME_OUTPUT_LINES,
 } from './constants.js';
 import {
+  clearRuntimeExitCode,
   clearRuntimeFailureRecord,
+  readRuntimeExitCode,
   readRuntimeFailureRecord,
   readRuntimeSessionFile,
   writeRuntimeFailureRecord,
@@ -250,7 +252,7 @@ export class ExecutorLoop {
             });
             lastProgressAt = nowMs;
           }
-        } else if (promptRetryCount === 0 && lastPromptMatch?.matchedLine === promptMatch.matchedLine) {
+        } else if (promptRetryCount === 0) {
           promptRetryCount = 1;
         }
 
@@ -267,22 +269,6 @@ export class ExecutorLoop {
             }
           } else if (promptRetryCount === 2) {
             response = promptMatch.response;
-          } else if (promptRetryCount === 3) {
-            console.log(`[ExecutorLoop:${input.runtimeSessionId}] Attempt 3: sending Ctrl+C to reset`);
-            await this.tmuxRuntime.sendCtrlC(input.runtimeSessionId);
-            await sleep(500);
-            const newOutput = await this.tmuxRuntime.captureOutput(input.runtimeSessionId, DEFAULT_RUNTIME_OUTPUT_LINES);
-            const newPromptMatch = findMatchingPrompt(newOutput);
-            if (newPromptMatch) {
-              console.log(`[ExecutorLoop:${input.runtimeSessionId}] Ctrl+C did not clear prompt, retrying with Enter`);
-              response = '\n';
-            } else {
-              console.log(`[ExecutorLoop:${input.runtimeSessionId}] Ctrl+C cleared prompt successfully`);
-              promptRetryCount = 0;
-              lastPromptMatch = null;
-              lastProgressAt = nowMs;
-              lastOutput = newOutput;
-            }
           }
 
           if (promptRetryCount > 0 && promptRetryCount <= 2) {
@@ -492,8 +478,14 @@ export class ExecutorLoop {
       if (!alive) {
         console.log(`[ExecutorLoop:${input.runtimeSessionId}] Tmux session is no longer alive`);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, false);
+        const processExitCode = refreshedSession.worktreePath
+          ? readRuntimeExitCode(refreshedSession.worktreePath)
+          : null;
         if (failure) {
           console.log(`[ExecutorLoop:${input.runtimeSessionId}] Exited with failure: ${failure.kind}`);
+          if (refreshedSession.worktreePath) {
+            clearRuntimeExitCode(refreshedSession.worktreePath);
+          }
           this.sessionRepository.fail({
             runtimeSessionId: input.runtimeSessionId,
             failureKind: failure.kind,
@@ -507,10 +499,51 @@ export class ExecutorLoop {
 
         if (refreshedSession.status === 'failed') {
           console.log(`[ExecutorLoop:${input.runtimeSessionId}] Exited but was already marked failed`);
+          if (refreshedSession.worktreePath) {
+            clearRuntimeExitCode(refreshedSession.worktreePath);
+          }
           return { terminalStatus: 'failed', reason: refreshedSession.failureKind || 'failed' } satisfies ExecutorLoopResult;
         }
 
         if (refreshedSession.status === 'running') {
+          if (processExitCode === 0) {
+            console.log(`[ExecutorLoop:${input.runtimeSessionId}] Clean exit via exit code file`);
+            if (refreshedSession.worktreePath) {
+              clearRuntimeFailureRecord(refreshedSession.worktreePath);
+              clearRuntimeExitCode(refreshedSession.worktreePath);
+            }
+            this.sessionRepository.finish({
+              runtimeSessionId: input.runtimeSessionId,
+              status: 'done',
+              heartbeatAt: nowIso,
+              finishedAt: nowIso,
+            });
+            return { terminalStatus: 'done', reason: 'process_exited' } satisfies ExecutorLoopResult;
+          }
+
+          if (typeof processExitCode === 'number') {
+            const summary = `Proceso terminó con exit_code=${processExitCode} sin failure record`;
+            if (refreshedSession.worktreePath) {
+              writeRuntimeFailureRecord(refreshedSession.worktreePath, {
+                runtimeSessionId: input.runtimeSessionId,
+                kind: 'process_exit_nonzero',
+                summary,
+                logTail: tailOutput(normalizedOutput),
+                createdAt: nowIso,
+                updatedAt: nowIso,
+              });
+              clearRuntimeExitCode(refreshedSession.worktreePath);
+            }
+            this.sessionRepository.fail({
+              runtimeSessionId: input.runtimeSessionId,
+              failureKind: 'process_exit_nonzero',
+              failureSummary: summary,
+              heartbeatAt: nowIso,
+              finishedAt: nowIso,
+            });
+            return { terminalStatus: 'failed', reason: 'process_exit_nonzero' } satisfies ExecutorLoopResult;
+          }
+
           console.log(`[ExecutorLoop:${input.runtimeSessionId}] Silent exit detected`);
           const summary = `Sesión marcada running pero tmux murió sin failure record`;
           if (refreshedSession.worktreePath) {
@@ -536,6 +569,7 @@ export class ExecutorLoop {
         console.log(`[ExecutorLoop:${input.runtimeSessionId}] Clean exit`);
         if (refreshedSession.worktreePath) {
           clearRuntimeFailureRecord(refreshedSession.worktreePath);
+          clearRuntimeExitCode(refreshedSession.worktreePath);
         }
         this.sessionRepository.finish({
           runtimeSessionId: input.runtimeSessionId,
