@@ -1,10 +1,11 @@
 import fetch from 'node-fetch';
 
-const token = process.env.TELEGRAM_BOT_TOKEN;
-const allowedChatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
-
-if (!token || token === 'pega_tu_token_aqui_sin_comillas') {
-  throw new Error('TELEGRAM_BOT_TOKEN no configurado');
+function getToken() {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || token === 'pega_tu_token_aqui_sin_comillas') {
+    throw new Error('TELEGRAM_BOT_TOKEN no configurado');
+  }
+  return token;
 }
 
 export interface SendTelegramMessageResult {
@@ -15,6 +16,7 @@ export interface SendTelegramMessageResult {
 }
 
 export async function sendTelegramMessage(chatId: string, text: string): Promise<SendTelegramMessageResult> {
+  const token = getToken();
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
   const response = await fetch(url, {
     method: 'POST',
@@ -41,6 +43,7 @@ export async function sendTelegramMessage(chatId: string, text: string): Promise
 }
 
 export function getAllowedChatId(): string {
+  const allowedChatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
   if (!allowedChatId) {
     throw new Error('TELEGRAM_ALLOWED_CHAT_ID no configurado');
   }

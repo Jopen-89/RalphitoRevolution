@@ -10,8 +10,8 @@ import { ProviderFactory } from '../src/features/llm-gateway/providers/provider.
 import { startDevServer, stopDevServer, waitForReady, type DevServerHandle } from './lib/dev-server.js';
 
 interface SessionState {
-  sessionId: string;
-  project: string;
+  runtimeSessionId: string;
+  projectId: string;
   model?: string;
   prompt?: string;
   beadPath?: string | null;
@@ -109,12 +109,12 @@ async function updateSessionVisualQa(repoRoot: string, visualQa: NonNullable<Ses
 function shouldRunVisualQa(session: SessionState) {
   const qaConfig = session.qaConfig;
   if (qaConfig?.enableVisualQa) return true;
-  return session.project === 'frontend-team';
+  return session.projectId === 'frontend-team';
 }
 
 function buildEvidenceDir(session: SessionState, qaConfig: QAConfig | null | undefined) {
   const root = expandHomeDir(qaConfig?.evidencePath || '~/.ralphito/qa/visual');
-  const sessionId = session.sessionId || 'unknown-session';
+  const sessionId = session.runtimeSessionId || 'unknown-session';
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   return path.join(root, sessionId, timestamp);
 }
@@ -280,7 +280,7 @@ async function main() {
   }
 
   if (!shouldRunVisualQa(session)) {
-    console.log(JSON.stringify({ status: 'skipped', reason: 'not_frontend_session', sessionId: session.sessionId }));
+    console.log(JSON.stringify({ status: 'skipped', reason: 'not_frontend_session', sessionId: session.runtimeSessionId }));
     return;
   }
 
@@ -291,7 +291,7 @@ async function main() {
     console.log(JSON.stringify({
       status: 'skipped',
       reason: 'missing_qa_metadata',
-      sessionId: session.sessionId,
+      sessionId: session.runtimeSessionId,
       details: 'Faltan qaConfig.baseUrl o qaConfig.visualRoutes.',
     }));
     return;
@@ -352,8 +352,8 @@ async function main() {
 
     const status = summarizeStatus(routes);
     const report: VisualQAReport = {
-      sessionId: session.sessionId,
-      project: session.project,
+      sessionId: session.runtimeSessionId,
+      project: session.projectId,
       shadowMode: effectiveShadowMode,
       status,
       evidenceDir,
@@ -378,8 +378,8 @@ async function main() {
     }
   } catch (error) {
     const report: VisualQAReport = {
-      sessionId: session.sessionId,
-      project: session.project,
+      sessionId: session.runtimeSessionId,
+      project: session.projectId,
       shadowMode: effectiveShadowMode,
       status: 'warn',
       reason: error instanceof Error ? error.message : String(error),

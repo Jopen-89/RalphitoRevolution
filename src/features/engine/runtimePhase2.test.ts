@@ -9,6 +9,7 @@ import { ralphitoMigrations } from '../persistence/db/migrations.js';
 import { RuntimeLockConflictError, RuntimeLockRepository } from './runtimeLockRepository.js';
 import { RuntimeReaper } from './runtimeReaper.js';
 import { RuntimeSessionRepository } from './runtimeSessionRepository.js';
+import { EngineNotificationRepository } from './engineNotifications.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
 import { WorktreeManager } from './worktreeManager.js';
 
@@ -145,6 +146,9 @@ test('RuntimeReaper marca stuck, limpia locks stale y borra worktree gestionado'
     const sessionRepository = new RuntimeSessionRepository(
       db as unknown as ReturnType<typeof createMigratedDatabase>,
     );
+    const notificationRepository = new EngineNotificationRepository(
+      db as unknown as ReturnType<typeof createMigratedDatabase>,
+    );
     const lockRepository = new RuntimeLockRepository(
       db as unknown as ReturnType<typeof createMigratedDatabase>,
     );
@@ -171,7 +175,12 @@ test('RuntimeReaper marca stuck, limpia locks stale y borra worktree gestionado'
       targets: [{ path: path.join(repoRoot, 'src'), pathKind: 'directory' }],
     });
 
-    const reaper = new RuntimeReaper(sessionRepository, lockRepository, worktreeManager);
+    const reaper = new RuntimeReaper(
+      sessionRepository,
+      lockRepository,
+      worktreeManager,
+      (input) => notificationRepository.enqueue(input),
+    );
     const result = await reaper.reap({
       nowIso: '2026-03-21T10:10:00.000Z',
       sessionTtlMs: 60_000,
@@ -185,6 +194,11 @@ test('RuntimeReaper marca stuck, limpia locks stale y borra worktree gestionado'
     assert.equal(session?.status, 'stuck');
     assert.equal(session?.failureKind, 'heartbeat_timeout');
     assert.equal(existsSync(worktreePath), false);
+    assert.deepEqual(
+      notificationRepository.listAll().map((notification) => notification.eventType),
+      ['session.reaped'],
+    );
+    assert.equal(notificationRepository.listAll()[0]?.runtimeSessionId, 'rr-stale');
   } finally {
     db.close();
     rmSync(repoRoot, { force: true, recursive: true });

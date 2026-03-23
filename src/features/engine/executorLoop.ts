@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from 'timers/promises';
 import {
+  DEFAULT_RUNTIME_BLOCKING_DAEMON_GRACE_MS,
   DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_MS,
   DEFAULT_RUNTIME_MAX_COMMAND_TIME_MS,
   DEFAULT_RUNTIME_MAX_WALL_TIME_MS,
@@ -12,6 +13,7 @@ import {
   writeRuntimeFailureRecord,
 } from './runtimeFiles.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
+import { enqueueEngineNotification } from './engineNotifications.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { TmuxRuntime } from './tmuxRuntime.js';
 import { WorktreeManager } from './worktreeManager.js';
@@ -26,6 +28,26 @@ export interface ExecutorLoopResult {
   reason: string;
 }
 
+const INTERACTIVE_PROMPT_PATTERNS = [
+  /\[[Yy]\/[Nn]\]/,
+  /\[[Nn]\/[Yy]\]/,
+  /\bcontinue\?\b/i,
+  /\bproceed\?\b/i,
+  /\bpress any key\b/i,
+  /\bare you sure\b/i,
+  /\bconfirm(?:ation)?\b/i,
+];
+
+const BLOCKING_DAEMON_PATTERNS = [
+  /\bwatch mode\b/i,
+  /watching for file changes/i,
+  /waiting for file changes/i,
+  /press h \+ enter to show help/i,
+  /\blocal:\s+https?:\/\//i,
+  /\bnetwork:\s+https?:\/\//i,
+  /\bready in \d+(?:\.\d+)?\s*(?:ms|s)\b/i,
+];
+
 function tailOutput(output: string | null, maxLines = 40) {
   if (!output) return null;
   return output
@@ -36,11 +58,44 @@ function tailOutput(output: string | null, maxLines = 40) {
     .trim();
 }
 
+function normalizeTerminalLine(line: string) {
+  return line.replace(/\s+/g, ' ').trim();
+}
+
+function findMatchingTerminalLine(output: string | null, patterns: RegExp[]) {
+  if (!output) return null;
+
+  const lines = output
+    .split('\n')
+    .map(normalizeTerminalLine)
+    .filter(Boolean)
+    .reverse();
+
+  for (const line of lines) {
+    if (patterns.some((pattern) => pattern.test(line))) {
+      return line.length > 180 ? `${line.slice(0, 177)}...` : line;
+    }
+  }
+
+  return null;
+}
+
+function getInteractivePromptSummary(output: string | null) {
+  const line = findMatchingTerminalLine(output, INTERACTIVE_PROMPT_PATTERNS);
+  return line ? `Prompt interactivo detectado: ${line}` : null;
+}
+
+function getBlockingDaemonSummary(output: string | null) {
+  const line = findMatchingTerminalLine(output, BLOCKING_DAEMON_PATTERNS);
+  return line ? `Proceso bloqueante detectado: ${line}` : null;
+}
+
 export class ExecutorLoop {
   constructor(
     private readonly tmuxRuntime = new TmuxRuntime(),
     private readonly sessionRepository = getRuntimeSessionRepository(),
     private readonly lockRepository = getRuntimeLockRepository(),
+    private readonly blockingDaemonGraceMs = DEFAULT_RUNTIME_BLOCKING_DAEMON_GRACE_MS,
   ) {}
 
   private async cleanupTerminalSession(runtimeSessionId: string, worktreePath: string | null, removeWorkspace: boolean) {
@@ -58,6 +113,8 @@ export class ExecutorLoop {
     let lastOutput = '';
     let lastProgressAt = Date.now();
     let lastStatus: string | null = null;
+    let blockingDaemonDetectedAt: number | null = null;
+    let blockingDaemonSummary: string | null = null;
 
     try {
       for (;;) {
@@ -126,6 +183,91 @@ export class ExecutorLoop {
         } satisfies ExecutorLoopResult;
       }
 
+      const interactivePromptSummary =
+        refreshedSession.status === 'running' ? getInteractivePromptSummary(normalizedOutput) : null;
+      if (interactivePromptSummary) {
+        const failureLogTail = tailOutput(normalizedOutput);
+        if (refreshedSession.worktreePath) {
+          writeRuntimeFailureRecord(refreshedSession.worktreePath, {
+            runtimeSessionId: input.runtimeSessionId,
+            kind: 'interactive_prompt_detected',
+            summary: interactivePromptSummary,
+            logTail: failureLogTail,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          });
+        }
+        this.sessionRepository.fail({
+          runtimeSessionId: input.runtimeSessionId,
+          failureKind: 'interactive_prompt_detected',
+          failureSummary: interactivePromptSummary,
+          ...(failureLogTail ? { failureLogTail } : {}),
+          heartbeatAt: nowIso,
+          finishedAt: nowIso,
+        });
+        enqueueEngineNotification({
+          runtimeSessionId: input.runtimeSessionId,
+          eventType: 'session.interactive_blocked',
+          payload: {
+            kind: 'interactive_prompt_detected',
+            summary: interactivePromptSummary,
+            hint: 'Revisa el comando y relanza con resume/manual triage.',
+          },
+        });
+        await this.tmuxRuntime.killSession(input.runtimeSessionId);
+        await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
+        return { terminalStatus: 'failed', reason: 'interactive_prompt_detected' } satisfies ExecutorLoopResult;
+      }
+
+      const blockingDaemonSummaryCandidate =
+        refreshedSession.status === 'running' ? getBlockingDaemonSummary(normalizedOutput) : null;
+      if (blockingDaemonSummaryCandidate) {
+        blockingDaemonDetectedAt ??= nowMs;
+        blockingDaemonSummary = blockingDaemonSummaryCandidate;
+      } else {
+        blockingDaemonDetectedAt = null;
+        blockingDaemonSummary = null;
+      }
+
+      if (
+        refreshedSession.status === 'running' &&
+        blockingDaemonDetectedAt !== null &&
+        blockingDaemonSummary &&
+        nowMs - blockingDaemonDetectedAt >= this.blockingDaemonGraceMs
+      ) {
+        const failureLogTail = tailOutput(normalizedOutput);
+        if (refreshedSession.worktreePath) {
+          writeRuntimeFailureRecord(refreshedSession.worktreePath, {
+            runtimeSessionId: input.runtimeSessionId,
+            kind: 'blocked_daemon_detected',
+            summary: blockingDaemonSummary,
+            logTail: failureLogTail,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          });
+        }
+        this.sessionRepository.fail({
+          runtimeSessionId: input.runtimeSessionId,
+          failureKind: 'blocked_daemon_detected',
+          failureSummary: blockingDaemonSummary,
+          ...(failureLogTail ? { failureLogTail } : {}),
+          heartbeatAt: nowIso,
+          finishedAt: nowIso,
+        });
+        enqueueEngineNotification({
+          runtimeSessionId: input.runtimeSessionId,
+          eventType: 'session.interactive_blocked',
+          payload: {
+            kind: 'blocked_daemon_detected',
+            summary: blockingDaemonSummary,
+            hint: 'No lances watchers, dev servers ni procesos persistentes.',
+          },
+        });
+        await this.tmuxRuntime.killSession(input.runtimeSessionId);
+        await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
+        return { terminalStatus: 'failed', reason: 'blocked_daemon_detected' } satisfies ExecutorLoopResult;
+      }
+
       if (refreshedSession.maxSteps && refreshedSession.stepCount >= refreshedSession.maxSteps) {
         const summary = `Se excedio max_steps=${refreshedSession.maxSteps}`;
         if (refreshedSession.worktreePath) {
@@ -173,6 +315,15 @@ export class ExecutorLoop {
           heartbeatAt: nowIso,
           finishedAt: nowIso,
         });
+        enqueueEngineNotification({
+          runtimeSessionId: input.runtimeSessionId,
+          eventType: 'session.timeout',
+          payload: {
+            kind: 'max_wall_time_exceeded',
+            summary,
+            hint: 'La sesion agotó el wall time. Revisa progreso y decide resume/manual triage.',
+          },
+        });
         await this.tmuxRuntime.killSession(input.runtimeSessionId);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
         return { terminalStatus: 'stuck', reason: 'max_wall_time_exceeded' } satisfies ExecutorLoopResult;
@@ -198,6 +349,15 @@ export class ExecutorLoop {
           ...(failureLogTail ? { failureLogTail } : {}),
           heartbeatAt: nowIso,
           finishedAt: nowIso,
+        });
+        enqueueEngineNotification({
+          runtimeSessionId: input.runtimeSessionId,
+          eventType: 'session.timeout',
+          payload: {
+            kind: 'max_command_time_exceeded',
+            summary,
+            hint: 'No hubo progreso util dentro del timeout de comando.',
+          },
         });
         await this.tmuxRuntime.killSession(input.runtimeSessionId);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);

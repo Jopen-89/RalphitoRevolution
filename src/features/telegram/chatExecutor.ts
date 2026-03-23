@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import type { AgentInfo } from './agentRegistry.js';
-import { getConversationSessionId, setConversationSessionId, getRecentChatHistory } from './conversationStore.js';
+import { getConversationSessionId, getRecentChatHistory, getThreadId, setConversationSessionId } from './conversationStore.js';
 import { loadDeterministicContext } from '../context/contextLoader.js';
 import { formatMemoryContext, refreshMemoryContext } from '../memory/summaryService.js';
 import type { ChatResponse, ToolDefinition } from '../llm-gateway/interfaces/gateway.types.js';
@@ -165,6 +165,7 @@ export async function executeAgentTask(
   const systemPrompt = buildSystemPrompt(agent);
   const deterministicContext = await loadDeterministicContext(instruction);
   const memoryContext = formatMemoryContext(refreshMemoryContext(chatId, conversationSessionId));
+  const originThreadId = getThreadId(chatId);
   
   const messages = [
     { role: 'system', content: systemPrompt }
@@ -198,6 +199,8 @@ export async function executeAgentTask(
   const requestBody: Record<string, unknown> = {
     agentId: agent.id,
     ...(conversationSessionId ? { sessionId: conversationSessionId } : {}),
+    originChatId: chatId,
+    ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
     messages,
   };
 

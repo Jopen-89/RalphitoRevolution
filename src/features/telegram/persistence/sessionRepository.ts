@@ -2,6 +2,7 @@ import type { AddHistoryMessageInput } from '../telegramStateRepository.js';
 import { getTelegramStateRepository } from '../telegramStateRepository.js';
 
 export interface SessionRepository {
+  getThreadId(chatId: string): number | null;
   getConversationSessionId(chatId: string, agentId: string): string | null;
   setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string, updatedAt?: string): void;
   setMessageAgentRoute(chatId: string, messageId: number, agentId: string, updatedAt?: string): void;
@@ -16,6 +17,10 @@ export interface SessionRepository {
 
 export class SQLiteSessionRepository implements SessionRepository {
   private readonly repository = getTelegramStateRepository();
+
+  getThreadId(chatId: string) {
+    return this.repository.getThreadId(chatId);
+  }
 
   getConversationSessionId(chatId: string, agentId: string) {
     return this.repository.getConversationSessionId(chatId, agentId);

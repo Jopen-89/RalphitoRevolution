@@ -162,7 +162,7 @@ const getEffectiveToolPolicy = (
 };
 
 app.post('/v1/chat', async (req, res) => {
-  const { agentId = 'default', provider, model, messages, tools } = req.body as ChatRequest;
+  const { agentId = 'default', provider, model, messages, tools, originChatId, originThreadId } = req.body as ChatRequest;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'Faltan parámetros messages (debe ser un array)' });
@@ -209,7 +209,10 @@ app.post('/v1/chat', async (req, res) => {
       console.warn(`[Gateway] Tools denegadas para '${resolvedAgentId}': ${toolPolicy.denied.join(', ')}`);
     }
 
-    const raymonTools = createRaymonTools();
+    const raymonTools = createRaymonTools({
+      ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
+      ...(typeof originChatId === 'string' && originChatId.trim() ? { notificationChatId: originChatId } : {}),
+    });
     const documentTools = createDocumentTools();
     const allTools = [...raymonTools, ...documentTools];
 

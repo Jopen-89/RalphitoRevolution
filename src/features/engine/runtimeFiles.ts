@@ -23,6 +23,8 @@ export interface RuntimeSessionFileRecord {
   beadSpecHash: string | null;
   beadSpecVersion: string | null;
   qaConfig: unknown;
+  originThreadId: number | null;
+  notificationChatId: string | null;
   maxSteps: number;
   maxWallTimeMs: number;
   maxCommandTimeMs: number;

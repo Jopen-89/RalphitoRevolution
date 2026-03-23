@@ -146,7 +146,7 @@ export function refreshRuntimeSessionSummary(sessionId: string) {
       `
         SELECT messages.sender_name AS senderName, messages.raw_text AS rawText, messages.created_at AS createdAt
         FROM agent_sessions
-        INNER JOIN threads ON threads.id = agent_sessions.thread_id
+        INNER JOIN threads ON threads.id = COALESCE(agent_sessions.origin_thread_id, agent_sessions.thread_id)
         INNER JOIN messages ON messages.thread_id = threads.id
         WHERE agent_sessions.runtime_session_id = ?
         ORDER BY messages.created_at DESC, messages.id DESC

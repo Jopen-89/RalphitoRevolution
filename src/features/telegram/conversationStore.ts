@@ -8,6 +8,10 @@ export function getConversationSessionId(chatId: string, agentId: string) {
   return getRepository().getConversationSessionId(chatId, agentId);
 }
 
+export function getThreadId(chatId: string) {
+  return getRepository().getThreadId(chatId);
+}
+
 export function setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string) {
   getRepository().setConversationSessionId(chatId, agentId, sessionId, baseCommitHash);
 }

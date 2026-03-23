@@ -9,6 +9,10 @@ import {
   getRalphitoDatabase,
   initializeRalphitoDatabase,
 } from '../persistence/db/index.js';
+import {
+  getEngineNotificationRepository,
+  resetEngineNotificationRepository,
+} from './engineNotifications.js';
 import { ExecutorLoop } from './executorLoop.js';
 import { getRuntimeLockRepository, resetRuntimeLockRepository } from './runtimeLockRepository.js';
 import { getRuntimeSessionRepository, resetRuntimeSessionRepository } from './runtimeSessionRepository.js';
@@ -75,6 +79,7 @@ function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string }) 
   closeRalphitoDatabase();
   resetRuntimeSessionRepository();
   resetRuntimeLockRepository();
+  resetEngineNotificationRepository();
   initializeRalphitoDatabase();
 
   return Promise.resolve()
@@ -83,6 +88,7 @@ function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string }) 
       closeRalphitoDatabase();
       resetRuntimeSessionRepository();
       resetRuntimeLockRepository();
+      resetEngineNotificationRepository();
       if (previousDbPath) {
         process.env.RALPHITO_DB_PATH = previousDbPath;
       } else {
@@ -96,8 +102,9 @@ function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string }) 
 test('SessionSupervisor crea sesion runtime con thread sintetico y session file', async () => {
   await withTempRuntime(async ({ repoRoot, headCommit }) => {
     const detachedCalls: Array<{ command: string; args: string[] }> = [];
-    const sentPrompts: string[] = [];
     const createdSessions: string[] = [];
+    const launchCommands: string[] = [];
+    const createdEnvs: Array<Record<string, string>> = [];
 
     const runner = {
       async run() {
@@ -110,14 +117,13 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     };
 
     const tmuxRuntime = {
-      async createSession(sessionId: string) {
+      async createSession(sessionId: string, _workspacePath: string, launchCommand: string, env: Record<string, string>) {
         createdSessions.push(sessionId);
+        launchCommands.push(launchCommand);
+        createdEnvs.push(env);
       },
       async getPanePid() {
         return 987;
-      },
-      async sendLiteral(_sessionId: string, prompt: string) {
-        sentPrompts.push(prompt);
       },
       async killSession() {
         return true;
@@ -143,6 +149,8 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     const result = await supervisor.spawn({
       project: 'backend-team',
       prompt: 'Implementa la fase 3.',
+      originThreadId: 321,
+      notificationChatId: 'chat-999',
     });
 
     const session = getRuntimeSessionRepository().getByRuntimeSessionId(result.runtimeSessionId);
@@ -161,14 +169,24 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     assert.ok(session);
     assert.equal(session?.status, 'running');
     assert.equal(session?.pid, 987);
+    assert.equal(session?.originThreadId, 321);
+    assert.equal(session?.notificationChatId, 'chat-999');
     assert.equal(thread.channel, 'runtime');
     assert.equal(thread.externalChatId, result.runtimeSessionId);
     assert.equal(existsSync(sessionFilePath), true);
     assert.match(result.branchName, /^jopen\//);
     assert.deepEqual(createdSessions, [result.runtimeSessionId]);
+    assert.match(launchCommands[0] || '', /(?:codex --full-auto --no-alt-screen|opencode run "\$RALPHITO_INSTRUCTION")/);
+    assert.equal(createdEnvs[0]?.CI, '1');
     assert.equal(detachedCalls.length, 1);
-    assert.match(sentPrompts[0] || '', /Implementa la fase 3\./);
+    assert.match(createdEnvs[0]?.RALPHITO_INSTRUCTION || '', /Implementa la fase 3\./);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"pid": 987/);
+    assert.match(readFileSync(sessionFilePath, 'utf8'), /"notificationChatId": "chat-999"/);
+    assert.deepEqual(
+      getEngineNotificationRepository().listAll().map((notification) => notification.eventType),
+      ['session.started'],
+    );
+    assert.equal(getEngineNotificationRepository().listAll()[0]?.targetChatId, 'chat-999');
   });
 });
 
@@ -196,6 +214,93 @@ test('ExecutorLoop marca done cuando la sesion termina limpia', async () => {
       beadSpecHash: null,
       beadSpecVersion: null,
       qaConfig: null,
+      originThreadId: null,
+      notificationChatId: null,
+      maxSteps: 10,
+      maxWallTimeMs: 60 * 60_000,
+      maxCommandTimeMs: 60_000,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const db = getRalphitoDatabase();
+    const threadId = Number(
+      db
+        .prepare(
+          `
+            INSERT INTO threads (channel, external_chat_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+        )
+        .run('runtime', runtimeSessionId, runtimeSessionId, now, now).lastInsertRowid,
+    );
+
+    getRuntimeSessionRepository().create({
+      threadId,
+      agentId: 'backend-team',
+      runtimeSessionId,
+      status: 'done',
+      baseCommitHash: headCommit,
+      worktreePath,
+      pid: 123,
+      maxSteps: 10,
+      startedAt: now,
+      heartbeatAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const tmuxRuntime = {
+      async isAlive() {
+        return false;
+      },
+      async captureOutput() {
+        return 'step 1';
+      },
+      async killSession() {
+        return true;
+      },
+    };
+
+    const result = await new ExecutorLoop(
+      tmuxRuntime as never,
+      getRuntimeSessionRepository(),
+      getRuntimeLockRepository(),
+    ).run({ runtimeSessionId, pollMs: 1 });
+
+    const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
+    assert.equal(result.terminalStatus, 'done');
+    assert.equal(session?.status, 'done');
+    assert.equal(session?.stepCount, 0);
+  });
+});
+
+test('ExecutorLoop mata sesion cuando detecta prompt interactivo', async () => {
+  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+    const runtimeSessionId = 'be-loop-prompt';
+    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    mkdirSync(worktreePath, { recursive: true });
+    const now = new Date().toISOString();
+
+    writeRuntimeSessionFile(worktreePath, {
+      runtimeSessionId,
+      projectId: 'backend-team',
+      agentId: 'backend-team',
+      agent: 'codex',
+      model: 'codex-latest',
+      baseCommitHash: headCommit,
+      branchName: `jopen/${runtimeSessionId}`,
+      worktreePath,
+      tmuxSessionId: runtimeSessionId,
+      pid: 123,
+      prompt: 'hola',
+      beadPath: null,
+      workItemKey: null,
+      beadSpecHash: null,
+      beadSpecVersion: null,
+      qaConfig: null,
+      originThreadId: null,
+      notificationChatId: null,
       maxSteps: 10,
       maxWallTimeMs: 60 * 60_000,
       maxCommandTimeMs: 60_000,
@@ -230,16 +335,16 @@ test('ExecutorLoop marca done cuando la sesion termina limpia', async () => {
       updatedAt: now,
     });
 
-    let aliveChecks = 0;
+    let alive = true;
     const tmuxRuntime = {
       async isAlive() {
-        aliveChecks += 1;
-        return aliveChecks === 1;
+        return alive;
       },
       async captureOutput() {
-        return 'step 1';
+        return 'Continue? [Y/n]';
       },
       async killSession() {
+        alive = false;
         return true;
       },
     };
@@ -251,9 +356,105 @@ test('ExecutorLoop marca done cuando la sesion termina limpia', async () => {
     ).run({ runtimeSessionId, pollMs: 1 });
 
     const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
-    assert.equal(result.terminalStatus, 'done');
-    assert.equal(session?.status, 'done');
-    assert.equal(session?.stepCount, 1);
+    assert.equal(result.terminalStatus, 'failed');
+    assert.equal(result.reason, 'interactive_prompt_detected');
+    assert.equal(session?.failureKind, 'interactive_prompt_detected');
+    assert.equal(getEngineNotificationRepository().listAll()[0]?.eventType, 'session.interactive_blocked');
+    assert.equal(getEngineNotificationRepository().listAll()[0]?.runtimeSessionId, runtimeSessionId);
+  });
+});
+
+test('ExecutorLoop mata sesion cuando detecta daemon bloqueante', async () => {
+  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+    const runtimeSessionId = 'be-loop-daemon';
+    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    mkdirSync(worktreePath, { recursive: true });
+    const now = new Date().toISOString();
+
+    writeRuntimeSessionFile(worktreePath, {
+      runtimeSessionId,
+      projectId: 'backend-team',
+      agentId: 'backend-team',
+      agent: 'codex',
+      model: 'codex-latest',
+      baseCommitHash: headCommit,
+      branchName: `jopen/${runtimeSessionId}`,
+      worktreePath,
+      tmuxSessionId: runtimeSessionId,
+      pid: 123,
+      prompt: 'hola',
+      beadPath: null,
+      workItemKey: null,
+      beadSpecHash: null,
+      beadSpecVersion: null,
+      qaConfig: null,
+      originThreadId: null,
+      notificationChatId: null,
+      maxSteps: 10,
+      maxWallTimeMs: 60 * 60_000,
+      maxCommandTimeMs: 60_000,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const db = getRalphitoDatabase();
+    const threadId = Number(
+      db
+        .prepare(
+          `
+            INSERT INTO threads (channel, external_chat_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+        )
+        .run('runtime', runtimeSessionId, runtimeSessionId, now, now).lastInsertRowid,
+    );
+
+    getRuntimeSessionRepository().create({
+      threadId,
+      agentId: 'backend-team',
+      runtimeSessionId,
+      status: 'running',
+      baseCommitHash: headCommit,
+      worktreePath,
+      pid: 123,
+      maxSteps: 10,
+      startedAt: now,
+      heartbeatAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    let alive = true;
+    const tmuxRuntime = {
+      async isAlive() {
+        return alive;
+      },
+      async captureOutput() {
+        return [
+          'VITE v5.4.0 ready in 300 ms',
+          'Local: http://127.0.0.1:5173/',
+          'press h + enter to show help',
+        ].join('\n');
+      },
+      async killSession() {
+        alive = false;
+        return true;
+      },
+    };
+
+    const result = await new ExecutorLoop(
+      tmuxRuntime as never,
+      getRuntimeSessionRepository(),
+      getRuntimeLockRepository(),
+      0,
+    ).run({ runtimeSessionId, pollMs: 1 });
+
+    const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
+    assert.equal(result.terminalStatus, 'failed');
+    assert.equal(result.reason, 'blocked_daemon_detected');
+    assert.equal(session?.failureKind, 'blocked_daemon_detected');
+    assert.equal(getEngineNotificationRepository().listAll()[0]?.eventType, 'session.interactive_blocked');
+    assert.equal(getEngineNotificationRepository().listAll()[0]?.runtimeSessionId, runtimeSessionId);
   });
 });
 
@@ -280,6 +481,8 @@ test('resumeRuntimeSession reinyecta fallo estructurado y limpia estado', async 
       beadSpecHash: null,
       beadSpecVersion: null,
       qaConfig: null,
+      originThreadId: null,
+      notificationChatId: null,
       maxSteps: 10,
       maxWallTimeMs: 60_000,
       maxCommandTimeMs: 60_000,

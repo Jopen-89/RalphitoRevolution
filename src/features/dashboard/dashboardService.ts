@@ -135,7 +135,7 @@ function getSessionMeta(sessionId: string): DashboardSessionMeta {
           threads.external_chat_id AS externalChatId,
           threads.title AS title
         FROM agent_sessions
-        INNER JOIN threads ON threads.id = agent_sessions.thread_id
+        LEFT JOIN threads ON threads.id = COALESCE(agent_sessions.origin_thread_id, agent_sessions.thread_id)
         WHERE agent_sessions.runtime_session_id = ?
         LIMIT 1
       `,

@@ -31,8 +31,8 @@ interface E2EReport {
 }
 
 interface SessionState {
-  sessionId: string;
-  project: string;
+  runtimeSessionId: string;
+  projectId: string;
   qaConfig?: QAConfig | null;
   e2eQa?: {
     status: E2EReport['status'];
@@ -96,12 +96,12 @@ async function updateSessionE2E(repoRoot: string, e2eQa: NonNullable<SessionStat
 
 function shouldRunE2E(session: SessionState) {
   if (session.qaConfig?.enableE2eQa) return true;
-  return session.project === 'qa-team';
+  return session.projectId === 'qa-team';
 }
 
 function buildEvidenceDir(session: SessionState, qaConfig: QAConfig | null | undefined) {
   const root = expandHomeDir(qaConfig?.evidencePath || '~/.ralphito/qa/e2e');
-  return path.join(root, session.sessionId || 'unknown-session', new Date().toISOString().replace(/[:.]/g, '-'));
+  return path.join(root, session.runtimeSessionId || 'unknown-session', new Date().toISOString().replace(/[:.]/g, '-'));
 }
 
 function normalizeRoute(route: string) {
@@ -213,7 +213,7 @@ async function main() {
   }
 
   if (!shouldRunE2E(session)) {
-    console.log(JSON.stringify({ status: 'skipped', reason: 'not_e2e_session', sessionId: session.sessionId }));
+    console.log(JSON.stringify({ status: 'skipped', reason: 'not_e2e_session', sessionId: session.runtimeSessionId }));
     return;
   }
 
@@ -225,7 +225,7 @@ async function main() {
     console.log(JSON.stringify({
       status: 'skipped',
       reason: 'missing_e2e_metadata',
-      sessionId: session.sessionId,
+      sessionId: session.runtimeSessionId,
       details: 'Faltan qaConfig.baseUrl o qaConfig.e2eRoutes.',
     }));
     return;
@@ -262,8 +262,8 @@ async function main() {
     const status = summarizeStatus(routeReports);
     const generatedAt = new Date().toISOString();
     const report: E2EReport = {
-      sessionId: session.sessionId,
-      project: session.project,
+      sessionId: session.runtimeSessionId,
+      project: session.projectId,
       shadowMode: effectiveShadowMode,
       status,
       profile: qaConfig.e2eProfile || 'generic-smoke',
@@ -290,8 +290,8 @@ async function main() {
     const generatedAt = new Date().toISOString();
     const reason = error instanceof Error ? error.message : String(error);
     const report: E2EReport = {
-      sessionId: session.sessionId,
-      project: session.project,
+      sessionId: session.runtimeSessionId,
+      project: session.projectId,
       shadowMode: effectiveShadowMode,
       status: 'warn',
       profile: qaConfig.e2eProfile || 'generic-smoke',

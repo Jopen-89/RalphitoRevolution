@@ -5,8 +5,7 @@ import * as convStore from './conversationStore.js';
 import { executeAgentTask } from './chatExecutor.js';
 import { createRaymonToolDefinitions } from '../llm-gateway/tools/raymonTools.js';
 import { initializeRalphitoDatabase } from '../persistence/db/index.js';
-import { reaperEvents } from '../ops/observabilityService.js';
-import { sendTelegramMessage } from './telegramSender.js';
+import { EngineNotificationDispatcher } from './engineNotificationDispatcher.js';
 
 // Capturar errores no manejados para ver el error real y no "[Object: null prototype]"
 process.on('uncaughtException', (err) => {
@@ -32,17 +31,8 @@ const agents = loadAgentRegistry();
 const ACTIVE_AGENT_WINDOW_MS = 15 * 60 * 1000;
 const DUPLICATE_MESSAGE_WINDOW_MS = 8 * 1000;
 const processingChats = new Set<string>();
+const notificationDispatcher = new EngineNotificationDispatcher();
 console.log(`🚀 Agentes detectados: ${agents.map(a => `${a.name} (${a.role})`).join(', ')}`);
-
-reaperEvents.on('session.reaped', async ({ sessionId, reason, kind }) => {
-  const message = `⚠️ Sesión \`${sessionId}\` finalizada por Guardrail\nMotivo: ${kind}\nDetalle: ${reason}`;
-  try {
-    const chatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
-    if (chatId) await sendTelegramMessage(chatId, message);
-  } catch (err) {
-    console.error('[Reaper→Telegram] Notification failed:', err);
-  }
-});
 
 function listAgentNames() {
     return agents.map((agent) => agent.name).join(', ');
@@ -343,17 +333,16 @@ bot.catch((err, ctx) => {
 });
 
 bot.launch().then(() => {
+    notificationDispatcher.start();
     console.log('✅ Bot de Telegram iniciado correctamente.');
 }).catch((err) => {
     console.error('❌ Error al iniciar el bot:', err);
 });
-
-// Exportar función de notificación de forma segura
-export const sendNotification = async (message: string) => {
-    if (allowedChatId) {
-        await bot.telegram.sendMessage(allowedChatId, `🔔 SISTEMA:\n${message}`);
-    }
-};
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once('SIGINT', () => {
+    notificationDispatcher.stop();
+    bot.stop('SIGINT');
+});
+process.once('SIGTERM', () => {
+    notificationDispatcher.stop();
+    bot.stop('SIGTERM');
+});

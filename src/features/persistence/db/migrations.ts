@@ -357,4 +357,43 @@ export const ralphitoMigrations: RalphitoMigration[] = [
         ON runtime_locks(expires_at);
     `,
   },
+  {
+    id: 12,
+    name: 'runtime_session_origin_context',
+    sql: `
+      ALTER TABLE agent_sessions ADD COLUMN origin_thread_id INTEGER;
+      ALTER TABLE agent_sessions ADD COLUMN notification_chat_id TEXT;
+
+      CREATE INDEX IF NOT EXISTS idx_agent_sessions_origin_thread_id
+        ON agent_sessions(origin_thread_id);
+    `,
+  },
+  {
+    id: 13,
+    name: 'engine_notifications_outbox',
+    sql: `
+      CREATE TABLE IF NOT EXISTS engine_notifications (
+        event_id TEXT PRIMARY KEY,
+        runtime_session_id TEXT,
+        event_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        target_chat_id TEXT,
+        status TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        delivered_at TEXT,
+        error_message TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_engine_notifications_status_next_attempt
+        ON engine_notifications(status, next_attempt_at);
+
+      CREATE INDEX IF NOT EXISTS idx_engine_notifications_runtime_session_id
+        ON engine_notifications(runtime_session_id);
+
+      CREATE INDEX IF NOT EXISTS idx_engine_notifications_created_at
+        ON engine_notifications(created_at DESC);
+    `,
+  },
 ];
