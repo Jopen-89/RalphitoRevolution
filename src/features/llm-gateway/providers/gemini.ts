@@ -83,42 +83,71 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
       throw new Error('No se pudo obtener un token de acceso válido de Google.');
     }
 
-    const geminiContents = messages.map((msg) => {
+    // Agrupar mensajes para cumplir con el esquema de Gemini (alternancia de roles y agrupación de tool results)
+    const geminiContents: any[] = [];
+    let lastContent: any = null;
+
+    for (const msg of messages) {
       if (msg.role === 'tool') {
-        return {
-          role: 'user',
-          parts: [{
-            functionResponse: {
-              name: msg.name || 'tool',
-              id: msg.toolCallId,
-              response: { result: msg.content }
-            }
-          }]
+        const functionResponse = {
+          name: msg.name || 'tool',
+          response: { result: msg.content }
         };
+        
+        // Si hay un toolCallId y no parece ser uno generado localmente (gemini-...), lo incluimos
+        // ya que algunos modelos (como gemini-3.1-pro-preview) parecen estar enviando IDs
+        if (msg.toolCallId && !msg.toolCallId.startsWith('gemini-')) {
+          (functionResponse as any).id = msg.toolCallId;
+        }
+
+        if (lastContent && lastContent.role === 'function') {
+          lastContent.parts.push({ functionResponse });
+        } else {
+          lastContent = {
+            role: 'function',
+            parts: [{ functionResponse }]
+          };
+          geminiContents.push(lastContent);
+        }
+        continue;
       }
-      
+
       if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
-        return {
+        lastContent = {
           role: 'model',
           parts: msg.toolCalls.map((tc) => {
-            const metadata = tc.metadata as { thoughtSignature?: string } | undefined;
+            const fc: any = {
+              name: tc.name,
+              args: tc.arguments,
+            };
+            if (tc.id && !tc.id.startsWith('gemini-')) {
+              fc.id = tc.id;
+            }
             return {
-              functionCall: {
-                name: tc.name,
-                args: tc.arguments,
-                id: tc.id
-              },
-              ...(metadata?.thoughtSignature ? { thoughtSignature: metadata.thoughtSignature } : {})
+              functionCall: fc,
+              ...( (tc.metadata as any)?.thoughtSignature ? { thoughtSignature: (tc.metadata as any).thoughtSignature } : {})
             };
           })
         };
+        geminiContents.push(lastContent);
+        continue;
       }
 
-      return {
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content || ' ' }],
-      };
-    });
+      const role = msg.role === 'assistant' ? 'model' : 'user';
+      
+      // Si el rol es el mismo que el anterior, concatenamos texto o ignoramos si es vacío
+      if (lastContent && lastContent.role === role) {
+        if (msg.content) {
+          lastContent.parts.push({ text: msg.content });
+        }
+      } else {
+        lastContent = {
+          role,
+          parts: [{ text: msg.content || ' ' }],
+        };
+        geminiContents.push(lastContent);
+      }
+    }
 
     const functionDeclarations = tools.map((tool) => ({
       name: tool.name,
@@ -136,6 +165,8 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
         maxOutputTokens: 8192,
       },
     };
+
+    console.log('[GeminiProvider] Sending request body:', JSON.stringify(requestBody, null, 2));
 
     const response = await fetch(`${this.baseUrl}/${this.model}:generateContent`, {
       method: 'POST',

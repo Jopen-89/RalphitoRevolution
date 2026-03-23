@@ -497,7 +497,7 @@ export class RuntimeSessionRepository {
           ORDER BY updated_at DESC, id DESC
         `,
       )
-      .all(...ACTIVE_RUNTIME_SESSION_STATUSES, 'suspended_human_input') as RuntimeSessionRecord[];
+      .all(...ACTIVE_RUNTIME_SESSION_STATUSES) as RuntimeSessionRecord[];
   }
 
   listRecent(limit = DEFAULT_RECENT_RUNTIME_SESSION_LIMIT) {
