@@ -79,8 +79,15 @@ export interface AgentConfig {
   allowedTools?: string[];
 }
 
+export interface ModelConfig {
+  provider: Provider;
+  max_tokens?: number;
+  temperature?: number;
+}
+
 export interface GatewayConfig {
   agents: AgentConfig[];
+  models?: Record<string, ModelConfig>;
 }
 
 export interface QuotaInfo {
