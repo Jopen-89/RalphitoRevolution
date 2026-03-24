@@ -20,7 +20,7 @@ Foco:
 
 Lee en este orden:
 
-1. `.agent-rules.md`
+1. `AGENTS.md`
 2. `docs/AUTOPILOT.md`
 3. `agents/`
 4. `ops/`

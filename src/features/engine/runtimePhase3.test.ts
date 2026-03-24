@@ -54,7 +54,7 @@ function createTempRepo() {
       '    sessionPrefix: be',
       `    path: ${repoRoot}`,
       '    defaultBranch: master',
-      '    agentRulesFile: .agent-rules.md',
+      '    agentRulesFile: AGENTS.md',
       '    agent: opencode',
       '    agentConfig:',
       '      provider: opencode',
@@ -63,7 +63,7 @@ function createTempRepo() {
     ].join('\n'),
     'utf8',
   );
-  writeFileSync(path.join(repoRoot, '.agent-rules.md'), 'Usa bd sync.\n', 'utf8');
+  writeFileSync(path.join(repoRoot, 'AGENTS.md'), 'Usa bd sync.\n', 'utf8');
   writeFileSync(path.join(repoRoot, 'package.json'), '{}\n', 'utf8');
   writeFileSync(path.join(repoRoot, 'seed.txt'), 'seed\n', 'utf8');
 

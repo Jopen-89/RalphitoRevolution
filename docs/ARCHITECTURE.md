@@ -14,7 +14,7 @@ El codigo del producto vive en `src/`.
 
 La capa operativa vive fuera de `src/`.
 
-- `.agent-rules.md` define el workflow duro
+- AGENTS.md define el workflow duro
 - `agents/` contiene roles y playbooks
 - `ops/` contiene config y estado operativo
 - `scripts/` expone `bd`, resume, QA y tooling
