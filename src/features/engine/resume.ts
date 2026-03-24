@@ -19,9 +19,10 @@ import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { TmuxRuntime } from './tmuxRuntime.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
 
-function buildResumePrompt(summary: string, tail: string | null) {
+function buildResumePrompt(kind: string, summary: string, tail: string | null) {
   const sections = [
     'La ejecucion anterior fallo.',
+    `Tipo: ${kind}`,
     `Resumen corto: ${summary}`,
   ];
 
@@ -56,7 +57,7 @@ export async function resumeRuntimeSession(
   }
 
   const failure = readRuntimeFailureRecord(session.worktreePath);
-  const resumePrompt = failure ? buildResumePrompt(failure.summary, failure.logTail) : null;
+  const resumePrompt = failure ? buildResumePrompt(failure.kind, failure.summary, failure.logTail) : null;
   const sessionFile = readRuntimeSessionFile(session.worktreePath);
   const alive = await tmuxRuntime.isAlive(runtimeSessionId);
 

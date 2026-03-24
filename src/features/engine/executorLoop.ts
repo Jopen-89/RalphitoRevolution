@@ -17,9 +17,10 @@ import {
 } from './runtimeFiles.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
 import { enqueueEngineNotification } from './engineNotifications.js';
-import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
+import { getRuntimeSessionRepository, type RuntimeSessionRecord } from './runtimeSessionRepository.js';
 import { TmuxRuntime } from './tmuxRuntime.js';
 import { WorktreeManager } from './worktreeManager.js';
+import { CommandRunner } from './commandRunner.js';
 import {
   detectCredentialPrompt,
   detectSmartDefault,
@@ -36,6 +37,11 @@ export interface ExecutorLoopContext {
 export interface ExecutorLoopResult {
   terminalStatus: 'done' | 'failed' | 'stuck';
   reason: string;
+}
+
+interface LandingVerificationResult {
+  ok: boolean;
+  summary: string | null;
 }
 
 const BLOCKING_DAEMON_PATTERNS = [
@@ -91,7 +97,155 @@ export class ExecutorLoop {
     private readonly sessionRepository = getRuntimeSessionRepository(),
     private readonly lockRepository = getRuntimeLockRepository(),
     private readonly blockingDaemonGraceMs = DEFAULT_RUNTIME_BLOCKING_DAEMON_GRACE_MS,
+    private readonly commandRunner = new CommandRunner(),
   ) {}
+
+  private async verifyLanding(worktreePath: string | null, baseCommitHash: string | null, branchName: string | null) {
+    if (!worktreePath) {
+      return {
+        ok: false,
+        summary: 'Proceso salió 0 pero falta worktree para validar landing.',
+      } satisfies LandingVerificationResult;
+    }
+
+    try {
+      const [{ stdout: currentHead }, { stdout: statusOutput }] = await Promise.all([
+        this.commandRunner.run('git', ['rev-parse', 'HEAD'], { cwd: worktreePath }),
+        this.commandRunner.run('git', ['status', '--short'], { cwd: worktreePath }),
+      ]);
+
+      let upstreamRef = '';
+      try {
+        const { stdout } = await this.commandRunner.run(
+          'git',
+          ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'],
+          { cwd: worktreePath },
+        );
+        upstreamRef = stdout.trim();
+      } catch {
+        upstreamRef = '';
+      }
+
+      if (statusOutput.trim()) {
+        return {
+          ok: false,
+          summary: 'Proceso salió 0 pero el worktree quedó sucio. Faltó bd sync.',
+        } satisfies LandingVerificationResult;
+      }
+
+      if (!upstreamRef) {
+        return {
+          ok: false,
+          summary: `Proceso salió 0 pero la rama ${branchName || '(sin rama)'} no quedó pusheada.`,
+        } satisfies LandingVerificationResult;
+      }
+
+      const upstreamSeparator = upstreamRef.indexOf('/');
+      const upstreamRemote = upstreamSeparator > 0 ? upstreamRef.slice(0, upstreamSeparator) : '';
+      const upstreamBranch = upstreamSeparator > 0 ? upstreamRef.slice(upstreamSeparator + 1) : '';
+
+      if (!upstreamRemote || !upstreamBranch) {
+        return {
+          ok: false,
+          summary: `Proceso salió 0 pero upstream=${upstreamRef} es inválido.`,
+        } satisfies LandingVerificationResult;
+      }
+
+      try {
+        await this.commandRunner.run(
+          'git',
+          ['ls-remote', '--exit-code', '--heads', upstreamRemote, upstreamBranch],
+          { cwd: worktreePath },
+        );
+      } catch {
+        return {
+          ok: false,
+          summary: `Proceso salió 0 pero la rama ${branchName || upstreamBranch} no existe en remoto.`,
+        } satisfies LandingVerificationResult;
+      }
+
+      if (baseCommitHash && currentHead.trim() === baseCommitHash) {
+        return {
+          ok: false,
+          summary: `Proceso salió 0 pero la rama ${branchName || '(sin rama)'} no generó commit nuevo.`,
+        } satisfies LandingVerificationResult;
+      }
+
+      return { ok: true, summary: null } satisfies LandingVerificationResult;
+    } catch (error) {
+      return {
+        ok: false,
+        summary: `Proceso salió 0 pero falló la validación de landing: ${error instanceof Error ? error.message : String(error)}`,
+      } satisfies LandingVerificationResult;
+    }
+  }
+
+  private async finalizeDoneSession(
+    input: ExecutorLoopContext,
+    session: RuntimeSessionRecord,
+    branchName: string | null,
+    output: string | null,
+    nowIso: string,
+    alive: boolean,
+  ) {
+    const failureLogTail = tailOutput(output);
+    const landing = await this.verifyLanding(
+      session.worktreePath,
+      session.baseCommitHash,
+      branchName,
+    );
+
+    if (!landing.ok) {
+      if (session.worktreePath) {
+        writeRuntimeFailureRecord(session.worktreePath, {
+          runtimeSessionId: input.runtimeSessionId,
+          kind: 'landing_not_completed',
+          summary: landing.summary || 'Proceso salió 0 sin landing verificable.',
+          logTail: failureLogTail,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+        clearRuntimeExitCode(session.worktreePath);
+      }
+
+      this.sessionRepository.fail({
+        runtimeSessionId: input.runtimeSessionId,
+        failureKind: 'landing_not_completed',
+        failureSummary: landing.summary || 'Proceso salió 0 sin landing verificable.',
+        ...(failureLogTail ? { failureLogTail } : {}),
+        heartbeatAt: nowIso,
+        finishedAt: nowIso,
+      });
+
+      if (alive) {
+        await this.tmuxRuntime.killSession(input.runtimeSessionId);
+      }
+      await this.cleanupTerminalSession(input.runtimeSessionId, session.worktreePath, false);
+      return { terminalStatus: 'failed', reason: 'landing_not_completed' } satisfies ExecutorLoopResult;
+    }
+
+    if (alive) {
+      await this.tmuxRuntime.killSession(input.runtimeSessionId);
+    }
+    await this.cleanupTerminalSession(input.runtimeSessionId, session.worktreePath, false);
+
+    if (session.worktreePath) {
+      clearRuntimeFailureRecord(session.worktreePath);
+      clearRuntimeExitCode(session.worktreePath);
+    }
+
+    this.sessionRepository.finish({
+      runtimeSessionId: input.runtimeSessionId,
+      status: 'done',
+      heartbeatAt: nowIso,
+      finishedAt: nowIso,
+    });
+
+    return {
+      terminalStatus: 'done',
+      reason: session.status === 'done' ? 'landing_completed' : 'process_exited',
+    } satisfies ExecutorLoopResult;
+  }
 
   private async cleanupTerminalSession(runtimeSessionId: string, worktreePath: string | null, removeWorkspace: boolean) {
     console.log(`[ExecutorLoop:${runtimeSessionId}] Cleaning up terminal session. Worktree: ${worktreePath}, remove: ${removeWorkspace}`);
@@ -151,7 +305,6 @@ export class ExecutorLoop {
       this.sessionRepository.heartbeat({
         runtimeSessionId: input.runtimeSessionId,
         heartbeatAt: nowIso,
-        status: session.status,
         ...(session.worktreePath ? { worktreePath: session.worktreePath } : {}),
         ...(typeof sessionMaxSteps === 'number' ? { maxSteps: sessionMaxSteps } : {}),
       });
@@ -192,6 +345,34 @@ export class ExecutorLoop {
           terminalStatus: 'failed',
           reason: 'session_missing_after_heartbeat',
         } satisfies ExecutorLoopResult;
+      }
+
+      const processExitCode = refreshedSession.worktreePath
+        ? readRuntimeExitCode(refreshedSession.worktreePath)
+        : null;
+
+      if (refreshedSession.status === 'done') {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Session already marked done, validating landing`);
+        return this.finalizeDoneSession(
+          input,
+          refreshedSession,
+          sessionFile?.branchName || null,
+          normalizedOutput,
+          nowIso,
+          alive,
+        );
+      }
+
+      if (refreshedSession.status === 'running' && processExitCode === 0 && alive) {
+        console.log(`[ExecutorLoop:${input.runtimeSessionId}] Exit code 0 detected while tmux is still alive, finalizing landing`);
+        return this.finalizeDoneSession(
+          input,
+          refreshedSession,
+          sessionFile?.branchName || null,
+          normalizedOutput,
+          nowIso,
+          alive,
+        );
       }
 
       const promptMatch: PromptMatch | null =
@@ -478,9 +659,6 @@ export class ExecutorLoop {
       if (!alive) {
         console.log(`[ExecutorLoop:${input.runtimeSessionId}] Tmux session is no longer alive`);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, false);
-        const processExitCode = refreshedSession.worktreePath
-          ? readRuntimeExitCode(refreshedSession.worktreePath)
-          : null;
         if (failure) {
           console.log(`[ExecutorLoop:${input.runtimeSessionId}] Exited with failure: ${failure.kind}`);
           if (refreshedSession.worktreePath) {
@@ -508,17 +686,14 @@ export class ExecutorLoop {
         if (refreshedSession.status === 'running') {
           if (processExitCode === 0) {
             console.log(`[ExecutorLoop:${input.runtimeSessionId}] Clean exit via exit code file`);
-            if (refreshedSession.worktreePath) {
-              clearRuntimeFailureRecord(refreshedSession.worktreePath);
-              clearRuntimeExitCode(refreshedSession.worktreePath);
-            }
-            this.sessionRepository.finish({
-              runtimeSessionId: input.runtimeSessionId,
-              status: 'done',
-              heartbeatAt: nowIso,
-              finishedAt: nowIso,
-            });
-            return { terminalStatus: 'done', reason: 'process_exited' } satisfies ExecutorLoopResult;
+            return this.finalizeDoneSession(
+              input,
+              refreshedSession,
+              sessionFile?.branchName || null,
+              normalizedOutput,
+              nowIso,
+              false,
+            );
           }
 
           if (typeof processExitCode === 'number') {

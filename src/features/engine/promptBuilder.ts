@@ -32,7 +32,7 @@ export function buildEnginePrompt(project: EngineProjectConfig, userPrompt: stri
       '## Runtime Context',
       `- Project: ${project.name}`,
       `- Repository path: ${project.path}`,
-      `- Base branch: ${project.defaultBranch}`,
+      `- Default branch: ${project.defaultBranch}`,
       `- Working branch: ${branchName}`,
     ].join('\n'),
   ];
