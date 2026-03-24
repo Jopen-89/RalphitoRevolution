@@ -13,7 +13,7 @@ import { SessionSupervisor } from './sessionSupervisor.js';
 import { ExecutorLoop } from './executorLoop.js';
 import { getEngineSessionsStatus, formatEngineSessionLine } from './status.js';
 import { resumeRuntimeSession } from './resume.js';
-import { clearRuntimeFailureRecord } from './runtimeFiles.js';
+import { clearRuntimeFailureRecord, writeRuntimeFailureRecord } from './runtimeFiles.js';
 import {
   enqueueEngineNotification,
   getEngineNotificationRepository,
@@ -244,6 +244,18 @@ async function main() {
       }
 
       const failureLogTail = readTailFromLog(logPath);
+      const existingSession = sessionRepository.getByRuntimeSessionId(runtimeSessionId);
+      if (existingSession?.worktreePath) {
+        const nowIso = new Date().toISOString();
+        writeRuntimeFailureRecord(existingSession.worktreePath, {
+          runtimeSessionId,
+          kind: failureKind,
+          summary: failureSummary,
+          logTail: failureLogTail,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+      }
       const session = sessionRepository.fail({
         runtimeSessionId,
         failureKind,

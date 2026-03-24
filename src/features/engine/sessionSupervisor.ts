@@ -1,6 +1,5 @@
 import { randomUUID } from 'crypto';
 import path from 'path';
-import { getRalphitoDatabasePath } from '../persistence/db/index.js';
 import { getRalphitoDatabase } from '../persistence/db/index.js';
 import { CommandRunner } from './commandRunner.js';
 import { resolveEngineProjectConfig } from './config.js';
@@ -19,6 +18,11 @@ import {
   type RuntimeSessionFileRecord,
 } from './runtimeFiles.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
+import {
+  buildRuntimeEnvironment,
+  buildRuntimeLaunchCommand,
+  spawnRuntimeLoop,
+} from './runtimeLaunch.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { TmuxRuntime } from './tmuxRuntime.js';
 import { WorktreeManager } from './worktreeManager.js';
@@ -95,38 +99,6 @@ function ensureRuntimeThread(runtimeSessionId: string) {
   return row.id;
 }
 
-function shellEscape(str: string): string {
-  if (!str.includes("'")) return `'${str}'`;
-  const escaped = str.replace(/'/g, "'\\''");
-  return `'${escaped}'`;
-}
-
-function buildLaunchCommand(agent: string, model: string | null) {
-  switch (agent) {
-    case 'codex':
-      return ['codex', '--full-auto', '--no-alt-screen', ...(model ? ['-m', model] : [])].join(' ');
-    case 'opencode':
-      return ['opencode', 'run', '"$RALPHITO_INSTRUCTION"', ...(model ? ['-m', model] : [])].join(' ');
-    default:
-      throw new Error(`Agent no soportado por Ralphito Engine: ${agent}`);
-  }
-}
-
-function toStringEnv(env: NodeJS.ProcessEnv, extra: Record<string, string>) {
-  const result: Record<string, string> = {};
-
-  for (const [key, value] of Object.entries(env)) {
-    if (typeof value === 'string') {
-      result[key] = value;
-    }
-  }
-
-  return {
-    ...result,
-    ...extra,
-  };
-}
-
 export class SessionSupervisor {
   constructor(
     private readonly commandRunner = new CommandRunner(),
@@ -166,7 +138,7 @@ export class SessionSupervisor {
     let tmuxCreated = false;
 
     try {
-      const { stdout } = await this.commandRunner.run('git', ['rev-parse', project.defaultBranch], {
+      const { stdout } = await this.commandRunner.run('git', ['rev-parse', 'HEAD'], {
         cwd: project.path,
       });
       const baseCommitHash = stdout.trim();
@@ -231,15 +203,12 @@ export class SessionSupervisor {
       await this.tmuxRuntime.createSession(
         runtimeSessionId,
         worktreePath,
-        buildLaunchCommand(project.agent, model),
-        toStringEnv(process.env, {
-          CI: '1',
-          RALPHITO_DB_PATH: getRalphitoDatabasePath(),
-          RALPHITO_RUNTIME_SESSION_ID: runtimeSessionId,
-          RALPHITO_ENGINE_MANAGED: '1',
-          RALPHITO_PROJECT_ID: project.id,
-          RALPHITO_WORKTREE_PATH: worktreePath,
-          RALPHITO_INSTRUCTION: prompt,
+        buildRuntimeLaunchCommand(project.agent, model),
+        buildRuntimeEnvironment({
+          runtimeSessionId,
+          worktreePath,
+          projectId: project.id,
+          instruction: prompt,
         }),
       );
       tmuxCreated = true;
@@ -263,14 +232,7 @@ export class SessionSupervisor {
         });
       }
 
-      this.commandRunner.spawnDetached(
-        process.execPath,
-        ['--import', 'tsx', path.join(project.path, 'src/features/engine/cli.ts'), 'run-loop', runtimeSessionId],
-        {
-          cwd: project.path,
-          env: process.env,
-        },
-      );
+      spawnRuntimeLoop(project.path, runtimeSessionId, this.commandRunner);
 
       enqueueEngineNotification({
         runtimeSessionId,

@@ -392,6 +392,7 @@ export class RuntimeSessionRepository {
           SET status = 'running',
               heartbeat_at = ?,
               updated_at = ?,
+              finished_at = NULL,
               failure_kind = NULL,
               failure_summary = NULL,
               failure_log_tail = NULL,

@@ -120,6 +120,27 @@ test('RuntimeLockRepository rechaza colision ancestro descendiente', () => {
   }
 });
 
+test('RuntimeLockRepository lista solo locks activos segun nowIso', () => {
+  const db = createMigratedDatabase();
+
+  try {
+    const repository = new RuntimeLockRepository(db as unknown as ReturnType<typeof createMigratedDatabase>);
+    const heartbeatAt = '2026-03-21T10:00:00.000Z';
+
+    repository.acquireForSession({
+      runtimeSessionId: 'rr-1',
+      heartbeatAt,
+      ttlMs: 60_000,
+      targets: [{ path: '/repo/src/features/engine', pathKind: 'directory' }],
+    });
+
+    assert.equal(repository.listAllActive('2026-03-21T10:00:30.000Z').length, 1);
+    assert.equal(repository.listAllActive('2026-03-21T10:02:00.000Z').length, 0);
+  } finally {
+    db.close();
+  }
+});
+
 test('WorktreeManager crea y desmonta worktree propio', async () => {
   const { repoRoot, headCommit } = createGitRepo();
 
@@ -174,11 +195,20 @@ test('RuntimeReaper marca stuck, limpia locks stale y borra worktree gestionado'
       ttlMs: 60_000,
       targets: [{ path: path.join(repoRoot, 'src'), pathKind: 'directory' }],
     });
+    const tmuxRuntime = {
+      async isAlive() {
+        return false;
+      },
+      async killSession() {
+        return true;
+      },
+    };
 
     const reaper = new RuntimeReaper(
       sessionRepository,
       lockRepository,
       worktreeManager,
+      tmuxRuntime as never,
       (input) => notificationRepository.enqueue(input),
     );
     const result = await reaper.reap({
