@@ -424,26 +424,30 @@ app.post('/api/ops/backup', async (_req, res) => {
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3005;
 
-async function bootstrap() {
+function bootstrap() {
   console.log('🔄 Iniciando secuencia de arranque del Gateway...');
 
-  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-    try {
-      googleAuthClient = await authenticateGoogle();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`⚠️ Google OAuth no disponible. Gemini quedará deshabilitado hasta resolverlo: ${message}`);
-    }
-  } else {
-    console.warn('⚠️ GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET no configurados. Gemini quedará deshabilitado.');
-  }
-
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`🚀 LLM Gateway escuchando en http://localhost:${PORT}`);
+
+    if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+      authenticateGoogle()
+        .then((client) => {
+          googleAuthClient = client;
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`⚠️ Google OAuth no disponible. Gemini quedará deshabilitado hasta resolverlo: ${message}`);
+        });
+    } else {
+      console.warn('⚠️ GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET no configurados. Gemini quedará deshabilitado.');
+    }
+  });
+
+  server.on('error', (error) => {
+    console.error('❌ Error fatal en el socket del servidor Gateway:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
   });
 }
 
-bootstrap().catch((error) => {
-  console.error('❌ Error fatal al iniciar el Gateway:', error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+bootstrap();
