@@ -14,7 +14,7 @@ export async function executeToolCallLoop(
   toolDefinitions: ToolDefinition[],
   toolImplementations: Tool[],
   provider: IToolCallingProvider,
-  maxIterations = 5,
+  maxIterations = 15,
 ): Promise<ToolCallingLoopResult> {
   const toolMap = new Map(toolImplementations.map((t) => [t.name, t]));
   const allToolCalls: ToolCall[] = [];
