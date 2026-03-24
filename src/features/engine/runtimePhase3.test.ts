@@ -265,6 +265,9 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     );
     assert.equal(detachedCalls.length, 1);
     assert.match(createdEnvs[0]?.RALPHITO_INSTRUCTION || '', /Implementa la fase 3\./);
+    assert.match(createdEnvs[0]?.RALPHITO_INSTRUCTION || '', /Validation Playbook/);
+    assert.match(createdEnvs[0]?.RALPHITO_INSTRUCTION || '', /git add <files>/);
+    assert.match(createdEnvs[0]?.RALPHITO_INSTRUCTION || '', /\.\/scripts\/bd\.sh sync/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"pid": 987/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"notificationChatId": "chat-999"/);
     assert.deepEqual(
@@ -1527,6 +1530,9 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /Resumen corto: Fallo tsc/);
     assert.doesNotMatch(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /Motivo verificacion:/);
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /src\/a\.ts:1 error TS1005/);
+    assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /Validation Playbook/);
+    assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /git commit -m/);
+    assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /\.\/scripts\/bd\.sh sync/);
     assert.equal(prompts.length, 0);
     assert.equal(detachedCalls.length, 1);
     assert.equal(detachedCalls[0]?.args.at(-1), runtimeSessionId);
