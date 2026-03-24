@@ -44,7 +44,17 @@ export interface ExecutorLoopResult {
 interface LandingVerificationResult {
   ok: boolean;
   summary: string | null;
+  reasonCode: string | null;
 }
+
+type LandingFailureReasonCode =
+  | 'missing_worktree'
+  | 'dirty_worktree'
+  | 'missing_upstream'
+  | 'invalid_upstream'
+  | 'missing_remote_branch'
+  | 'no_new_commit'
+  | 'verification_error';
 
 const BLOCKING_DAEMON_PATTERNS = [
   /\bwatch mode\b/i,
@@ -116,6 +126,13 @@ function filterRelevantGitStatusLines(statusOutput: string) {
     });
 }
 
+function summarizeGitStatusLines(lines: string[], maxLines = 2) {
+  const visibleLines = lines.slice(0, maxLines);
+  const remainder = lines.length - visibleLines.length;
+  const suffix = remainder > 0 ? `; +${remainder} mas` : '';
+  return `${visibleLines.join('; ')}${suffix}`;
+}
+
 export class ExecutorLoop {
   constructor(
     private readonly tmuxRuntime = new TmuxRuntime(),
@@ -130,6 +147,7 @@ export class ExecutorLoop {
       return {
         ok: false,
         summary: 'Proceso salió 0 pero falta worktree para validar landing.',
+        reasonCode: 'missing_worktree' satisfies LandingFailureReasonCode,
       } satisfies LandingVerificationResult;
     }
 
@@ -151,10 +169,12 @@ export class ExecutorLoop {
         upstreamRef = '';
       }
 
-      if (filterRelevantGitStatusLines(statusOutput).length > 0) {
+      const relevantStatusLines = filterRelevantGitStatusLines(statusOutput);
+      if (relevantStatusLines.length > 0) {
         return {
           ok: false,
-          summary: 'Proceso salió 0 pero el worktree quedó sucio. Faltó bd sync.',
+          summary: `Proceso salió 0 pero el worktree quedó sucio: ${summarizeGitStatusLines(relevantStatusLines)}. Faltó bd sync.`,
+          reasonCode: 'dirty_worktree' satisfies LandingFailureReasonCode,
         } satisfies LandingVerificationResult;
       }
 
@@ -162,6 +182,7 @@ export class ExecutorLoop {
         return {
           ok: false,
           summary: `Proceso salió 0 pero la rama ${branchName || '(sin rama)'} no quedó pusheada.`,
+          reasonCode: 'missing_upstream' satisfies LandingFailureReasonCode,
         } satisfies LandingVerificationResult;
       }
 
@@ -173,6 +194,7 @@ export class ExecutorLoop {
         return {
           ok: false,
           summary: `Proceso salió 0 pero upstream=${upstreamRef} es inválido.`,
+          reasonCode: 'invalid_upstream' satisfies LandingFailureReasonCode,
         } satisfies LandingVerificationResult;
       }
 
@@ -186,6 +208,7 @@ export class ExecutorLoop {
         return {
           ok: false,
           summary: `Proceso salió 0 pero la rama ${branchName || upstreamBranch} no existe en remoto.`,
+          reasonCode: 'missing_remote_branch' satisfies LandingFailureReasonCode,
         } satisfies LandingVerificationResult;
       }
 
@@ -193,14 +216,16 @@ export class ExecutorLoop {
         return {
           ok: false,
           summary: `Proceso salió 0 pero la rama ${branchName || '(sin rama)'} no generó commit nuevo.`,
+          reasonCode: 'no_new_commit' satisfies LandingFailureReasonCode,
         } satisfies LandingVerificationResult;
       }
 
-      return { ok: true, summary: null } satisfies LandingVerificationResult;
+      return { ok: true, summary: null, reasonCode: null } satisfies LandingVerificationResult;
     } catch (error) {
       return {
         ok: false,
         summary: `Proceso salió 0 pero falló la validación de landing: ${error instanceof Error ? error.message : String(error)}`,
+        reasonCode: 'verification_error' satisfies LandingFailureReasonCode,
       } satisfies LandingVerificationResult;
     }
   }
@@ -226,6 +251,7 @@ export class ExecutorLoop {
           runtimeSessionId: input.runtimeSessionId,
           kind: 'landing_not_completed',
           summary: landing.summary || 'Proceso salió 0 sin landing verificable.',
+          reasonCode: landing.reasonCode,
           logTail: failureLogTail,
           createdAt: nowIso,
           updatedAt: nowIso,
@@ -237,6 +263,7 @@ export class ExecutorLoop {
         runtimeSessionId: input.runtimeSessionId,
         failureKind: 'landing_not_completed',
         failureSummary: landing.summary || 'Proceso salió 0 sin landing verificable.',
+        failureReasonCode: landing.reasonCode,
         ...(failureLogTail ? { failureLogTail } : {}),
         heartbeatAt: nowIso,
         finishedAt: nowIso,
@@ -344,6 +371,7 @@ export class ExecutorLoop {
           runtimeSessionId: input.runtimeSessionId,
           failureKind: failure.kind,
           failureSummary: failure.summary,
+          failureReasonCode: failure.reasonCode,
           ...(failure.logTail ? { failureLogTail: failure.logTail } : {}),
           heartbeatAt: nowIso,
           finishedAt: nowIso,
@@ -495,6 +523,7 @@ export class ExecutorLoop {
               runtimeSessionId: input.runtimeSessionId,
               kind: 'interactive_prompt_unresolved',
               summary: `Prompt unresolved after 3 attempts: ${promptMatch.matchedLine}`,
+              reasonCode: null,
               logTail: failureLogTail,
               createdAt: nowIso,
               updatedAt: nowIso,
@@ -555,6 +584,7 @@ export class ExecutorLoop {
             runtimeSessionId: input.runtimeSessionId,
             kind: 'blocked_daemon_detected',
             summary: blockingDaemonSummary,
+            reasonCode: null,
             logTail: failureLogTail,
             createdAt: nowIso,
             updatedAt: nowIso,
@@ -590,6 +620,7 @@ export class ExecutorLoop {
             runtimeSessionId: input.runtimeSessionId,
             kind: 'max_steps_exceeded',
             summary,
+            reasonCode: null,
             logTail: tailOutput(normalizedOutput),
             createdAt: nowIso,
             updatedAt: nowIso,
@@ -617,6 +648,7 @@ export class ExecutorLoop {
             runtimeSessionId: input.runtimeSessionId,
             kind: 'max_wall_time_exceeded',
             summary,
+            reasonCode: null,
             logTail: tailOutput(normalizedOutput),
             createdAt: nowIso,
             updatedAt: nowIso,
@@ -653,6 +685,7 @@ export class ExecutorLoop {
             runtimeSessionId: input.runtimeSessionId,
             kind: 'max_command_time_exceeded',
             summary,
+            reasonCode: null,
             logTail: tailOutput(normalizedOutput),
             createdAt: nowIso,
             updatedAt: nowIso,
@@ -693,6 +726,7 @@ export class ExecutorLoop {
             runtimeSessionId: input.runtimeSessionId,
             failureKind: failure.kind,
             failureSummary: failure.summary,
+            failureReasonCode: failure.reasonCode,
             ...(failure.logTail ? { failureLogTail: failure.logTail } : {}),
             heartbeatAt: nowIso,
             finishedAt: nowIso,
@@ -728,6 +762,7 @@ export class ExecutorLoop {
                 runtimeSessionId: input.runtimeSessionId,
                 kind: 'process_exit_nonzero',
                 summary,
+                reasonCode: null,
                 logTail: tailOutput(normalizedOutput),
                 createdAt: nowIso,
                 updatedAt: nowIso,
@@ -751,6 +786,7 @@ export class ExecutorLoop {
               runtimeSessionId: input.runtimeSessionId,
               kind: 'silent_exit',
               summary,
+              reasonCode: null,
               logTail: tailOutput(normalizedOutput),
               createdAt: nowIso,
               updatedAt: nowIso,

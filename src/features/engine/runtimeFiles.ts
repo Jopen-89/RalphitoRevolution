@@ -38,6 +38,7 @@ export interface RuntimeFailureRecord {
   runtimeSessionId: string;
   kind: string;
   summary: string;
+  reasonCode: string | null;
   logTail: string | null;
   createdAt: string;
   updatedAt: string;

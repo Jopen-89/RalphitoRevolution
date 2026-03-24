@@ -7,7 +7,7 @@ import {
   closeRalphitoDatabase,
   initializeRalphitoDatabase,
 } from '../persistence/db/index.js';
-import { getEngineSessionsStatus } from './status.js';
+import { formatEngineSessionLine, getEngineSessionsStatus } from './status.js';
 import {
   getRuntimeSessionRepository,
   resetRuntimeSessionRepository,
@@ -173,6 +173,9 @@ test('getEngineSessionsStatus expone sesiones recientes del engine con metadata 
       activity: 'running',
       branch: 'jopen/be-running',
       summary: 'runtime-f4',
+      failureKind: null,
+      failureSummary: null,
+      failureReasonCode: null,
       issue: null,
       prUrl: null,
       createdAt: '2026-03-21T10:00:00.000Z',
@@ -185,8 +188,12 @@ test('getEngineSessionsStatus expone sesiones recientes del engine con metadata 
     assert.equal(sessions[1]?.status, 'failed');
     assert.equal(sessions[1]?.activity, 'failed');
     assert.equal(sessions[1]?.summary, 'Fallo guardrail');
+    assert.equal(sessions[1]?.failureKind, 'guardrail_failed');
+    assert.equal(sessions[1]?.failureSummary, 'Fallo guardrail');
+    assert.equal(sessions[1]?.failureReasonCode, null);
     assert.equal(sessions[1]?.alive, false);
     assert.equal(sessions[1]?.branch, 'jopen/be-failed');
     assert.equal(sessions[1]?.projectId, 'frontend-team');
+    assert.match(formatEngineSessionLine(sessions[1]!), /\[failed\]\s+Fallo guardrail$/);
   });
 });

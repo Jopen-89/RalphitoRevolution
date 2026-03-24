@@ -405,4 +405,11 @@ export const ralphitoMigrations: RalphitoMigration[] = [
       ALTER TABLE agent_sessions ADD COLUMN suspended_reason TEXT;
     `,
   },
+  {
+    id: 15,
+    name: 'agent_sessions_failure_reason_code',
+    sql: `
+      ALTER TABLE agent_sessions ADD COLUMN failure_reason_code TEXT;
+    `,
+  },
 ];

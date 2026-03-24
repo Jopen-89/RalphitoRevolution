@@ -274,6 +274,7 @@ export class SessionSupervisor {
           runtimeSessionId,
           kind: 'spawn_failed',
           summary: message,
+          reasonCode: null,
           logTail: null,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),

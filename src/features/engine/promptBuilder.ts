@@ -10,7 +10,17 @@ const BASE_ENGINE_PROMPT = `You are an AI coding agent managed by Ralphito Engin
 - Use \`bd sync\` as the only landing command.
 - If guardrails fail, you will receive a structured resume prompt. Fix the issue and continue from the same worktree.
 - You operate in a headless runtime. Never launch servers, watchers, \`tail -f\`, interactive prompts, or commands that do not terminate.
-- Stay scoped to the assigned task.`;
+- Stay scoped to the assigned task.
+
+## Validation Playbook
+- If the task is a short validation or proof task, create the smallest deterministic artifact that satisfies the acceptance criteria.
+- Do not stop at terminal output or "report success"; leave a verifiable artifact inside the allowed write scope.
+- If the task validates engine/runtime behavior rather than product behavior, prefer touching non-product files only.
+- For short validation or proof tasks, use this landing sequence exactly:
+  1. edit or create the artifact
+  2. \`git add <files>\`
+  3. \`git commit -m "<message>"\`
+  4. \`./scripts/bd.sh sync\``;
 
 function readProjectRules(project: EngineProjectConfig) {
   if (!project.agentRulesFile) return null;

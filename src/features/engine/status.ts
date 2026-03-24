@@ -10,6 +10,9 @@ export interface EngineStatusSession {
   activity: string | null;
   branch: string | null;
   summary: string | null;
+  failureKind: string | null;
+  failureSummary: string | null;
+  failureReasonCode: string | null;
   issue: string | null;
   prUrl: string | null;
   createdAt: string;
@@ -34,6 +37,9 @@ function mapSession(
     activity: alive ? 'running' : session.status === 'running' || session.status === 'queued' ? 'stale' : session.status,
     branch: branchName,
     summary,
+    failureKind: session.failureKind,
+    failureSummary: session.failureSummary,
+    failureReasonCode: session.failureReasonCode,
     issue: null,
     prUrl: null,
     createdAt: session.createdAt,
@@ -87,5 +93,6 @@ export async function getEngineSessionsStatus(input: GetEngineSessionsStatusInpu
 
 export function formatEngineSessionLine(session: EngineStatusSession) {
   const activity = session.alive ? 'alive' : 'dead';
-  return `  ${session.id}  (${activity})  ${session.branch || '-'}  [${session.status}]  ${session.summary || '-'}`;
+  const reasonSuffix = session.failureReasonCode ? `  reason=${session.failureReasonCode}` : '';
+  return `  ${session.id}  (${activity})  ${session.branch || '-'}  [${session.status}]  ${session.summary || '-'}${reasonSuffix}`;
 }
