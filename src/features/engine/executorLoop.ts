@@ -2,6 +2,8 @@ import { setTimeout as sleep } from 'timers/promises';
 import {
   DEFAULT_RUNTIME_BLOCKING_DAEMON_GRACE_MS,
   DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_MS,
+  RUNTIME_EXIT_CODE_FILE_NAME,
+  RUNTIME_SESSION_FILE_NAME,
   DEFAULT_RUNTIME_MAX_COMMAND_TIME_MS,
   DEFAULT_RUNTIME_MAX_WALL_TIME_MS,
   DEFAULT_RUNTIME_OUTPUT_LINES,
@@ -91,6 +93,29 @@ function getBlockingDaemonSummary(output: string | null) {
   return line ? `Proceso bloqueante detectado: ${line}` : null;
 }
 
+const ALLOWED_UNTRACKED_RUNTIME_FILES = new Set([
+  RUNTIME_EXIT_CODE_FILE_NAME,
+  RUNTIME_SESSION_FILE_NAME,
+]);
+
+function normalizeStatusPath(rawPath: string) {
+  const trimmed = rawPath.trim();
+  if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) return trimmed;
+  return trimmed.slice(1, -1);
+}
+
+function filterRelevantGitStatusLines(statusOutput: string) {
+  return statusOutput
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .filter((line) => {
+      if (!line.startsWith('?? ')) return true;
+      const path = normalizeStatusPath(line.slice(3));
+      return !ALLOWED_UNTRACKED_RUNTIME_FILES.has(path);
+    });
+}
+
 export class ExecutorLoop {
   constructor(
     private readonly tmuxRuntime = new TmuxRuntime(),
@@ -126,7 +151,7 @@ export class ExecutorLoop {
         upstreamRef = '';
       }
 
-      if (statusOutput.trim()) {
+      if (filterRelevantGitStatusLines(statusOutput).length > 0) {
         return {
           ok: false,
           summary: 'Proceso salió 0 pero el worktree quedó sucio. Faltó bd sync.',

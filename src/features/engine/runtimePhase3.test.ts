@@ -481,6 +481,116 @@ test('ExecutorLoop marca done si la sesion running sale con exit code 0', async 
   });
 });
 
+test('ExecutorLoop ignora artifacts runtime legitimos al validar landing', async () => {
+  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+    const runtimeSessionId = 'be-loop-exit-zero-runtime-artifacts';
+    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    mkdirSync(worktreePath, { recursive: true });
+    const now = new Date().toISOString();
+
+    writeRuntimeSessionFile(worktreePath, {
+      runtimeSessionId,
+      projectId: 'backend-team',
+      agentId: 'backend-team',
+      agent: 'opencode',
+      model: 'minimax/MiniMax-M2.7',
+      baseCommitHash: headCommit,
+      branchName: `jopen/${runtimeSessionId}`,
+      worktreePath,
+      tmuxSessionId: runtimeSessionId,
+      pid: 123,
+      prompt: 'hola',
+      beadPath: null,
+      workItemKey: null,
+      beadSpecHash: null,
+      beadSpecVersion: null,
+      qaConfig: null,
+      originThreadId: null,
+      notificationChatId: null,
+      maxSteps: 10,
+      maxWallTimeMs: 60 * 60_000,
+      maxCommandTimeMs: 60_000,
+      createdAt: now,
+      updatedAt: now,
+    });
+    writeFileSync(getRuntimeExitCodeFilePath(worktreePath), '0\n', 'utf8');
+
+    const db = getRalphitoDatabase();
+    const threadId = Number(
+      db
+        .prepare(
+          `
+            INSERT INTO threads (channel, external_chat_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+        )
+        .run('runtime', runtimeSessionId, runtimeSessionId, now, now).lastInsertRowid,
+    );
+
+    getRuntimeSessionRepository().create({
+      threadId,
+      agentId: 'backend-team',
+      runtimeSessionId,
+      status: 'running',
+      baseCommitHash: headCommit,
+      worktreePath,
+      pid: 123,
+      maxSteps: 10,
+      startedAt: now,
+      heartbeatAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    getRuntimeLockRepository().acquireForSession({
+      runtimeSessionId,
+      targets: [{ path: path.join(repoRoot, 'docs', 'done-lock-runtime-artifacts.txt'), pathKind: 'file' }],
+    });
+
+    const tmuxRuntime = {
+      async isAlive() {
+        return false;
+      },
+      async captureOutput() {
+        return 'done';
+      },
+      async killSession() {
+        return true;
+      },
+    };
+    const commandRunner = {
+      async run(_command: string, args: string[]) {
+        if (args[0] === 'status') {
+          return {
+            stdout: '?? .ralphito-runtime-exit-code\n?? .ralphito-session.json\n',
+            stderr: '',
+          };
+        }
+        if (args[0] === 'ls-remote') {
+          return { stdout: `feedcafe\trefs/heads/jopen/${runtimeSessionId}\n`, stderr: '' };
+        }
+        if (args.at(-1) === '@{u}') {
+          return { stdout: `origin/jopen/${runtimeSessionId}\n`, stderr: '' };
+        }
+        return { stdout: 'feedcafe\n', stderr: '' };
+      },
+    };
+
+    const result = await new ExecutorLoop(
+      tmuxRuntime as never,
+      getRuntimeSessionRepository(),
+      getRuntimeLockRepository(),
+      undefined,
+      commandRunner as never,
+    ).run({ runtimeSessionId, pollMs: 1 });
+
+    const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
+    assert.equal(result.terminalStatus, 'done');
+    assert.equal(session?.status, 'done');
+    assert.equal(clearRuntimeExitCode(worktreePath), false);
+    assert.equal(getRuntimeLockRepository().listByRuntimeSessionId(runtimeSessionId).length, 0);
+  });
+});
+
 test('ExecutorLoop falla si exit 0 pero falta landing real', async () => {
   await withTempRuntime(async ({ repoRoot, headCommit }) => {
     const runtimeSessionId = 'be-loop-exit-zero-no-landing';
