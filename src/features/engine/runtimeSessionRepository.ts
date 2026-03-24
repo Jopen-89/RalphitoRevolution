@@ -25,6 +25,7 @@ export interface RuntimeSessionRecord {
   finishedAt: string | null;
   failureKind: string | null;
   failureSummary: string | null;
+  failureReasonCode: string | null;
   failureLogTail: string | null;
   createdAt: string;
   updatedAt: string;
@@ -78,6 +79,7 @@ export interface FailRuntimeSessionInput {
   runtimeSessionId: string;
   failureKind: string;
   failureSummary: string;
+  failureReasonCode?: string | null;
   failureLogTail?: string;
   finishedAt?: string;
   heartbeatAt?: string;
@@ -100,6 +102,7 @@ export interface MarkStuckRuntimeSessionInput {
   runtimeSessionId: string;
   failureKind?: string;
   failureSummary?: string;
+  failureReasonCode?: string | null;
   failureLogTail?: string;
   finishedAt?: string;
   heartbeatAt?: string;
@@ -147,10 +150,11 @@ export class RuntimeSessionRepository {
             finished_at,
             failure_kind,
             failure_summary,
+            failure_reason_code,
             failure_log_tail,
             created_at,
             updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)
           ON CONFLICT(runtime_session_id)
           DO UPDATE SET
             thread_id = excluded.thread_id,
@@ -169,6 +173,7 @@ export class RuntimeSessionRepository {
             finished_at = excluded.finished_at,
             failure_kind = excluded.failure_kind,
             failure_summary = excluded.failure_summary,
+            failure_reason_code = excluded.failure_reason_code,
             failure_log_tail = excluded.failure_log_tail,
             created_at = excluded.created_at,
             updated_at = excluded.updated_at
@@ -286,6 +291,7 @@ export class RuntimeSessionRepository {
               finished_at = ?,
               failure_kind = ?,
               failure_summary = ?,
+              failure_reason_code = ?,
               failure_log_tail = ?,
               updated_at = ?
           WHERE runtime_session_id = ?
@@ -296,6 +302,7 @@ export class RuntimeSessionRepository {
         finishedAt,
         input.failureKind,
         input.failureSummary,
+        input.failureReasonCode ?? null,
         input.failureLogTail || null,
         finishedAt,
         input.runtimeSessionId,
@@ -318,6 +325,7 @@ export class RuntimeSessionRepository {
               finished_at = ?,
               failure_kind = NULL,
               failure_summary = NULL,
+              failure_reason_code = NULL,
               failure_log_tail = NULL,
               updated_at = ?
           WHERE runtime_session_id = ?
@@ -341,6 +349,7 @@ export class RuntimeSessionRepository {
               finished_at = NULL,
               failure_kind = NULL,
               failure_summary = NULL,
+              failure_reason_code = NULL,
               failure_log_tail = NULL,
               updated_at = ?
           WHERE runtime_session_id = ?
@@ -364,6 +373,7 @@ export class RuntimeSessionRepository {
               finished_at = ?,
               failure_kind = COALESCE(?, failure_kind),
               failure_summary = COALESCE(?, failure_summary),
+              failure_reason_code = COALESCE(?, failure_reason_code),
               failure_log_tail = COALESCE(?, failure_log_tail),
               updated_at = ?
           WHERE runtime_session_id = ?
@@ -374,6 +384,7 @@ export class RuntimeSessionRepository {
         finishedAt,
         input.failureKind || null,
         input.failureSummary || null,
+        input.failureReasonCode ?? null,
         input.failureLogTail || null,
         finishedAt,
         input.runtimeSessionId,
@@ -395,6 +406,7 @@ export class RuntimeSessionRepository {
               finished_at = NULL,
               failure_kind = NULL,
               failure_summary = NULL,
+              failure_reason_code = NULL,
               failure_log_tail = NULL,
               suspended_at = NULL,
               suspended_reason = NULL
@@ -450,6 +462,7 @@ export class RuntimeSessionRepository {
               finished_at AS finishedAt,
               failure_kind AS failureKind,
               failure_summary AS failureSummary,
+              failure_reason_code AS failureReasonCode,
               failure_log_tail AS failureLogTail,
               created_at AS createdAt,
               updated_at AS updatedAt,
@@ -487,6 +500,7 @@ export class RuntimeSessionRepository {
             finished_at AS finishedAt,
             failure_kind AS failureKind,
             failure_summary AS failureSummary,
+            failure_reason_code AS failureReasonCode,
             failure_log_tail AS failureLogTail,
             created_at AS createdAt,
             updated_at AS updatedAt,
@@ -523,6 +537,7 @@ export class RuntimeSessionRepository {
             finished_at AS finishedAt,
             failure_kind AS failureKind,
             failure_summary AS failureSummary,
+            failure_reason_code AS failureReasonCode,
             failure_log_tail AS failureLogTail,
             created_at AS createdAt,
             updated_at AS updatedAt,

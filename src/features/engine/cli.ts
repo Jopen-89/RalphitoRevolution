@@ -251,6 +251,7 @@ async function main() {
           runtimeSessionId,
           kind: failureKind,
           summary: failureSummary,
+          reasonCode: null,
           logTail: failureLogTail,
           createdAt: nowIso,
           updatedAt: nowIso,

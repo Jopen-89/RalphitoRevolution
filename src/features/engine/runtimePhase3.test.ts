@@ -692,9 +692,14 @@ test('ExecutorLoop falla si exit 0 pero falta landing real', async () => {
     assert.equal(result.reason, 'landing_not_completed');
     assert.equal(session?.status, 'failed');
     assert.equal(session?.failureKind, 'landing_not_completed');
+    assert.equal(session?.failureReasonCode, 'missing_upstream');
     assert.equal(getRuntimeLockRepository().listByRuntimeSessionId(runtimeSessionId).length, 0);
     assert.match(session?.failureSummary || '', /no quedó pusheada/i);
-    assert.match(readFileSync(path.join(worktreePath, '.ralphito-runtime-failure.json'), 'utf8'), /landing_not_completed/);
+    const failure = JSON.parse(
+      readFileSync(path.join(worktreePath, '.ralphito-runtime-failure.json'), 'utf8'),
+    ) as { kind: string; reasonCode: string | null };
+    assert.equal(failure.kind, 'landing_not_completed');
+    assert.equal(failure.reasonCode, 'missing_upstream');
     assert.equal(clearRuntimeExitCode(worktreePath), false);
   });
 });
@@ -799,6 +804,7 @@ test('ExecutorLoop falla si exit 0 pero la rama remota no existe', async () => {
     assert.equal(result.reason, 'landing_not_completed');
     assert.equal(session?.status, 'failed');
     assert.equal(session?.failureKind, 'landing_not_completed');
+    assert.equal(session?.failureReasonCode, 'missing_remote_branch');
     assert.match(session?.failureSummary || '', /no existe en remoto/i);
   });
 });
@@ -1356,6 +1362,7 @@ test('resumeRuntimeSession reinyecta fallo estructurado y limpia estado', async 
       runtimeSessionId,
       kind: 'typescript_guardrail_failed',
       summary: 'Fallo tsc',
+      reasonCode: 'missing_upstream',
       logTail: 'src/a.ts:1 error TS1005',
       createdAt: '2026-03-21T10:01:00.000Z',
       updatedAt: '2026-03-21T10:01:00.000Z',
@@ -1406,6 +1413,7 @@ test('resumeRuntimeSession reinyecta fallo estructurado y limpia estado', async 
     assert.equal(existsSync(path.join(worktreePath, '.ralphito-runtime-failure.json')), false);
     assert.match(prompts[0] || '', /Tipo: typescript_guardrail_failed/);
     assert.match(prompts[0] || '', /Resumen corto: Fallo tsc/);
+    assert.match(prompts[0] || '', /Motivo verificacion: missing_upstream/);
     assert.match(prompts[0] || '', /src\/a\.ts:1 error TS1005/);
   });
 });
@@ -1445,6 +1453,7 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
       runtimeSessionId,
       kind: 'typescript_guardrail_failed',
       summary: 'Fallo tsc',
+      reasonCode: null,
       logTail: 'src/a.ts:1 error TS1005',
       createdAt: '2026-03-21T10:01:00.000Z',
       updatedAt: '2026-03-21T10:01:00.000Z',
@@ -1516,6 +1525,7 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /## Task/);
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /Tipo: typescript_guardrail_failed/);
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /Resumen corto: Fallo tsc/);
+    assert.doesNotMatch(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /Motivo verificacion:/);
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /src\/a\.ts:1 error TS1005/);
     assert.equal(prompts.length, 0);
     assert.equal(detachedCalls.length, 1);
@@ -1526,6 +1536,7 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
 test('scripts/resume.sh prioriza failure moderno', async () => {
   const sandbox = createResumeScriptSandbox();
   const worktreePath = path.join(sandbox.repoRoot, '.agent-worktrees', 'be-modern-resume');
+  const legacyLogPath = path.join(worktreePath, '.guardrail_error.log');
 
   mkdirSync(worktreePath, { recursive: true });
   writeFileSync(
@@ -1534,12 +1545,14 @@ test('scripts/resume.sh prioriza failure moderno', async () => {
       runtimeSessionId: 'be-modern-resume',
       kind: 'typescript_guardrail_failed',
       summary: 'Fallo tsc',
+      reasonCode: null,
       logTail: 'src/a.ts:1 error TS1005',
       createdAt: '2026-03-21T10:01:00.000Z',
       updatedAt: '2026-03-21T10:01:00.000Z',
     }, null, 2)}\n`,
     'utf8',
   );
+  writeFileSync(legacyLogPath, 'Legacy guardrail failure\n', 'utf8');
 
   try {
     const output = runBashScript(
@@ -1553,6 +1566,7 @@ test('scripts/resume.sh prioriza failure moderno', async () => {
     assert.match(output, /Failure moderno encontrado/);
     assert.deepEqual(calls.map((call) => call[2]), ['resume-session']);
     assert.equal(calls[0]?.[3], 'be-modern-resume');
+    assert.equal(existsSync(legacyLogPath), true);
   } finally {
     rmSync(sandbox.repoRoot, { force: true, recursive: true });
   }
@@ -1655,15 +1669,18 @@ test('cli record-failure persiste failure record en DB y archivo', async () => {
     ) as {
       kind: string;
       summary: string;
+      reasonCode: string | null;
       logTail: string | null;
     };
 
     assert.equal(session?.status, 'failed');
     assert.equal(session?.failureKind, 'typescript_guardrail_failed');
     assert.equal(session?.failureSummary, 'Fallo tsc');
+    assert.equal(session?.failureReasonCode, null);
     assert.match(session?.failureLogTail || '', /TS1005/);
     assert.equal(failure.kind, 'typescript_guardrail_failed');
     assert.equal(failure.summary, 'Fallo tsc');
+    assert.equal(failure.reasonCode, null);
     assert.match(failure.logTail || '', /TS1005/);
   });
 });
