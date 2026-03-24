@@ -1,7 +1,11 @@
 import { mkdir } from 'fs/promises';
 import path from 'path';
-import { getEngineNotificationRepository } from '../engine/engineNotifications.js';
-import { getEngineSessionsStatus } from '../engine/status.js';
+import {
+  getEngineNotificationRepository,
+  type EngineNotificationSummary,
+} from '../engine/engineNotifications.js';
+import { getEngineSessionsStatus, type EngineStatusSession } from '../engine/status.js';
+import type { RuntimeSessionStatus } from '../engine/runtimeSessionRepository.js';
 import { getRalphitoDatabase, getRalphitoDatabasePath } from '../persistence/db/index.js';
 
 interface EventCountRow {
@@ -28,8 +32,67 @@ interface StuckTaskRow {
   runtimeSessionId: string | null;
 }
 
+export interface OperationalRecentEvent {
+  id: number;
+  eventType: string;
+  status: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface OperationalCurrentSessions {
+  totalRecent: number;
+  active: number;
+  alive: number;
+  byStatus: Record<RuntimeSessionStatus, number>;
+}
+
+export interface OperationalNotificationBacklog {
+  pending: number;
+  delivering: number;
+  pendingWithoutTarget: number;
+  oldestOutstandingAt: string | null;
+}
+
+export interface OperationalHistoricalNotificationOutbox {
+  total: number;
+  delivered: number;
+  failed: number;
+  newestCreatedAt: string | null;
+}
+
+export interface OperationalHistoricalDebt {
+  orphanSessions: number | null;
+  stuckTaskCount: number;
+  stuckTasks: StuckTaskRow[];
+  notificationOutbox: OperationalHistoricalNotificationOutbox | null;
+}
+
+export interface OperationalStatus {
+  health: {
+    db: { ok: boolean; error?: string };
+    engine: { ok: boolean; sessionCount?: number; error?: string };
+    searchIndex: { ok: boolean; documentCount?: number; error?: string };
+  };
+  current: {
+    sessions: OperationalCurrentSessions | null;
+    notificationBacklog: OperationalNotificationBacklog | null;
+  };
+  historical: {
+    retrieval: { failedQueries: number; averageRetrievalMs: number } | null;
+    counters: { summaries: number } | null;
+    debt: OperationalHistoricalDebt;
+    recentEvents: OperationalRecentEvent[];
+  };
+  backup: {
+    databasePath: string;
+    backupDir: string;
+  };
+}
+
 const BACKUP_DIR = path.join(process.cwd(), 'ops', 'runtime', 'backups', 'ralphito');
 const STUCK_TASK_MAX_AGE_HOURS = 6;
+const ACTIVE_RUNTIME_SESSION_STATUSES = ['queued', 'running', 'suspended_human_input'] as const satisfies RuntimeSessionStatus[];
 
 export function recordSystemEvent(eventType: string, status: 'ok' | 'warn' | 'error', payload: Record<string, unknown>) {
   const db = getRalphitoDatabase();
@@ -86,19 +149,63 @@ function getAverageRetrievalMs() {
   return Math.round(values.reduce((acc, value) => acc + value, 0) / values.length);
 }
 
-async function getOrphanSessionCount() {
+function createSessionStatusCounts(): Record<RuntimeSessionStatus, number> {
+  return {
+    queued: 0,
+    running: 0,
+    done: 0,
+    failed: 0,
+    cancelled: 0,
+    stuck: 0,
+    suspended_human_input: 0,
+  };
+}
+
+function getCurrentSessions(runtimeSessions: EngineStatusSession[]) {
+  const byStatus = createSessionStatusCounts();
+
+  for (const session of runtimeSessions) {
+    byStatus[session.status as RuntimeSessionStatus] += 1;
+  }
+
+  return {
+    totalRecent: runtimeSessions.length,
+    active: ACTIVE_RUNTIME_SESSION_STATUSES.reduce((count, status) => count + byStatus[status], 0),
+    alive: runtimeSessions.filter((session) => session.alive).length,
+    byStatus,
+  } satisfies OperationalCurrentSessions;
+}
+
+function getNotificationBacklog(summary: EngineNotificationSummary) {
+  return {
+    pending: summary.pending,
+    delivering: summary.delivering,
+    pendingWithoutTarget: summary.pendingWithoutTarget,
+    oldestOutstandingAt: summary.oldestOutstandingAt,
+  } satisfies OperationalNotificationBacklog;
+}
+
+function getHistoricalNotificationOutbox(summary: EngineNotificationSummary) {
+  return {
+    total: summary.total,
+    delivered: summary.delivered,
+    failed: summary.failed,
+    newestCreatedAt: summary.newestCreatedAt,
+  } satisfies OperationalHistoricalNotificationOutbox;
+}
+
+async function getOrphanSessionCount(runtimeSessions: EngineStatusSession[]) {
   const db = getRalphitoDatabase();
-  const runtimeSessions = await getEngineSessionsStatus();
   const activeSessionIds = new Set(runtimeSessions.filter((session) => session.alive).map((session) => session.id));
   const rows = db
     .prepare(
       `
         SELECT runtime_session_id AS runtimeSessionId
         FROM agent_sessions
-        WHERE status IN ('queued', 'running')
+        WHERE status IN (?, ?, ?)
       `,
     )
-    .all() as Array<{ runtimeSessionId: string }>;
+    .all(...ACTIVE_RUNTIME_SESSION_STATUSES) as Array<{ runtimeSessionId: string }>;
 
   return rows.filter((row) => row.runtimeSessionId && !activeSessionIds.has(row.runtimeSessionId)).length;
 }
@@ -138,7 +245,7 @@ function getRecentEvents() {
     status: row.status,
     payload: JSON.parse(row.payloadJson),
     createdAt: row.createdAt,
-  }));
+  })) as OperationalRecentEvent[];
 }
 
 function getDocumentCount() {
@@ -163,13 +270,46 @@ export async function getOperationalStatus() {
     }
   })();
 
+  if (!dbHealth.ok) {
+    return {
+      health: {
+        db: dbHealth,
+        engine: { ok: false, error: 'database unavailable' },
+        searchIndex: { ok: false, error: 'database unavailable' },
+      },
+      current: {
+        sessions: null,
+        notificationBacklog: null,
+      },
+      historical: {
+        retrieval: null,
+        counters: null,
+        debt: {
+          orphanSessions: null,
+          stuckTaskCount: 0,
+          stuckTasks: [],
+          notificationOutbox: null,
+        },
+        recentEvents: [],
+      },
+      backup: {
+        databasePath: getRalphitoDatabasePath(),
+        backupDir: BACKUP_DIR,
+      },
+    } satisfies OperationalStatus;
+  }
+
+  let runtimeSessions: EngineStatusSession[] | null = null;
   const engineHealth = await getEngineSessionsStatus()
-    .then((sessions) => ({ ok: true, sessionCount: sessions.length }))
+    .then((sessions) => {
+      runtimeSessions = sessions;
+      return { ok: true, sessionCount: sessions.length } as const;
+    })
     .catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
 
   const stuckTasks = getStuckTasks();
-  const orphanSessions = await getOrphanSessionCount();
   const notificationSummary = getEngineNotificationRepository().getSummary();
+  const orphanSessions = runtimeSessions ? await getOrphanSessionCount(runtimeSessions) : null;
 
   return {
     health: {
@@ -177,21 +317,31 @@ export async function getOperationalStatus() {
       engine: engineHealth,
       searchIndex: { ok: true, documentCount: getDocumentCount() },
     },
-    metrics: {
-      failedQueries: getFailedQueryCount(),
-      averageRetrievalMs: getAverageRetrievalMs(),
-      orphanSessions,
-      stuckTasks: stuckTasks.length,
-      summaries: getSummaryCount(),
-      notificationOutbox: notificationSummary,
+    current: {
+      sessions: runtimeSessions ? getCurrentSessions(runtimeSessions) : null,
+      notificationBacklog: getNotificationBacklog(notificationSummary),
     },
-    stuckTasks,
-    recentEvents: getRecentEvents(),
+    historical: {
+      retrieval: {
+        failedQueries: getFailedQueryCount(),
+        averageRetrievalMs: getAverageRetrievalMs(),
+      },
+      counters: {
+        summaries: getSummaryCount(),
+      },
+      debt: {
+        orphanSessions,
+        stuckTaskCount: stuckTasks.length,
+        stuckTasks,
+        notificationOutbox: getHistoricalNotificationOutbox(notificationSummary),
+      },
+      recentEvents: getRecentEvents(),
+    },
     backup: {
       databasePath: getRalphitoDatabasePath(),
       backupDir: BACKUP_DIR,
     },
-  };
+  } satisfies OperationalStatus;
 }
 
 export async function backupRalphitoDatabase() {
