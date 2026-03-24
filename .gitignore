@@ -13,3 +13,4 @@ src/features/llm-gateway/interfaces/provider.mock.js
 src/features/llm-gateway/interfaces/provider.mock.js.map
 src/features/llm-gateway/interfaces/provider.mock.d.ts
 src/features/llm-gateway/interfaces/provider.mock.d.ts.map
+.ralphito-llm-waiting
