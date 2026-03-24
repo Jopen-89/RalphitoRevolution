@@ -1,8 +1,10 @@
 import { readFileSync } from 'fs';
 import path from 'path';
 import YAML from 'yaml';
+import type { Provider } from '../llm-gateway/interfaces/gateway.types.js';
 
 interface RawAgentConfig {
+  provider?: Provider;
   model?: string;
 }
 
@@ -32,12 +34,15 @@ export interface EngineProjectConfig {
   defaultBranch: string;
   agentRulesFile: string | null;
   agent: string;
+  provider: Provider | null;
   model: string | null;
 }
 
-const DEFAULT_CONFIG_PATH = path.join(process.cwd(), 'ops', 'agent-orchestrator.yaml');
+function getDefaultConfigPath() {
+  return path.join(process.cwd(), 'ops', 'agent-orchestrator.yaml');
+}
 
-export function resolveEngineProjectConfig(projectId: string, configPath = DEFAULT_CONFIG_PATH) {
+export function resolveEngineProjectConfig(projectId: string, configPath = getDefaultConfigPath()) {
   const rawConfig = YAML.parse(readFileSync(configPath, 'utf8')) as RawEngineConfig;
   const project = rawConfig.projects?.[projectId];
 
@@ -55,6 +60,7 @@ export function resolveEngineProjectConfig(projectId: string, configPath = DEFAU
     defaultBranch: project.defaultBranch || 'master',
     agentRulesFile: project.agentRulesFile || null,
     agent: project.agent || defaults.agent || 'opencode',
+    provider: project.agentConfig?.provider || defaults.agentConfig?.provider || null,
     model: project.agentConfig?.model || defaults.agentConfig?.model || null,
   } satisfies EngineProjectConfig;
 }

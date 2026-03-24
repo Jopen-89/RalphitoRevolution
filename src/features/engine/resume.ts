@@ -99,6 +99,8 @@ export async function resumeRuntimeSession(
         worktreePath: session.worktreePath,
         projectId: project.id,
         instruction: prompt,
+        provider: sessionFile.provider,
+        model: sessionFile.model,
       }),
     );
 

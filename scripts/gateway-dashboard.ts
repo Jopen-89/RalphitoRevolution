@@ -131,8 +131,9 @@ function listAgents(config: GatewayConfig, engineConfig: any) {
   if (engineConfig.projects) {
     for (const [projectId, projectData] of Object.entries<any>(engineConfig.projects)) {
       const engineAgent = projectData.agent || engineConfig.defaults?.agent || 'unknown';
+      const provider = projectData.agentConfig?.provider || engineConfig.defaults?.agentConfig?.provider || 'default';
       const model = projectData.agentConfig?.model || engineConfig.defaults?.agentConfig?.model || 'default';
-      console.log(`  ${chalk.bold(projectId)}: Motor ${chalk.yellow(engineAgent)} (${model})`);
+      console.log(`  ${chalk.bold(projectId)}: Motor ${chalk.yellow(engineAgent)} -> ${chalk.yellow(provider)} (${model})`);
     }
   } else {
     console.log(chalk.gray('  No hay proyectos definidos en el YAML.'));
@@ -244,7 +245,11 @@ async function editAgentOrCoder(config: GatewayConfig, engineConfig: any) {
     // Editar Ralphito (Coder) en la config del engine
     const projectData = engineConfig.projects[id];
     const currentEngineAgent = projectData.agent || engineConfig.defaults?.agent || 'opencode';
-    const currentGatewayProvider = ENGINE_AGENT_TO_GATEWAY[currentEngineAgent] || 'gemini';
+    const currentGatewayProvider =
+      projectData.agentConfig?.provider ||
+      engineConfig.defaults?.agentConfig?.provider ||
+      ENGINE_AGENT_TO_GATEWAY[currentEngineAgent] ||
+      'gemini';
 
     console.log(chalk.cyan(`\nConfigurando el Ralphito (Fábrica): ${chalk.bold(id)}`));
     console.log(chalk.gray('Nota: Los Ralphitos no soportan fallbacks, usan un único modelo robusto.\n'));
@@ -257,7 +262,7 @@ async function editAgentOrCoder(config: GatewayConfig, engineConfig: any) {
       initial: PROVIDERS.indexOf(currentGatewayProvider) !== -1 ? PROVIDERS.indexOf(currentGatewayProvider) : 0
     });
 
-    const currentModel = projectData.agentConfig?.model || aoConfig.defaults?.agentConfig?.model || '';
+    const currentModel = projectData.agentConfig?.model || engineConfig.defaults?.agentConfig?.model || '';
     const { model } = await prompts({
       type: 'select',
       name: 'model',
@@ -274,6 +279,7 @@ async function editAgentOrCoder(config: GatewayConfig, engineConfig: any) {
       engineConfig.projects[id].agentConfig = {};
     }
     engineConfig.projects[id].agent = engineAgentTarget;
+    engineConfig.projects[id].agentConfig.provider = primaryProvider;
     engineConfig.projects[id].agentConfig.model = model;
 
     saveEngineConfig(engineConfig);

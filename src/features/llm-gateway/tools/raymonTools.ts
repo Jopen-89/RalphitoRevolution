@@ -1,11 +1,13 @@
 import type { Tool, ToolCall } from './toolRegistry.js';
-import type { ToolDefinition } from '../interfaces/gateway.types.js';
+import type { Provider, ToolDefinition } from '../interfaces/gateway.types.js';
 import { getRaymonOrchestrator } from '../../engine/raymonOrchestrator.js';
 import { sendTelegramMessage, getAllowedChatId } from '../../telegram/telegramSender.js';
 import { TmuxRuntime } from '../../engine/tmuxRuntime.js';
 import { getRuntimeSessionRepository } from '../../engine/runtimeSessionRepository.js';
 import { getRuntimeLockRepository } from '../../engine/runtimeLockRepository.js';
 import { WorktreeManager } from '../../engine/worktreeManager.js';
+
+const VALID_PROVIDERS = new Set<Provider>(['gemini', 'openai', 'opencode', 'codex']);
 
 function requireString(value: unknown, name: string): string {
   if (typeof value !== 'string' || !value.trim()) {
@@ -17,6 +19,11 @@ function requireString(value: unknown, name: string): string {
 function optionalString(value: unknown): string | undefined {
   if (typeof value === 'string' && value.trim()) return value;
   return undefined;
+}
+
+function optionalProvider(value: unknown): Provider | undefined {
+  if (typeof value !== 'string') return undefined;
+  return VALID_PROVIDERS.has(value as Provider) ? (value as Provider) : undefined;
 }
 
 export const RAYMON_TOOL_NAMES = [
@@ -51,11 +58,15 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
         const project = optionalString(params.project) || 'backend-team';
         const prompt = requireString(params.prompt, 'prompt');
         const beadPath = optionalString(params.beadPath);
+        const provider = optionalProvider(params.provider);
+        const model = optionalString(params.model);
 
         const result = await orchestrator.spawn({
           project,
           prompt,
           ...(beadPath ? { beadPath } : {}),
+          ...(provider ? { provider } : {}),
+          ...(model ? { model } : {}),
           ...(typeof context.originThreadId === 'number' ? { originThreadId: context.originThreadId } : {}),
           ...(context.notificationChatId ? { notificationChatId: context.notificationChatId } : {}),
         });
@@ -231,6 +242,8 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
           project: { type: 'string', description: 'Nombre del proyecto (opcional, por defecto: backend-team)' },
           prompt: { type: 'string', description: 'Prompt de la tarea a ejecutar' },
           beadPath: { type: 'string', description: 'Ruta opcional del bead' },
+          provider: { type: 'string', description: 'Provider LLM real opcional: gemini, openai, opencode o codex' },
+          model: { type: 'string', description: 'Modelo LLM real opcional para el loop del engine' },
         },
         required: ['prompt'],
       },

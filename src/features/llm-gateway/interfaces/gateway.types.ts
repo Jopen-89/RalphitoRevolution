@@ -1,11 +1,17 @@
 export type Provider = 'gemini' | 'openai' | 'opencode' | 'codex';
 
+export interface ToolResultPayload {
+  output?: unknown;
+  error?: unknown;
+}
+
 export interface Message {
   role: string;
   content: string;
   toolCalls?: ToolCall[];
   toolCallId?: string;
   name?: string;
+  toolResult?: ToolResultPayload;
 }
 
 export interface ToolSchemaProperty {
@@ -38,6 +44,7 @@ export interface ToolResult {
   toolCallId: string;
   content: string;
   ok: boolean;
+  payload?: ToolResultPayload;
 }
 
 export interface ToolMessage {

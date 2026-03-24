@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { Message, ToolDefinition, ToolCall, ToolResult } from '../interfaces/gateway.types.js';
+import type { Message, ToolDefinition, ToolCall, ToolResult, ToolResultPayload } from '../interfaces/gateway.types.js';
 import type { IToolCallingProvider } from '../interfaces/gateway.types.js';
 import type { Tool } from './toolRegistry.js';
 
@@ -7,6 +7,43 @@ export interface ToolCallingLoopResult {
   text: string;
   toolCalls: ToolCall[];
   toolResults: ToolResult[];
+}
+
+export const MAX_CONSECUTIVE_IDENTICAL_TOOL_ITERATIONS = 2;
+
+function normalizeToolArgument(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(normalizeToolArgument);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nestedValue]) => [key, normalizeToolArgument(nestedValue)]),
+    );
+  }
+
+  return value;
+}
+
+function buildToolCallSignature(call: ToolCall): string {
+  return JSON.stringify({
+    name: call.name,
+    arguments: normalizeToolArgument(call.arguments),
+  });
+}
+
+function buildToolOutputPayload(output: unknown): ToolResultPayload {
+  return { output: output ?? null };
+}
+
+function buildToolErrorPayload(message: string): ToolResultPayload {
+  return {
+    error: {
+      message,
+    },
+  };
 }
 
 export async function executeToolCallLoop(
@@ -19,12 +56,28 @@ export async function executeToolCallLoop(
   const toolMap = new Map(toolImplementations.map((t) => [t.name, t]));
   const allToolCalls: ToolCall[] = [];
   const allToolResults: ToolResult[] = [];
+  let previousIterationSignature: string | null = null;
+  let consecutiveIdenticalToolIterations = 0;
 
   for (let i = 0; i < maxIterations; i++) {
     const { text, toolCalls: calls } = await provider.generateResponseWithTools(messages, toolDefinitions);
 
     if (!calls || calls.length === 0) {
       return { text, toolCalls: allToolCalls, toolResults: allToolResults };
+    }
+
+    const currentIterationSignature = calls.map(buildToolCallSignature).join('||');
+    if (currentIterationSignature === previousIterationSignature) {
+      consecutiveIdenticalToolIterations += 1;
+    } else {
+      previousIterationSignature = currentIterationSignature;
+      consecutiveIdenticalToolIterations = 1;
+    }
+
+    if (consecutiveIdenticalToolIterations >= MAX_CONSECUTIVE_IDENTICAL_TOOL_ITERATIONS) {
+      throw new Error(
+        `Detected repeated tool loop: ${calls.map((call) => `${call.name}(${JSON.stringify(normalizeToolArgument(call.arguments))})`).join(', ')}`,
+      );
     }
 
     messages.push({
@@ -39,15 +92,31 @@ export async function executeToolCallLoop(
 
       let result: ToolResult;
       if (!tool) {
-        result = { toolCallId: toolId, content: `Tool not found: ${call.name}`, ok: false };
+        const errorMessage = `Tool not found: ${call.name}`;
+        result = {
+          toolCallId: toolId,
+          content: errorMessage,
+          ok: false,
+          payload: buildToolErrorPayload(errorMessage),
+        };
       } else {
         try {
           const execResult = await tool.execute(call.arguments);
           const content = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
-          result = { toolCallId: toolId, content, ok: true };
+          result = {
+            toolCallId: toolId,
+            content,
+            ok: true,
+            payload: buildToolOutputPayload(execResult),
+          };
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : String(err);
-          result = { toolCallId: toolId, content: `Error: ${errorMessage}`, ok: false };
+          result = {
+            toolCallId: toolId,
+            content: `Error: ${errorMessage}`,
+            ok: false,
+            payload: buildToolErrorPayload(errorMessage),
+          };
         }
       }
 
@@ -56,6 +125,7 @@ export async function executeToolCallLoop(
         toolCallId: toolId,
         name: call.name,
         content: result.content,
+        toolResult: result.payload,
       } as Message);
 
       allToolResults.push(result);

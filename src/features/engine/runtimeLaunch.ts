@@ -1,4 +1,5 @@
 import path from 'path';
+import type { Provider } from '../llm-gateway/interfaces/gateway.types.js';
 import { getRalphitoDatabasePath } from '../persistence/db/index.js';
 import { CommandRunner } from './commandRunner.js';
 import { getRuntimeExitCodeFilePath } from './runtimeFiles.js';
@@ -40,6 +41,8 @@ export interface BuildRuntimeEnvironmentInput {
   worktreePath: string;
   projectId: string;
   instruction: string;
+  provider?: Provider | null;
+  model?: string | null;
 }
 
 export function buildRuntimeLaunchCommand(agent: string, model: string | null) {
@@ -68,6 +71,8 @@ export function buildRuntimeEnvironment(
     RALPHITO_PROJECT_ID: input.projectId,
     RALPHITO_WORKTREE_PATH: input.worktreePath,
     RALPHITO_INSTRUCTION: input.instruction,
+    RALPHITO_LLM_PROVIDER: input.provider || '',
+    RALPHITO_LLM_MODEL: input.model || '',
   });
 }
 

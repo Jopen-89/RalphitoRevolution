@@ -90,8 +90,9 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
     for (const msg of messages) {
       if (msg.role === 'tool') {
         const functionResponse = {
+          ...(msg.toolCallId ? { id: msg.toolCallId } : {}),
           name: msg.name || 'tool',
-          response: { result: msg.content }
+          response: msg.toolResult || { output: msg.content },
         };
 
         if (lastContent && lastContent.role === 'user' && lastContent.parts[0]?.functionResponse) {
@@ -157,6 +158,14 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
         maxOutputTokens: 8192,
       },
     };
+
+    if (functionDeclarations.length > 0) {
+      requestBody.toolConfig = {
+        functionCallingConfig: {
+          mode: 'AUTO',
+        },
+      };
+    }
 
     console.log('[GeminiProvider] Sending request body:', JSON.stringify(requestBody, null, 2));
 
