@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import path from 'path';
+import type { Provider } from '../llm-gateway/interfaces/gateway.types.js';
 import {
   RUNTIME_EXIT_CODE_FILE_NAME,
   RUNTIME_FAILURE_FILE_NAME,
@@ -13,6 +14,7 @@ export interface RuntimeSessionFileRecord {
   projectId: string;
   agentId: string;
   agent: string;
+  provider: Provider | null;
   model: string | null;
   baseCommitHash: string;
   branchName: string;

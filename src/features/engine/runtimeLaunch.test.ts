@@ -22,6 +22,8 @@ test('buildRuntimeEnvironment does not include OPENAI vars', () => {
     worktreePath: '/tmp/worktree',
     projectId: 'backend-team',
     instruction: 'test instruction',
+    provider: 'gemini',
+    model: 'gemini-2.5-pro',
   }, {});
   
   assert.ok(!('OPENAI_API_BASE' in result));
@@ -35,6 +37,8 @@ test('buildRuntimeEnvironment includes Ralphito vars', () => {
     worktreePath: '/tmp/worktree',
     projectId: 'backend-team',
     instruction: 'test instruction',
+    provider: 'opencode',
+    model: 'minimax-m2.7',
   }, {});
   
   assert.equal(result.RALPHITO_RUNTIME_SESSION_ID, 'test-session');
@@ -42,5 +46,7 @@ test('buildRuntimeEnvironment includes Ralphito vars', () => {
   assert.equal(result.RALPHITO_INSTRUCTION, 'test instruction');
   assert.equal(result.RALPHITO_PROJECT_ID, 'backend-team');
   assert.equal(result.RALPHITO_ENGINE_MANAGED, '1');
+  assert.equal(result.RALPHITO_LLM_PROVIDER, 'opencode');
+  assert.equal(result.RALPHITO_LLM_MODEL, 'minimax-m2.7');
   assert.equal(result.CI, '1');
 });

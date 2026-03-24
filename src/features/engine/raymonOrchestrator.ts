@@ -1,5 +1,6 @@
 import path from 'path';
 import { existsSync, readdirSync, readFileSync, unlinkSync } from 'fs';
+import type { Provider } from '../llm-gateway/interfaces/gateway.types.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
 import { SessionSupervisor, type SpawnRuntimeSessionInput } from './sessionSupervisor.js';
@@ -12,6 +13,7 @@ export interface RaymonSpawnInput {
   prompt: string;
   beadPath?: string;
   workItemKey?: string;
+  provider?: Provider;
   model?: string;
   beadSpecHash?: string;
   beadSpecVersion?: string;
@@ -81,6 +83,7 @@ export class RaymonOrchestrator {
       prompt,
       ...(resolvedBeadPath ? { beadPath: path.relative(this.repoRoot, resolvedBeadPath) } : {}),
       ...(input.workItemKey ? { workItemKey: input.workItemKey } : {}),
+      ...(input.provider ? { provider: input.provider } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.beadSpecHash ? { beadSpecHash: input.beadSpecHash } : {}),
       ...(input.beadSpecVersion ? { beadSpecVersion: input.beadSpecVersion } : {}),

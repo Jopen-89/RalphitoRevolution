@@ -30,6 +30,8 @@ import {
   getCredentialFromEnv,
   type PromptMatch,
 } from './promptPatterns.js';
+import { syncRuntimeTaskLink } from './runtimeTaskLinking.js';
+import type { RalphitoTaskStatus } from '../tasks/taskStateService.js';
 
 export interface ExecutorLoopContext {
   runtimeSessionId: string;
@@ -230,6 +232,19 @@ export class ExecutorLoop {
     }
   }
 
+  private syncTaskStatus(session: RuntimeSessionRecord, status: RalphitoTaskStatus, failureReason?: string | null) {
+    const sessionFile = session.worktreePath ? readRuntimeSessionFile(session.worktreePath) : null;
+    syncRuntimeTaskLink({
+      runtimeSessionId: session.runtimeSessionId,
+      projectId: sessionFile?.projectId ?? session.agentId,
+      workItemKey: sessionFile?.workItemKey ?? null,
+      beadPath: sessionFile?.beadPath ?? null,
+      assignedAgent: session.agentId,
+      status,
+      ...(failureReason ? { failureReason } : {}),
+    });
+  }
+
   private async finalizeDoneSession(
     input: ExecutorLoopContext,
     session: RuntimeSessionRecord,
@@ -273,6 +288,7 @@ export class ExecutorLoop {
         await this.tmuxRuntime.killSession(input.runtimeSessionId);
       }
       await this.cleanupTerminalSession(input.runtimeSessionId, session.worktreePath, false);
+      this.syncTaskStatus(session, 'failed', landing.summary || 'landing_not_completed');
       return { terminalStatus: 'failed', reason: 'landing_not_completed' } satisfies ExecutorLoopResult;
     }
 
@@ -292,6 +308,7 @@ export class ExecutorLoop {
       heartbeatAt: nowIso,
       finishedAt: nowIso,
     });
+    this.syncTaskStatus(session, 'done');
 
     return {
       terminalStatus: 'done',
@@ -450,6 +467,7 @@ export class ExecutorLoop {
               heartbeatAt: nowIso,
               finishedAt: nowIso,
             });
+            this.syncTaskStatus(refreshedSession, 'failed', `Suspended for more than 15 min: ${promptMatch.matchedLine}`);
             await this.tmuxRuntime.killSession(input.runtimeSessionId);
             await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
             return { terminalStatus: 'failed', reason: 'human_suspend_timeout' } satisfies ExecutorLoopResult;
@@ -537,6 +555,7 @@ export class ExecutorLoop {
             heartbeatAt: nowIso,
             finishedAt: nowIso,
           });
+          this.syncTaskStatus(refreshedSession, 'failed', `Prompt unresolved after 3 attempts: ${promptMatch.matchedLine}`);
           enqueueEngineNotification({
             runtimeSessionId: input.runtimeSessionId,
             eventType: 'session.interactive_blocked',
@@ -598,6 +617,7 @@ export class ExecutorLoop {
           heartbeatAt: nowIso,
           finishedAt: nowIso,
         });
+        this.syncTaskStatus(refreshedSession, 'failed', blockingDaemonSummary);
         enqueueEngineNotification({
           runtimeSessionId: input.runtimeSessionId,
           eventType: 'session.interactive_blocked',
@@ -635,6 +655,7 @@ export class ExecutorLoop {
           heartbeatAt: nowIso,
           finishedAt: nowIso,
         });
+        this.syncTaskStatus(refreshedSession, 'failed', summary);
         await this.tmuxRuntime.killSession(input.runtimeSessionId);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
         return { terminalStatus: 'failed', reason: 'max_steps_exceeded' } satisfies ExecutorLoopResult;
@@ -663,6 +684,7 @@ export class ExecutorLoop {
           heartbeatAt: nowIso,
           finishedAt: nowIso,
         });
+        this.syncTaskStatus(refreshedSession, 'failed', summary);
         enqueueEngineNotification({
           runtimeSessionId: input.runtimeSessionId,
           eventType: 'session.timeout',
@@ -700,6 +722,7 @@ export class ExecutorLoop {
           heartbeatAt: nowIso,
           finishedAt: nowIso,
         });
+        this.syncTaskStatus(refreshedSession, 'failed', summary);
         enqueueEngineNotification({
           runtimeSessionId: input.runtimeSessionId,
           eventType: 'session.timeout',
@@ -731,6 +754,7 @@ export class ExecutorLoop {
             heartbeatAt: nowIso,
             finishedAt: nowIso,
           });
+          this.syncTaskStatus(refreshedSession, 'failed', failure.summary);
           return { terminalStatus: 'failed', reason: failure.kind } satisfies ExecutorLoopResult;
         }
 
@@ -776,6 +800,7 @@ export class ExecutorLoop {
               heartbeatAt: nowIso,
               finishedAt: nowIso,
             });
+            this.syncTaskStatus(refreshedSession, 'failed', summary);
             return { terminalStatus: 'failed', reason: 'process_exit_nonzero' } satisfies ExecutorLoopResult;
           }
 
@@ -799,6 +824,7 @@ export class ExecutorLoop {
             heartbeatAt: nowIso,
             finishedAt: nowIso,
           });
+          this.syncTaskStatus(refreshedSession, 'failed', summary);
           return { terminalStatus: 'stuck', reason: 'silent_exit' } satisfies ExecutorLoopResult;
         }
 
@@ -813,6 +839,7 @@ export class ExecutorLoop {
           heartbeatAt: nowIso,
           finishedAt: nowIso,
         });
+        this.syncTaskStatus(refreshedSession, 'done');
         return { terminalStatus: 'done', reason: 'process_exited' } satisfies ExecutorLoopResult;
       }
 

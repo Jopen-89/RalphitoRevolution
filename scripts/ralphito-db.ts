@@ -1,78 +1,11 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'fs';
-import { getGuardrailLogPath, getManagedRuntimeWorktreePath } from '../src/features/engine/runtimeFiles.js';
+import { getSessionChat } from '../src/features/engine/sessionChatService.js';
 import { getRalphitoDatabase, initializeRalphitoDatabase } from '../src/features/persistence/db/index.js';
-
-interface SessionChatResult {
-  externalChatId: string | null;
-  notificationChatId: string | null;
-  beadId: string | null;
-  title: string | null;
-  hasGuardrailError: boolean;
-  guardrailError: string | null;
-}
-
-function truncateError(errorText: string): string {
-  const normalized = errorText.trim();
-  if (normalized.length <= 700) return normalized;
-  return `${normalized.slice(0, 697)}...`;
-}
-
-function getGuardrailErrorForSession(sessionId: string): string | null {
-  try {
-    return truncateError(readFileSync(getGuardrailLogPath(getManagedRuntimeWorktreePath(sessionId)), 'utf8'));
-  } catch {
-    return null;
-  }
-}
 
 function runGetSessionChat(sessionId: string) {
   initializeRalphitoDatabase();
-  const db = getRalphitoDatabase();
-
-  const thread = db
-    .prepare(
-      `
-        SELECT
-          agent_sessions.notification_chat_id AS notificationChatId,
-          threads.channel AS channel,
-          threads.external_chat_id AS externalChatId
-        FROM agent_sessions
-        LEFT JOIN threads ON threads.id = COALESCE(agent_sessions.origin_thread_id, agent_sessions.thread_id)
-        WHERE agent_sessions.runtime_session_id = ?
-        LIMIT 1
-      `,
-    )
-    .get(sessionId) as { notificationChatId: string | null; channel: string | null; externalChatId: string | null } | undefined;
-
-  const task = db
-    .prepare(
-      `
-        SELECT id, title
-        FROM tasks
-        WHERE runtime_session_id = ?
-        ORDER BY updated_at DESC
-        LIMIT 1
-      `,
-    )
-    .get(sessionId) as { id: string; title: string } | undefined;
-
-  const guardrailError = getGuardrailErrorForSession(sessionId);
-
-  const result: SessionChatResult = {
-    externalChatId:
-      thread?.notificationChatId ??
-      (thread?.channel === 'telegram' ? thread.externalChatId : null) ??
-      null,
-    notificationChatId: thread?.notificationChatId ?? null,
-    beadId: task?.id ?? null,
-    title: task?.title ?? null,
-    hasGuardrailError: guardrailError !== null,
-    guardrailError,
-  };
-
-  console.log(JSON.stringify(result));
+  console.log(JSON.stringify(getSessionChat(sessionId)));
 }
 
 const command = process.argv[2] || 'migrate';

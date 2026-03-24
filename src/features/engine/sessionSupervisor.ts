@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import path from 'path';
+import type { Provider } from '../llm-gateway/interfaces/gateway.types.js';
 import { getRalphitoDatabase } from '../persistence/db/index.js';
 import { CommandRunner } from './commandRunner.js';
 import { resolveEngineProjectConfig } from './config.js';
@@ -18,6 +19,7 @@ import {
   type RuntimeSessionFileRecord,
 } from './runtimeFiles.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
+import { syncRuntimeTaskLink } from './runtimeTaskLinking.js';
 import {
   buildRuntimeEnvironment,
   buildRuntimeLaunchCommand,
@@ -34,6 +36,7 @@ export interface SpawnRuntimeSessionInput {
   prompt: string;
   beadPath?: string;
   workItemKey?: string;
+  provider?: Provider;
   model?: string;
   beadSpecHash?: string;
   beadSpecVersion?: string;
@@ -130,7 +133,8 @@ export class SessionSupervisor {
     const runtimeSessionId = createRuntimeSessionId(project.sessionPrefix);
     const branchName = `jopen/${runtimeSessionId}`;
     const beadPath = resolveBeadPath(project.path, input.beadPath);
-    const model = input.model || project.model;
+    const provider = input.provider || project.provider;
+    const model = input.model || (input.provider && project.agent === 'opencode' ? null : project.model);
     const maxSteps = DEFAULT_RUNTIME_MAX_STEPS;
     const maxWallTimeMs = DEFAULT_RUNTIME_MAX_WALL_TIME_MS;
     const maxCommandTimeMs = DEFAULT_RUNTIME_MAX_COMMAND_TIME_MS;
@@ -153,6 +157,7 @@ export class SessionSupervisor {
         projectId: project.id,
         agentId: project.id,
         agent: project.agent,
+        provider,
         model,
         baseCommitHash,
         branchName,
@@ -191,6 +196,14 @@ export class SessionSupervisor {
       });
 
       writeRuntimeSessionFile(worktreePath, sessionFile);
+      syncRuntimeTaskLink({
+        runtimeSessionId,
+        projectId: project.id,
+        workItemKey: input.workItemKey || null,
+        beadPath: beadPath || null,
+        assignedAgent: project.id,
+        status: 'in_progress',
+      });
 
       if (beadPath) {
         const targets = resolveWriteScopeTargetsFromBeadFile(beadPath, project.path);
@@ -209,6 +222,8 @@ export class SessionSupervisor {
           worktreePath,
           projectId: project.id,
           instruction: prompt,
+          provider,
+          model,
         }),
       );
       tmuxCreated = true;
@@ -299,6 +314,15 @@ export class SessionSupervisor {
           failureSummary: message,
         });
       }
+      syncRuntimeTaskLink({
+        runtimeSessionId,
+        projectId: project.id,
+        workItemKey: input.workItemKey || null,
+        beadPath: beadPath || null,
+        assignedAgent: project.id,
+        status: 'failed',
+        failureReason: message,
+      });
 
       throw error;
     }

@@ -241,6 +241,7 @@ app.post('/v1/chat', async (req, res) => {
       ...(typeof originChatId === 'string' && originChatId.trim() ? { notificationChatId: originChatId } : {}),
       ...(worktreePath ? { worktreePath } : {}),
     });
+    let lastToolCallingError: unknown = null;
 
     for (const attempt of attempts) {
       if (!toolProviders.has(attempt.provider)) continue;
@@ -274,6 +275,7 @@ app.post('/v1/chat', async (req, res) => {
         return res.json(successResponse);
       } catch (error) {
         console.warn(`⚠️ Falló tool-calling con ${attempt.provider}:`, error instanceof Error ? error.message : String(error));
+        lastToolCallingError = error;
         continue;
       }
     }
@@ -281,6 +283,7 @@ app.post('/v1/chat', async (req, res) => {
     return res.status(502).json({
       error: 'TOOL_CALLING_FAILED',
       message: 'Todos los providers con soporte de tool-calling fallaron.',
+      ...(lastToolCallingError ? { details: lastToolCallingError instanceof Error ? lastToolCallingError.message : String(lastToolCallingError) } : {}),
     });
   }
 

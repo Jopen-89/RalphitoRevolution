@@ -55,7 +55,10 @@ export class OpencodeProvider implements IVisionProvider, IToolCallingProvider {
       };
 
       if (systemPrompt) payload.system = systemPrompt;
-      if (anthropicTools.length > 0) payload.tools = anthropicTools;
+      if (anthropicTools.length > 0) {
+        payload.tools = anthropicTools;
+        payload.tool_choice = { type: 'auto' };
+      }
 
       const response = await fetch(`${this.baseUrl}/v1/messages`, {
         method: 'POST',

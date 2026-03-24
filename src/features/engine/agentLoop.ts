@@ -1,11 +1,13 @@
 import { readFileSync } from 'fs';
-import type { Message, ToolCall, ToolResult } from '../llm-gateway/interfaces/gateway.types.js';
+import type { ChatRequest, Message, Provider, ToolCall, ToolResult } from '../llm-gateway/interfaces/gateway.types.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 
 export interface AgentLoopInput {
   runtimeSessionId: string;
   worktreePath: string;
   instruction: string;
+  provider?: Provider | null;
+  model?: string | null;
 }
 
 export interface AgentLoopResult {
@@ -17,31 +19,35 @@ export interface AgentLoopResult {
 export const MAX_ITERATIONS = 120;
 export const MAX_COMMAND_TIME_MS = 600000;
 export const GATEWAY_URL = 'http://localhost:3005/v1/chat';
+export const MAX_FINISH_REPROMPTS = 3;
+export const MAX_TOOL_LEAK_REPROMPTS = 3;
+
+const TOOL_MARKDOWN_BLOCK_PATTERN = /```(?:bash|sh|shell)\b/i;
+const TEXTUAL_TOOL_INVOCATION_PATTERN = /\b(?:execute_bash|read_file_raw|write_file_raw|finish_task)\s*\(/i;
+
+const TOOL_LEAK_REPROMPT =
+  'You provided shell commands or textual tool usage. You MUST invoke the appropriate tool directly. Do not output markdown code blocks or tool names as text. Please invoke the tool now.';
+const FINISH_REPROMPT =
+  'You must explicitly use the finish_task tool or execute ./scripts/bd.sh sync to complete this task. Natural language confirmation alone is insufficient. Please invoke the appropriate tool now.';
 
 export const RALPHITO_SYSTEM_PROMPT = `You are Ralphito, a senior software engineer agent. You work inside a secure sandbox (worktree) and must complete tasks by implementing them directly.
 
-## Available Tools
-You have access to these tools:
-- execute_bash(command): Run bash commands (npm, git, etc.) inside the worktree
-- read_file_raw(path): Read files from the worktree
-- write_file_raw(path, content): Write files to the worktree  
-- finish_task(): Mark the task as complete and commit changes
-
-## Security Rules
+## Core Rules
+- Use the provided tools for all system interaction
+- Do NOT output shell commands, tool names, or markdown code blocks instead of invoking a tool
 - NEVER leave the worktree directory
 - NEVER use cd to navigate outside the worktree
 - All file operations are sandboxed to the worktree
-- If you need to access a file, use read_file_raw with a relative path
 
 ## Workflow
 1. Read the bead/task instruction file to understand what to implement
-2. Implement the required changes using execute_bash and write_file_raw
+2. Implement the required changes using the provided tools
 3. Verify your implementation works correctly
-4. Use finish_task() when the implementation is complete and verified
+4. Finalize only when the implementation is complete and verified by invoking the appropriate tool
 
 ## Important
 - Always run commands in the worktree directory (already set as CWD)
-- Verify git status before finishing
+- Verify git status before finalizing
 - If a command fails, diagnose the issue and try alternative approaches
 - Do NOT ask for confirmation - just implement and finish when done`;
 
@@ -75,6 +81,19 @@ export function hasFinishIndicator(text: string): boolean {
   return lower.includes('finish') || lower.includes('done') || lower.includes('complete');
 }
 
+export function hasToolInvocationLeak(text: string): boolean {
+  return TOOL_MARKDOWN_BLOCK_PATTERN.test(text) || TEXTUAL_TOOL_INVOCATION_PATTERN.test(text);
+}
+
+export function buildGatewayChatRequest(input: Pick<AgentLoopInput, 'provider' | 'model'>, messages: Message[]): ChatRequest {
+  return {
+    agentId: 'ralphito',
+    messages,
+    ...(input.provider ? { provider: input.provider } : {}),
+    ...(input.provider && input.model ? { model: input.model } : {}),
+  };
+}
+
 export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult> {
   const { runtimeSessionId, worktreePath, instruction } = input;
   const sessionRepo = getRuntimeSessionRepository();
@@ -84,6 +103,8 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
   let iterations = 0;
   let done = false;
   let lastResponse = '';
+  let finishRepromptCount = 0;
+  let toolLeakRepromptCount = 0;
 
   while (iterations < MAX_ITERATIONS && !done) {
     iterations++;
@@ -103,10 +124,7 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
           'Content-Type': 'application/json',
           'X-Ralphito-Worktree-Path': worktreePath,
         },
-        body: JSON.stringify({
-          agentId: 'ralphito',
-          messages,
-        }),
+        body: JSON.stringify(buildGatewayChatRequest(input, messages)),
         signal: controller.signal,
       });
 
@@ -139,13 +157,15 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
 
         if (data.toolResults) {
           for (const result of data.toolResults) {
+            const toolName = toolCallIdToName.get(result.toolCallId);
             messages.push({
               role: 'tool',
               toolCallId: result.toolCallId,
+              ...(toolName ? { name: toolName } : {}),
               content: result.content,
+              ...(result.payload ? { toolResult: result.payload } : {}),
             });
 
-            const toolName = toolCallIdToName.get(result.toolCallId);
             if (toolName === 'finish_task') {
               try {
                 const parsed = JSON.parse(result.content) as { success: boolean; message: string };
@@ -172,8 +192,31 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
           content: data.response,
         });
 
+        if (hasToolInvocationLeak(data.response)) {
+          toolLeakRepromptCount++;
+          if (toolLeakRepromptCount >= MAX_TOOL_LEAK_REPROMPTS) {
+            console.error(`[AgentLoop] Agent stuck in textual tool leakage after ${MAX_TOOL_LEAK_REPROMPTS} attempts.`);
+            done = true;
+            return { exitCode: 1, iterations, lastResponse: 'Agent stuck: failed to invoke a tool after textual shell/tool responses' };
+          }
+          messages.push({
+            role: 'user',
+            content: TOOL_LEAK_REPROMPT,
+          });
+          continue;
+        }
+
         if (hasFinishIndicator(data.response)) {
-          done = true;
+          finishRepromptCount++;
+          if (finishRepromptCount >= MAX_FINISH_REPROMPTS) {
+            console.error(`[AgentLoop] Agent stuck in text-only responses after ${MAX_FINISH_REPROMPTS} attempts.`);
+            done = true;
+            return { exitCode: 1, iterations, lastResponse: 'Agent stuck: failed to invoke finish_task or bd.sh sync' };
+          }
+          messages.push({
+            role: 'user',
+            content: FINISH_REPROMPT,
+          });
         }
       }
     } catch (error) {

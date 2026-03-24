@@ -14,12 +14,17 @@ import { ExecutorLoop } from './executorLoop.js';
 import { agentLoop } from './agentLoop.js';
 import { getEngineSessionsStatus, formatEngineSessionLine } from './status.js';
 import { resumeRuntimeSession } from './resume.js';
-import { clearRuntimeFailureRecord, writeRuntimeFailureRecord } from './runtimeFiles.js';
+import {
+  clearRuntimeFailureRecord,
+  readRuntimeSessionFile,
+  writeRuntimeFailureRecord,
+} from './runtimeFiles.js';
 import {
   enqueueEngineNotification,
   getEngineNotificationRepository,
 } from './engineNotifications.js';
 import { EngineNotificationDispatcher } from '../telegram/engineNotificationDispatcher.js';
+import type { Provider } from '../llm-gateway/interfaces/gateway.types.js';
 
 function printJson(payload: unknown) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
@@ -53,6 +58,20 @@ function readTailFromLog(logPath?: string) {
 
   const lines = readFileSync(logPath, 'utf8').trim().split('\n');
   return lines.slice(-40).join('\n').trim() || null;
+}
+
+function readProvider(value: string | undefined): Provider | null {
+  if (!value) return null;
+  const normalized = value.trim();
+  switch (normalized) {
+    case 'gemini':
+    case 'openai':
+    case 'opencode':
+    case 'codex':
+      return normalized;
+    default:
+      return null;
+  }
 }
 
 async function main() {
@@ -111,10 +130,16 @@ async function main() {
         throw new Error(`Sesión sin worktreePath: ${runtimeSessionId}`);
       }
 
+      const sessionFile = readRuntimeSessionFile(worktreePath);
+      const provider = readProvider(process.env.RALPHITO_LLM_PROVIDER) || sessionFile?.provider || null;
+      const model = process.env.RALPHITO_LLM_MODEL?.trim() || sessionFile?.model || null;
+
       const result = await agentLoop({
         runtimeSessionId,
         worktreePath,
         instruction: process.env.RALPHITO_INSTRUCTION || '',
+        provider,
+        model,
       });
 
       process.exitCode = result.exitCode;

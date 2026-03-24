@@ -83,27 +83,30 @@ export async function finishTask(worktreePath: string): Promise<{
   const cwd = requireWorktreePath(worktreePath);
 
   try {
-    const { stdout: statusOutput } = await execAsync('git status --porcelain', { cwd });
-
-    if (!statusOutput.trim()) {
-      return { success: true, message: 'No changes to commit. Worktree is clean.' };
-    }
-
-    await execAsync('git add .', { cwd });
-    const { stdout: commitOutput } = await execAsync(
-      'git commit -m "feat: task completion"',
-      { cwd },
+    const { stdout } = await execAsync(
+      'bash -c \'./scripts/bd.sh sync; echo "EXIT_CODE:$?"\' 2>&1',
+      { cwd, env: { ...process.env, RALPHITO_WORKTREE_PATH: worktreePath }, timeout: 600000 },
     );
 
-    const commitHash = commitOutput.match(/\[([a-f0-9]+)\]/)?.[1];
+    const lines = stdout.trim().split('\n');
+    const lastLine = lines[lines.length - 1] ?? '';
+    const exitCodeMatch = lastLine.match(/EXIT_CODE:(\d+)/);
 
-    const result: { success: boolean; message: string; commitHash?: string } = {
-      success: true,
-      message: `Changes committed successfully.`,
-    };
-    if (commitHash) result.commitHash = commitHash;
+    if (!exitCodeMatch) {
+      return { success: false, message: `bd.sh sync failed: unexpected output format` };
+    }
 
-    return result;
+    const exitCode = parseInt(exitCodeMatch[1]!, 10);
+
+    if (exitCode !== 0) {
+      const outputWithoutExitCode = stdout.replace(/EXIT_CODE:\d+$/, '').trim();
+      return {
+        success: false,
+        message: `bd.sh sync failed (exit ${exitCode}): ${outputWithoutExitCode}`,
+      };
+    }
+
+    return { success: true, message: 'Landing completed successfully.' };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error during finish_task';
     return { success: false, message: `finish_task failed: ${message}` };

@@ -3,7 +3,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [ -n "${RALPHITO_WORKTREE_PATH:-}" ]; then
+    REPO_ROOT="$RALPHITO_WORKTREE_PATH"
+elif [ -f "$PWD/.ralphito-session.json" ]; then
+    REPO_ROOT="$PWD"
+else
+    REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
 ENGINE_CLI="$REPO_ROOT/src/features/engine/cli.ts"
 
 info() {
