@@ -11,6 +11,7 @@ import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
 import { WorktreeManager } from './worktreeManager.js';
 import { SessionSupervisor } from './sessionSupervisor.js';
 import { ExecutorLoop } from './executorLoop.js';
+import { agentLoop } from './agentLoop.js';
 import { getEngineSessionsStatus, formatEngineSessionLine } from './status.js';
 import { resumeRuntimeSession } from './resume.js';
 import { clearRuntimeFailureRecord, writeRuntimeFailureRecord } from './runtimeFiles.js';
@@ -90,6 +91,38 @@ async function main() {
       printJson({
         status: 'ok',
         ...(await new ExecutorLoop().run({ runtimeSessionId })),
+      });
+      return;
+    }
+
+    case 'agent-loop': {
+      const runtimeSessionId = args[0];
+      if (!runtimeSessionId) {
+        throw new Error('Uso: cli.ts agent-loop <runtime_session_id>');
+      }
+
+      const session = sessionRepository.getByRuntimeSessionId(runtimeSessionId);
+      if (!session) {
+        throw new Error(`Sesión no encontrada: ${runtimeSessionId}`);
+      }
+
+      const worktreePath = session.worktreePath;
+      if (!worktreePath) {
+        throw new Error(`Sesión sin worktreePath: ${runtimeSessionId}`);
+      }
+
+      const result = await agentLoop({
+        runtimeSessionId,
+        worktreePath,
+        instruction: process.env.RALPHITO_INSTRUCTION || '',
+      });
+
+      process.exitCode = result.exitCode;
+      printJson({
+        status: result.exitCode === 0 ? 'done' : 'failed',
+        runtimeSessionId,
+        iterations: result.iterations,
+        lastResponse: result.lastResponse,
       });
       return;
     }
@@ -395,6 +428,7 @@ async function main() {
           'Uso:',
           'cli.ts spawn-session <payload_file>',
           'cli.ts run-loop <runtime_session_id>',
+          'cli.ts agent-loop <runtime_session_id>',
           'cli.ts resolve-write-scope <bead_path>',
           'cli.ts preflight-locks <bead_path>',
           'cli.ts acquire-locks <runtime_session_id> <bead_path>',

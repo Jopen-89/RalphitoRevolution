@@ -97,6 +97,76 @@ const resolveAgentConfig = (config: GatewayConfig, rawAgentId: string) => {
   return { agentConfig: undefined, resolvedAgentId: undefined, requestedId };
 };
 
+app.post('/v1/chat/completions', async (req, res) => {
+  const { model: modelInput, messages, stream } = req.body;
+  const isStream = stream === true;
+
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: 'Faltan parámetros messages (debe ser un array)' });
+  }
+
+  const cleanModel = (modelInput || '').replace(/^[a-z]+\//i, '');
+  const config = getConfig();
+  const modelConfig = config.models?.[cleanModel];
+
+  if (!modelConfig) {
+    return res.status(400).json({
+      error: 'MODEL_NOT_CONFIGURED',
+      message: `Modelo '${cleanModel}' no encontrado en gateway.config.json.models`,
+      requestedModel: modelInput,
+    });
+  }
+
+  const provider = modelConfig.provider as Provider;
+  const auth = {
+    ...(googleAuthClient ? { googleAuthClient } : {}),
+    ...(process.env.OPENAI_API_KEY ? { openAiKey: process.env.OPENAI_API_KEY } : {}),
+    ...(process.env.MINIMAX_API_KEY ? { minimaxKey: process.env.MINIMAX_API_KEY } : {}),
+  };
+
+  try {
+    const llmProvider = ProviderFactory.create(provider, cleanModel, auth);
+    const responseText = await llmProvider.generateResponse(messages);
+
+    const openAIResponse = {
+      id: `chatcmpl-${Date.now()}`,
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model: cleanModel,
+      choices: [{
+        index: 0,
+        message: { role: 'assistant', content: responseText },
+        finish_reason: 'stop',
+      }],
+    };
+
+    if (isStream) {
+      console.warn('[Gateway] Petición stream detectada: envolviendo respuesta completa en SSE falso.');
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
+      const chunk = {
+        id: openAIResponse.id,
+        object: 'chat.completion.chunk',
+        choices: [{ delta: { role: 'assistant', content: responseText } }],
+      };
+
+      res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    } else {
+      res.json(openAIResponse);
+    }
+  } catch (error) {
+    console.error(`[Gateway] Error en /v1/chat/completions:`, error instanceof Error ? error.message : String(error));
+    res.status(502).json({
+      error: 'PROVIDER_ERROR',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 app.post('/v1/chat', async (req, res) => {
   const { agentId = 'default', provider, model, messages, originChatId, originThreadId } = req.body as ChatRequest;
   const worktreePath = req.headers['x-ralphito-worktree-path'] as string | undefined;
@@ -169,6 +239,7 @@ app.post('/v1/chat', async (req, res) => {
     const allTools = createAllToolImplementations({
       ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
       ...(typeof originChatId === 'string' && originChatId.trim() ? { notificationChatId: originChatId } : {}),
+      ...(worktreePath ? { worktreePath } : {}),
     });
 
     for (const attempt of attempts) {

@@ -48,7 +48,7 @@ export function buildRuntimeLaunchCommand(agent: string, model: string | null) {
       return ['codex', '--full-auto', '--no-alt-screen', ...(model ? ['-m', model] : [])].join(' ');
     case 'opencode':
       return wrapTrackedCommand(
-        ['opencode', 'run', '"$RALPHITO_INSTRUCTION"', ...(model ? ['-m', model] : [])].join(' '),
+        [process.execPath, '--import', 'tsx', 'src/features/engine/cli.ts', 'agent-loop', '"$RALPHITO_RUNTIME_SESSION_ID"'].join(' '),
       );
     default:
       throw new Error(`Agent no soportado por Ralphito Engine: ${agent}`);

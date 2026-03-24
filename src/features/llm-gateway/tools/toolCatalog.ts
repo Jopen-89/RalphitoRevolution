@@ -1,19 +1,21 @@
 import type { AgentConfig, ToolDefinition } from '../interfaces/gateway.types.js';
 import { createDocumentToolDefinitions, createDocumentTools } from './documentTools.js';
 import { createRaymonToolDefinitions, createRaymonTools } from './raymonTools.js';
+import { createSystemToolDefinitions, createSystemTools } from './systemTools.js';
 import type { Tool } from './toolRegistry.js';
 
 interface ToolCatalogContext {
   originThreadId?: number;
   notificationChatId?: string;
+  worktreePath?: string;
 }
 
 export function createAllToolDefinitions(): ToolDefinition[] {
-  return [...createRaymonToolDefinitions(), ...createDocumentToolDefinitions()];
+  return [...createRaymonToolDefinitions(), ...createDocumentToolDefinitions(), ...createSystemToolDefinitions()];
 }
 
 export function createAllToolImplementations(context: ToolCatalogContext = {}): Tool[] {
-  return [...createRaymonTools(context), ...createDocumentTools()];
+  return [...createRaymonTools(context), ...createDocumentTools(), ...createSystemTools(context.worktreePath)];
 }
 
 export function resolveAllowedToolDefinitions(agentConfig: AgentConfig | undefined): {

@@ -179,15 +179,21 @@
     },
     {
       "agentId": "ralphito",
-      "primaryProvider": "opencode",
-      "model": "minimax-m2.7",
+      "primaryProvider": "gemini",
+      "model": "gemini-3.1-pro-preview",
       "fallbacks": [
         {
-          "provider": "gemini",
-          "model": "gemini-3.1-pro-preview"
+          "provider": "opencode",
+          "model": "minimax-m2.7"
         }
       ],
-      "toolMode": "none"
+      "toolMode": "allowed",
+      "allowedTools": [
+        "execute_bash",
+        "read_file_raw",
+        "write_file_raw",
+        "finish_task"
+      ]
     }
   ],
   "models": {
