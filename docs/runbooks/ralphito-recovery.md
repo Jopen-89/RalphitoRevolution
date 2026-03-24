@@ -14,10 +14,13 @@ Campos clave a mirar:
 
 - `health.db.ok`: la base SQLite responde
 - `health.engine.ok`: el engine responde y puede listar sesiones
-- `metrics.failedQueries`: numero de consultas de retrieval/search fallidas
-- `metrics.averageRetrievalMs`: latencia media reciente de retrieval
-- `metrics.orphanSessions`: bindings SQLite -> engine sin sesion viva
-- `metrics.stuckTasks`: tasks abiertas sin movimiento durante la ventana de alerta
+- `current.sessions.active`: sesiones activas segun status actual
+- `current.sessions.alive`: sesiones realmente vivas ahora
+- `current.notificationBacklog.pending`: backlog vivo de notificaciones
+- `historical.retrieval.failedQueries`: fallos recientes de retrieval/search
+- `historical.retrieval.averageRetrievalMs`: latencia media reciente de retrieval
+- `historical.debt.orphanSessions`: bindings SQLite -> engine sin sesion viva
+- `historical.debt.stuckTaskCount`: tasks abiertas sin movimiento durante la ventana de alerta
 
 ## Backups SQLite
 
@@ -41,7 +44,7 @@ Flujo recomendado:
 
 ## Recovery de sesiones huerfanas
 
-Si `metrics.orphanSessions` es mayor que 0:
+Si `historical.debt.orphanSessions` es mayor que 0:
 
 1. Revisar `GET /api/ops/status` o `npm run ops:status`
 2. Confirmar si el engine ya no tiene esas sesiones
@@ -50,9 +53,9 @@ Si `metrics.orphanSessions` es mayor que 0:
 
 ## Recovery de tasks atascadas
 
-Si `metrics.stuckTasks` es mayor que 0:
+Si `historical.debt.stuckTaskCount` es mayor que 0:
 
-1. Revisar los ids expuestos en `stuckTasks`
+1. Revisar los ids expuestos en `historical.debt.stuckTasks`
 2. Abrir el dashboard en `/dashboard`
 3. Pausar (`blocked`) o cancelar (`cancelled`) si la task no puede continuar
 4. Si aplica, reinyectar el error al ejecutor:
@@ -61,11 +64,11 @@ Si `metrics.stuckTasks` es mayor que 0:
 
 ## Fallos de retrieval o search
 
-Si sube `metrics.failedQueries`:
+Si sube `historical.retrieval.failedQueries`:
 
 1. Reindexar documentos con `npm run search:index`
 2. Revalidar con `GET /api/search?q=<consulta>`
-3. Revisar `recentEvents` en `GET /api/ops/status`
+3. Revisar `historical.recentEvents` en `GET /api/ops/status`
 
 ## Cierre
 
@@ -73,5 +76,6 @@ Antes de declarar el sistema sano:
 
 - `health.db.ok = true`
 - `health.engine.ok = true`
-- `metrics.orphanSessions = 0` o explicado
-- `metrics.stuckTasks = 0` o explicado
+- `current.sessions.alive >= current.sessions.active` o explicado
+- `historical.debt.orphanSessions = 0` o explicado
+- `historical.debt.stuckTaskCount = 0` o explicado
