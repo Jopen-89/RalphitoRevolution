@@ -84,12 +84,22 @@ export function spawnRuntimeLoop(
   commandRunner = new CommandRunner(),
   env: NodeJS.ProcessEnv = process.env,
 ) {
-  commandRunner.spawnDetached(
+  const logPath = path.join(projectPath, 'ops', 'runtime', 'ralphito', `executor-${runtimeSessionId}.log`);
+  const fs = require('fs');
+  const out = fs.openSync(logPath, 'a');
+  const err = fs.openSync(logPath, 'a');
+
+  const { spawn } = require('child_process');
+  const child = spawn(
     process.execPath,
     ['--import', 'tsx', path.join(projectPath, 'src/core/engine/cli.ts'), 'run-loop', runtimeSessionId],
     {
       cwd: projectPath,
       env,
+      detached: true,
+      stdio: ['ignore', out, err],
     },
   );
+  child.unref();
+  return child;
 }
