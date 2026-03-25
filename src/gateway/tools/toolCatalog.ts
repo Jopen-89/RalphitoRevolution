@@ -1,7 +1,7 @@
 import type { AgentConfig, ToolDefinition } from '../../core/domain/gateway.types.js';
 import { createDocumentToolDefinitions, createDocumentTools } from './documentTools.js';
 import { createGitToolDefinitions, createGitTools } from './git/gitTools.js';
-import { createRaymonToolDefinitions, createRaymonTools } from './raymonTools.js';
+import { createRaymonToolDefinitions, createRaymonTools, isRaymonToolName } from './raymonTools.js';
 import { createSystemToolDefinitions, createSystemTools } from './filesystem/systemTools.js';
 import { createResearchToolDefinitions, createResearchTools } from './research/researchTools.js';
 import type { Tool } from './toolRegistry.js';
@@ -45,6 +45,10 @@ export function resolveAllowedToolDefinitions(agentConfig: AgentConfig | undefin
   const unknownNames: string[] = [];
 
   for (const name of agentConfig.allowedTools || []) {
+    if (isRaymonToolName(name) && agentConfig.agentId !== 'raymon') {
+      continue;
+    }
+
     const definition = definitionsByName.get(name);
     if (!definition) {
       unknownNames.push(name);

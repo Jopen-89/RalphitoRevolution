@@ -26,7 +26,7 @@ export interface AgentMentionAnalysis {
 const ROLES_DIR = path.join(process.cwd(), 'src', 'core', 'prompt', 'roles');
 
 const AGENT_ALIASES: Record<string, string[]> = {
-  raymon: ['raymon', 'ramon', 'raimon', 'ray mond', 'rei mon', 'orchestrator'],
+  raymon: ['raymon', 'ramon', 'raimon', 'ray mond', 'rei mon'],
   moncho: ['moncho', 'product-team'],
   poncho: ['poncho', 'architecture-team'],
   martapepis: ['martapepis', 'marta', 'marta pepis', 'research-team'],
@@ -86,6 +86,11 @@ export function loadAgentRegistry(): AgentInfo[] {
 export function getAgentById(agents: AgentInfo[], agentId: string) {
   const normalized = agentId.trim().toLowerCase();
   return agents.find((agent) => agent.id === normalized) || null;
+}
+
+export function resolveAgentReference(agents: AgentInfo[], reference: string) {
+  const normalized = reference.trim().toLowerCase();
+  return agents.find((agent) => agent.aliases.includes(normalized) || agent.name.toLowerCase() === normalized) || null;
 }
 
 function findMentionMatches(agents: AgentInfo[], text: string): AgentMentionMatch[] {

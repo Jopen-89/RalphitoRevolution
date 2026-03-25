@@ -194,7 +194,10 @@ export async function executeAgentTask(
 
   messages.push({ role: 'user', content: instruction });
 
-  const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:3005/v1/chat';
+  const gatewayUrl =
+    process.env.GATEWAY_URL ||
+    process.env.RALPHITO_GATEWAY_URL ||
+    'http://127.0.0.1:3006/v1/chat';
 
   const requestBody: Record<string, unknown> = {
     agentId: agent.id,

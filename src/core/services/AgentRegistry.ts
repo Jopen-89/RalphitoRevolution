@@ -92,7 +92,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
     toolMode: 'allowed',
-    allowedTools: ['write_spec_document', 'summon_agent_to_chat', 'inspect_workspace_path'],
+    allowedTools: ['write_spec_document', 'inspect_workspace_path'],
     fallbacks: [],
   },
   poncho: {
@@ -104,7 +104,6 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
       'write_spec_document',
       'write_bead_document',
       'inspect_workspace_path',
-      'summon_agent_to_chat',
     ],
     fallbacks: [],
   },

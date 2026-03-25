@@ -1,8 +1,8 @@
 import express from 'express';
+import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { authenticateGoogle } from '../gateway/auth/google-oauth.js';
 import { ProviderFactory } from '../gateway/providers/provider.factory.js';
 import type { Provider, Message, AgentConfig, GatewayConfig, ChatRequest, ChatResponse } from '../core/domain/gateway.types.js';
 import { initializeRalphitoDatabase } from '../infrastructure/persistence/db/index.js';
@@ -24,6 +24,7 @@ import { AgentRegistryService } from '../core/services/AgentRegistry.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+dotenv.config();
 initializeRalphitoDatabase();
 AgentRegistryService.sync();
 
@@ -47,7 +48,7 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<Provider, string> = {
 
 const AGENT_ALIASES: Record<string, string[]> = {
   default: ['default', 'ralphito'],
-  raymon: ['raymon', 'ramon', 'raimon', 'ray mond', 'rei mon', 'orchestrator'],
+  raymon: ['raymon', 'ramon', 'raimon', 'ray mond', 'rei mon'],
   moncho: ['moncho', 'product-team'],
   poncho: ['poncho', 'architecture-team'],
   martapepis: ['martapepis', 'marta', 'marta pepis', 'research-team'],
@@ -67,6 +68,27 @@ function normalizeAgentId(value: string) {
 
 function resolveAgentConfigRecord(agentId: string): AgentConfig | undefined {
   return AgentRegistryService.getAgentConfig(agentId);
+}
+
+function readEnvValue(name: string) {
+  const value = process.env[name];
+  if (!value) return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1).trim() || null;
+  }
+
+  return trimmed;
+}
+
+function buildProviderAuth() {
+  return {
+    ...(googleAuthClient ? { googleAuthClient } : {}),
+    ...(readEnvValue('OPENAI_API_KEY') ? { openAiKey: readEnvValue('OPENAI_API_KEY')! } : {}),
+    ...(readEnvValue('MINIMAX_API_KEY') ? { minimaxKey: readEnvValue('MINIMAX_API_KEY')! } : {}),
+  };
 }
 
 // Cargar configuración de agentes dinámicamente desde la DB
@@ -119,15 +141,21 @@ app.post('/v1/chat/completions', async (req, res) => {
     return res.status(400).json({ error: 'Faltan parámetros messages (debe ser un array)' });
   }
 
+  const rawModelInput = String(modelInput || '').trim();
   const cleanModel = (modelInput || '').replace(/^[a-z]+\//i, '');
-  // Por ahora mantenemos una lógica simple para completions directas o podemos mover esto también a la DB
-  const provider = cleanModel.includes('minimax') ? 'opencode' : (cleanModel.includes('gpt') ? 'openai' : 'gemini');
-  
-  const auth = {
-    ...(googleAuthClient ? { googleAuthClient } : {}),
-    ...(process.env.OPENAI_API_KEY ? { openAiKey: process.env.OPENAI_API_KEY } : {}),
-    ...(process.env.MINIMAX_API_KEY ? { minimaxKey: process.env.MINIMAX_API_KEY } : {}),
-  };
+  const provider = rawModelInput.startsWith('minimax/')
+    ? 'opencode'
+    : rawModelInput.startsWith('google/')
+      ? 'gemini'
+      : rawModelInput.startsWith('codex/')
+        ? 'codex'
+        : cleanModel.toLowerCase().includes('minimax')
+          ? 'opencode'
+          : cleanModel.toLowerCase().includes('gpt')
+            ? 'openai'
+            : 'gemini';
+
+  const auth = buildProviderAuth();
 
   try {
     const llmProvider = ProviderFactory.create(provider as Provider, cleanModel, auth);
@@ -254,13 +282,11 @@ app.post('/v1/chat', async (req, res) => {
       try {
         console.log(`[Gateway] Tool-calling con ${attempt.provider} (${attempt.model})...`);
 
-        const auth = {
-          ...(googleAuthClient ? { googleAuthClient } : {}),
-          ...(process.env.OPENAI_API_KEY ? { openAiKey: process.env.OPENAI_API_KEY } : {}),
-          ...(process.env.MINIMAX_API_KEY ? { minimaxKey: process.env.MINIMAX_API_KEY } : {}),
-        };
-
-        const llmProvider = ProviderFactory.create(attempt.provider, attempt.model, auth) as IToolCallingProvider;
+        const llmProvider = ProviderFactory.create(
+          attempt.provider,
+          attempt.model,
+          buildProviderAuth(),
+        ) as IToolCallingProvider;
 
         const { text, toolCalls, toolResults } = await executeToolCallLoop(
           messages,
@@ -298,13 +324,7 @@ app.post('/v1/chat', async (req, res) => {
     try {
       console.log(`[Gateway] Intentando con ${attempt.provider} (${attempt.model})...`);
 
-      const auth = {
-        ...(googleAuthClient ? { googleAuthClient } : {}),
-        ...(process.env.OPENAI_API_KEY ? { openAiKey: process.env.OPENAI_API_KEY } : {}),
-        ...(process.env.MINIMAX_API_KEY ? { minimaxKey: process.env.MINIMAX_API_KEY } : {}),
-      };
-
-      const llmProvider = ProviderFactory.create(attempt.provider, attempt.model, auth);
+      const llmProvider = ProviderFactory.create(attempt.provider, attempt.model, buildProviderAuth());
       const responseText = await llmProvider.generateResponse(messages);
 
       const successResponse: ChatResponse = {
@@ -418,6 +438,32 @@ app.get('/api/ops/status', async (_req, res) => {
   }
 });
 
+app.get('/api/providers/status', async (_req, res) => {
+  const auth = buildProviderAuth();
+
+  res.json({
+    defaults: DEFAULT_MODEL_BY_PROVIDER,
+    providers: {
+      gemini: {
+        configured: Boolean(auth.googleAuthClient),
+        authMode: 'google-oauth',
+      },
+      openai: {
+        configured: Boolean(auth.openAiKey),
+        authMode: 'env',
+      },
+      opencode: {
+        configured: Boolean(auth.minimaxKey),
+        authMode: 'env',
+      },
+      codex: {
+        configured: true,
+        authMode: 'opencode-cli',
+      },
+    },
+  });
+});
+
 app.post('/api/ops/backup', async (_req, res) => {
   try {
     const backupPath = await backupRalphitoDatabase();
@@ -438,9 +484,9 @@ function bootstrap() {
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 LLM Gateway escuchando en http://0.0.0.0:${PORT}`);
 
-    /*
     if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-      authenticateGoogle()
+      import('../gateway/auth/google-oauth.js')
+        .then(({ authenticateGoogle }) => authenticateGoogle())
         .then((client) => {
           googleAuthClient = client;
         })
@@ -451,7 +497,6 @@ function bootstrap() {
     } else {
       console.warn('⚠️ GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET no configurados. Gemini quedará deshabilitado.');
     }
-    */
   });
 
   server.on('error', (error) => {

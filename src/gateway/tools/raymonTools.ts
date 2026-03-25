@@ -1,7 +1,11 @@
 import type { Tool, ToolCall } from './toolRegistry.js';
 import type { Provider, ToolDefinition } from '../../core/domain/gateway.types.js';
-import { getRaymonOrchestrator } from '../../core/engine/raymonOrchestrator.js';
+import { getOrchestrator } from '../../core/engine/orchestrator.js';
 import { sendTelegramMessage, getAllowedChatId } from '../../interfaces/telegram/telegramSender.js';
+import * as convStore from '../../interfaces/telegram/conversationStore.js';
+import { loadAgentRegistry, resolveAgentReference } from '../../interfaces/telegram/agentRegistry.js';
+import { executeAgentTask } from '../../interfaces/telegram/chatExecutor.js';
+import { publishAgentReply } from '../../interfaces/telegram/agentMessenger.js';
 import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 import { getRuntimeSessionRepository } from '../../core/engine/runtimeSessionRepository.js';
 import { getRuntimeLockRepository } from '../../core/engine/runtimeLockRepository.js';
@@ -48,7 +52,7 @@ interface RaymonToolContext {
 }
 
 export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
-  const orchestrator = getRaymonOrchestrator();
+  const orchestrator = getOrchestrator();
 
   return [
     {
@@ -134,16 +138,44 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
         'Invoca a otro agente al chat de Telegram de forma programática, mencionándolo por su nombre. Útil para que Raymon llame a Moncho, Poncho, Lola, etc. cuando necesite su input.',
       execute: async (params: Record<string, unknown>) => {
         const agentName = requireString(params.agentName, 'agentName');
-        const message = optionalString(params.message) || `Hey @${agentName}, necesitas intervenir aquí.`;
+        const agents = loadAgentRegistry();
+        const agent = resolveAgentReference(agents, agentName);
+        if (!agent) {
+          throw new Error(`No conozco al agente '${agentName}'.`);
+        }
 
-        const chatId = getAllowedChatId();
-        const result = await sendTelegramMessage(chatId, message);
+        const instruction = optionalString(params.message) || `${agent.name}, Raymon te necesita en este hilo.`;
+
+        const chatId = context.notificationChatId || getAllowedChatId();
+        const statusText = `⏳ ${agent.name} (${agent.role}) se está incorporando al hilo...`;
+        const result = await sendTelegramMessage(chatId, statusText);
+
+        if (!result.messageId) {
+          throw new Error(`No pude publicar el mensaje inicial para ${agent.name}.`);
+        }
+
+        convStore.addMessageToHistory(chatId, 'Raymon', instruction, {
+          senderType: 'agent',
+          senderId: 'raymon',
+          senderName: 'Raymon',
+          role: 'assistant',
+        });
+
+        const agentResult = await executeAgentTask(chatId, agent, instruction);
+        if (agentResult.sessionId) {
+          convStore.setConversationSessionId(chatId, agent.id, agentResult.sessionId);
+        }
+
+        await publishAgentReply(chatId, result.messageId, agent, agentResult.response);
 
         return {
           success: result.success,
-          agentName,
-          message,
+          agentName: agent.name,
+          agentId: agent.id,
+          message: instruction,
           messageId: result.messageId,
+          sessionId: agentResult.sessionId,
+          response: agentResult.response,
         };
       },
     },

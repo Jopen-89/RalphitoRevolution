@@ -1,8 +1,9 @@
 import { Telegraf, Context } from 'telegraf';
 import * as dotenv from 'dotenv';
-import { analyzeAgentMentions, extractMultiAgentInstruction, loadAgentRegistry, getAgentById, type AgentInfo } from './agentRegistry.js';
+import { loadAgentRegistry, getAgentById, type AgentInfo } from './agentRegistry.js';
 import * as convStore from './conversationStore.js';
 import { executeAgentTask } from './chatExecutor.js';
+import { publishAgentReply } from './agentMessenger.js';
 import { initializeRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 import { EngineNotificationDispatcher } from './engineNotificationDispatcher.js';
 
@@ -61,73 +62,8 @@ function normalizeErrorMessage(error: unknown) {
     return cleaned;
 }
 
-function getAgentEmoji(agentId: string): string {
-    const emojis: Record<string, string> = {
-        raymon: '🤖',
-        moncho: '🎯',
-        juez: '⚖️',
-        poncho: '🏗️',
-        ricky: '🐛',
-        miron: '👁️',
-        mapito: '🛡️',
-        tracker: '🔍',
-        martapepis: '🕵️‍♀️',
-        relleno: '⚡'
-    };
-    return emojis[agentId] || '👤';
-}
-
 function buildMessageFingerprint(text: string, replyToMessageId?: number) {
     return `${text.trim().toLowerCase()}::${replyToMessageId || 0}`;
-}
-
-function splitTelegramMessage(text: string, maxLength = 3800) {
-    if (text.length <= maxLength) return [text];
-
-    const chunks: string[] = [];
-    let remaining = text;
-
-    while (remaining.length > maxLength) {
-        const slice = remaining.slice(0, maxLength);
-        const splitIndex = Math.max(slice.lastIndexOf('\n'), slice.lastIndexOf(' '));
-        const cutAt = splitIndex > 0 ? splitIndex : maxLength;
-        chunks.push(remaining.slice(0, cutAt).trim());
-        remaining = remaining.slice(cutAt).trim();
-    }
-
-    if (remaining) chunks.push(remaining);
-
-    return chunks;
-}
-
-function normalizeTelegramText(text: string) {
-    return text.replace(/\r\n/g, '\n').trim();
-}
-
-async function publishAgentReply(chatId: number | string, messageId: number, agent: AgentInfo, response: string) {
-    const emoji = getAgentEmoji(agent.id);
-    const header = `${emoji} ${agent.name.toUpperCase()} (${agent.role}):\n\n`;
-    const outgoingText = normalizeTelegramText(response);
-    const chunks = splitTelegramMessage(outgoingText ? `${header}${outgoingText}` : header, 3800);
-    const firstChunk = chunks[0] || header;
-
-    convStore.addMessageToHistory(String(chatId), agent.name, response, {
-        externalMessageId: String(messageId),
-        senderType: 'agent',
-        senderId: agent.id,
-        senderName: agent.name,
-        role: 'assistant',
-    });
-
-    await bot.telegram.editMessageText(chatId, messageId, undefined, firstChunk);
-    convStore.setMessageAgentRoute(String(chatId), messageId, agent.id);
-    convStore.setActiveAgent(String(chatId), agent.id);
-
-    for (const chunk of chunks.slice(1)) {
-        const sent = await bot.telegram.sendMessage(chatId, chunk);
-        convStore.setMessageAgentRoute(String(chatId), sent.message_id, agent.id);
-        convStore.setActiveAgent(String(chatId), agent.id);
-    }
 }
 
 function resolveAgentFromReply(ctx: Context) {
@@ -145,28 +81,6 @@ function resolveRecentActiveAgent(chatId: string) {
     if (!activeAgentId) return null;
 
     return getAgentById(agents, activeAgentId) || null;
-}
-
-async function askToChooseAgent(ctx: Context, reason: 'ambiguous' | 'missing') {
-    if (reason === 'ambiguous') {
-        await ctx.reply(`Te he leído varios agentes a la vez. Háblame a uno solo por mensaje: ${listAgentNames()}.`);
-        return;
-    }
-
-    await ctx.reply(`No tengo claro a quién le hablas. Nombra a uno al principio, por ejemplo: "Raymon, ayúdame con esto". Disponibles: ${listAgentNames()}.`);
-}
-
-async function processMultipleAgentRequest(ctx: Context, targetAgents: AgentInfo[], instruction: string) {
-    if (!ctx.chat) return;
-
-    const agentNames = targetAgents.map((agent) => agent.name).join(', ');
-    const sharedInstruction = instruction.trim() || 'Quiero escuchar vuestra opinión.';
-
-    await ctx.reply(`🎙️ Pongo a hablar a ${agentNames}.`);
-
-    for (const agent of targetAgents) {
-        await processAgentRequest(ctx, agent, sharedInstruction);
-    }
 }
 
 async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: string) {
@@ -197,7 +111,7 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
         if (result.sessionId) {
             convStore.setConversationSessionId(chatKey, agent.id, result.sessionId);
         }
-        await publishAgentReply(chatId, statusMessage.message_id, agent, result.response);
+        await publishAgentReply(chatKey, statusMessage.message_id, agent, result.response);
     } catch (error: any) {
         await bot.telegram.editMessageText(
             chatId,
@@ -221,6 +135,12 @@ for (const agent of agents) {
         const message = ctx.message as any;
         const text = message?.text || '';
         const instruction = text.replace(new RegExp(`^/${agent.id}\\s*`, 'i'), '').trim();
+
+        if (agent.id !== 'raymon') {
+            await ctx.reply(`Raymon es la puerta de entrada. Pídeselo a Raymon y él traerá a ${agent.name} cuando toque.`);
+            return;
+        }
+
         await processAgentRequest(ctx, agent, instruction);
     });
 }
@@ -231,7 +151,7 @@ bot.start((ctx) => {
         console.log(`⚠️ Acceso denegado en /start: El Chat ID ${chatId} no coincide con el permitido (${allowedChatId})`);
         return;
     }
-    ctx.reply(`¡Hola! Soy el sistema Autopilot.\n\n🤖 RAYMON es el agente planificador y predeterminado. Puedes hablarle directamente para organizar tareas o consultar el estado del sistema.\n\nTambién puedes hablar con el resto de agentes mencionándolos por su nombre (ej: "Moncho, ¿qué opinas de esta idea?").\n\nAgentes disponibles: ${listAgentNames()}`);
+    ctx.reply(`¡Hola! Soy el sistema Autopilot.\n\n🤖 Raymon es el planner y la puerta de entrada del equipo. Escríbele a Raymon para arrancar cualquier conversación y él irá trayendo a los demás agentes cuando haga falta.\n\nUna vez un agente esté en el hilo, puedes seguir hablándole por reply o por contexto reciente.\n\nAgentes disponibles: ${listAgentNames()}`);
 });
 
 // Texto natural
@@ -280,18 +200,6 @@ bot.on('text', async (ctx) => {
         role: 'user',
     });
 
-    const mentionAnalysis = analyzeAgentMentions(agents, text);
-    if (mentionAnalysis.matches.length > 1) {
-        const sharedInstruction = extractMultiAgentInstruction(mentionAnalysis.matches, text);
-        await processMultipleAgentRequest(ctx, mentionAnalysis.matches, sharedInstruction || text.trim());
-        return;
-    }
-
-    if (mentionAnalysis.leadingMatch) {
-        await processAgentRequest(ctx, mentionAnalysis.leadingMatch.agent, mentionAnalysis.leadingMatch.instruction);
-        return;
-    }
-
     const replyAgent = resolveAgentFromReply(ctx);
     if (replyAgent) {
         await processAgentRequest(ctx, replyAgent, text.trim());
@@ -304,16 +212,10 @@ bot.on('text', async (ctx) => {
         return;
     }
 
-    if (mentionAnalysis.matches.length === 1) {
-        await processAgentRequest(ctx, mentionAnalysis.matches[0]!, text.trim());
-        return;
-    }
-
-    // Fallback a Raymon si no se menciona a nadie (solo si no es un comando de sistema tipo /start)
     if (!text.startsWith('/')) {
         const defaultAgent = getAgentById(agents, 'raymon');
         if (defaultAgent) {
-            console.log(`👉 Usando Raymon como agente por defecto para: "${text}"`);
+            console.log(`👉 Enrutando mensaje a Raymon como puerta de entrada: "${text}"`);
             await processAgentRequest(ctx, defaultAgent, text.trim());
             return;
         }
@@ -321,8 +223,6 @@ bot.on('text', async (ctx) => {
 
     // Si llegamos aquí y es un comando desconocido, simplemente no hacemos nada o respondemos start
     if (text.startsWith('/')) return;
-
-    await askToChooseAgent(ctx, 'missing');
 });
 
 bot.catch((err, ctx) => {

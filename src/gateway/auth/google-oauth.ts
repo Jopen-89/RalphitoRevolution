@@ -8,6 +8,7 @@ import chalk from 'chalk';
 dotenv.config();
 
 const TOKEN_PATH = path.join(process.cwd(), '.tokens', 'google.json');
+const TOKEN_DIR = path.dirname(TOKEN_PATH);
 
 // Estos valores deben venir del archivo .env (Creados en Google Cloud Console > APIs & Services > Credentials)
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -55,6 +56,7 @@ function runInteractiveOAuthFlow(oAuth2Client: OAuth2Client): Promise<OAuth2Clie
         oAuth2Client.setCredentials(tokens);
         
         // Guardar token en disco
+        await fs.mkdir(TOKEN_DIR, { recursive: true });
         await fs.writeFile(TOKEN_PATH, JSON.stringify(tokens, null, 2));
         
         res.send('<h1>¡Autenticación completada!</h1><p>Ya puedes cerrar esta ventana y volver a tu terminal.</p>');
@@ -64,7 +66,9 @@ function runInteractiveOAuthFlow(oAuth2Client: OAuth2Client): Promise<OAuth2Clie
         server.close();
         resolve(oAuth2Client);
       } catch (error) {
-        res.send('Error al obtener los tokens.');
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(chalk.red(`❌ Error al obtener/guardar los tokens de Google: ${message}`));
+        res.send(`<h1>Error al obtener los tokens</h1><pre>${message}</pre>`);
         reject(error);
       }
     });

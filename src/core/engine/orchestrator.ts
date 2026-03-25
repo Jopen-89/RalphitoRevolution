@@ -9,7 +9,7 @@ import { resumeRuntimeSession } from './resume.js';
 import { RUNTIME_GUARDRAIL_LOG_NAME } from '../domain/constants.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 
-export interface RaymonSpawnInput {
+export interface OrchestratorSpawnInput {
   project: string;
   prompt: string;
   beadPath?: string;
@@ -23,14 +23,14 @@ export interface RaymonSpawnInput {
   notificationChatId?: string;
 }
 
-export interface RaymonSpawnResult {
+export interface OrchestratorSpawnResult {
   runtimeSessionId: string;
   baseCommitHash: string;
   worktreePath: string;
   branchName: string;
 }
 
-export interface RaymonResumeResult {
+export interface OrchestratorResumeResult {
   success: boolean;
   message: string;
 }
@@ -41,25 +41,25 @@ export interface GuardrailFailure {
   errorSnippet: string;
 }
 
-export interface RaymonStatusResult {
+export interface OrchestratorStatusResult {
   sessions: EngineStatusSession[];
   guardrailFailures: GuardrailFailure[];
   autopilotActive: boolean;
 }
 
-export interface RaymonDivergenceResult {
+export interface OrchestratorDivergenceResult {
   status: 'success' | 'partial' | 'error';
   message: string;
   failedTeams?: string[];
 }
 
-export class RaymonOrchestrator {
+export class Orchestrator {
   constructor(
     private readonly sessionSupervisor = new SessionSupervisor(),
     private readonly repoRoot = process.cwd(),
   ) {}
 
-  async spawn(input: RaymonSpawnInput): Promise<RaymonSpawnResult> {
+  async spawn(input: OrchestratorSpawnInput): Promise<OrchestratorSpawnResult> {
     const lockRepository = getRuntimeLockRepository();
     const project = input.project;
     const prompt = input.prompt;
@@ -96,7 +96,7 @@ export class RaymonOrchestrator {
     return this.sessionSupervisor.spawn(spawnInput);
   }
 
-  async resume(runtimeSessionId: string): Promise<RaymonResumeResult> {
+  async resume(runtimeSessionId: string): Promise<OrchestratorResumeResult> {
     try {
       await resumeRuntimeSession(runtimeSessionId);
       const worktreePath = this.findWorktreePath(runtimeSessionId);
@@ -113,14 +113,14 @@ export class RaymonOrchestrator {
     }
   }
 
-  async getStatus(): Promise<RaymonStatusResult> {
+  async getStatus(): Promise<OrchestratorStatusResult> {
     const sessions = await getEngineSessionsStatus();
     const guardrailFailures = this.findGuardrailFailures();
     const autopilotActive = sessions.some((s) => s.alive && s.status === 'running');
     return { sessions, guardrailFailures, autopilotActive };
   }
 
-  async launchDivergence(projectId: string, seedIdea: string): Promise<RaymonDivergenceResult> {
+  async launchDivergence(projectId: string, seedIdea: string): Promise<OrchestratorDivergenceResult> {
     return {
       status: 'success',
       message: 'Fase de Divergencia iniciada. 4 agentes lanzados en paralelo. (Skeleton - implementación pendiente)',
@@ -164,11 +164,11 @@ export class RaymonOrchestrator {
   }
 }
 
-let raymonOrchestrator: RaymonOrchestrator | null = null;
+let orchestrator: Orchestrator | null = null;
 
-export function getRaymonOrchestrator(repoRoot = process.cwd()): RaymonOrchestrator {
-  if (!raymonOrchestrator || raymonOrchestrator['repoRoot'] !== repoRoot) {
-    raymonOrchestrator = new RaymonOrchestrator(new SessionSupervisor(), repoRoot);
+export function getOrchestrator(repoRoot = process.cwd()): Orchestrator {
+  if (!orchestrator || orchestrator['repoRoot'] !== repoRoot) {
+    orchestrator = new Orchestrator(new SessionSupervisor(), repoRoot);
   }
-  return raymonOrchestrator;
+  return orchestrator;
 }
