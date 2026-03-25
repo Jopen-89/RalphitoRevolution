@@ -10,7 +10,7 @@ elif [ -f "$PWD/.ralphito-session.json" ]; then
 else
     REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
-ENGINE_CLI="$REPO_ROOT/src/features/engine/cli.ts"
+ENGINE_CLI="$REPO_ROOT/src/core/engine/cli.ts"
 
 info() {
     printf '%s\n' "$1"

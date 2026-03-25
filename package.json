@@ -5,17 +5,17 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start:bot": "node --import tsx src/features/telegram/bot.ts",
-    "start:gateway": "tsx src/features/llm-gateway/api/server.ts",
-    "db:migrate": "tsx scripts/ralphito-db.ts migrate",
-    "backup:db": "tsx scripts/ralphito-backup.ts backup",
-    "ops:status": "tsx scripts/ralphito-backup.ts status",
-    "search:index": "tsx scripts/ralphito-search.ts index",
-    "search": "tsx scripts/ralphito-search.ts search",
-    "engine:clean": "tsx src/features/engine/cli.ts reap-stale",
-    "tasks:status": "tsx scripts/ralphito-tasks.ts status-report",
-    "gateway": "npx tsx scripts/gateway-dashboard.ts status",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start:bot": "node --import tsx src/interfaces/telegram/bot.ts",
+    "start:gateway": "tsx src/gateway/api/server.ts",
+    "db:migrate": "tsx src/cli/ralphito-db.ts migrate",
+    "backup:db": "tsx src/cli/ralphito-backup.ts backup",
+    "ops:status": "tsx src/cli/ralphito-backup.ts status",
+    "search:index": "tsx src/cli/ralphito-search.ts index",
+    "search": "tsx src/cli/ralphito-search.ts search",
+    "engine:clean": "tsx src/core/engine/cli.ts reap-stale",
+    "tasks:status": "tsx src/cli/ralphito-tasks.ts status-report",
+    "gateway": "npx tsx src/cli/gateway-dashboard.ts status",
+    "test": "node --import tsx --test src/**/*.test.ts"
   },
   "repository": {
     "type": "git",
