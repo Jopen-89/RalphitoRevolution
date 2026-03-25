@@ -10,7 +10,7 @@ source "$SCRIPT_DIR/lib/runtime-paths.sh"
 # Ejemplo: ./scripts/resume.sh rr-1
 
 SESSION_ID="${1:-}"
-ENGINE_CLI="$REPO_ROOT/src/features/engine/cli.ts"
+ENGINE_CLI="$REPO_ROOT/src/core/engine/cli.ts"
 
 if [ -z "$SESSION_ID" ]; then
     echo "❌ Debes proporcionar el ID de la sesión."

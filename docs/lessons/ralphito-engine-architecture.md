@@ -32,7 +32,7 @@ No todos los agentes tienen los mismos "superpoderes". El Gateway inyecta las To
 El Engine (`src/features/engine/`) es la maquinaria física que sustenta a la IA.
 
 1. **CLI Interna (`cli.ts`):** Los "botones de control" para encender o apagar agentes (`spawn`, `kill`, `resume`).
-2. **Worktree Manager (`worktreeManager.ts`):** El "Albañil". Por seguridad, aisla a cada agente (Peón o Sabio) en su propia carpeta `/.agent-worktrees/` y en su propia rama de Git. Evita colisiones.
+2. **Worktree Manager (`worktreeManager.ts`):** El "Albañil". Por seguridad, aisla a cada agente (Peón o Sabio) en su propia carpeta `~/.ralphito/worktrees/` y en su propia rama de Git. Evita colisiones.
 3. **Executor Loop (`executorLoop.ts`):** El "Reloj". Es un bucle `while` infinito que gestiona el Function Calling: envía prompt -> recibe petición de Tool -> ejecuta Tool -> devuelve resultado a la IA -> repite.
 4. **Tool Sanitizer (`toolSanitizer.ts`):** El "Guardia de Seguridad". Antes de ejecutar un comando Bash pedido por un Peón, verifica que no sea destructivo (`rm -rf`) y que no se salga de su carpeta (`cd ..`).
 

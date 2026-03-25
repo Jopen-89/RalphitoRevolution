@@ -4,6 +4,8 @@ node_modules/
 !.env.example
 ops/runtime/
 .agent-worktrees/
+.agent-loop.log
+.ralphito-*
 .tokens/
 package/
 *.tgz

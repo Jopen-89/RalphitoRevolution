@@ -14,9 +14,9 @@ El proceso arranca cuando el usuario o sistema ejecuta `spawn-session` pasándol
     ```bash
     git rev-parse master
     ```
-5.  **Creación del Worktree**: `WorktreeManager` aísla completamente la ejecución mediante la funcionalidad de git worktrees. La carpeta se crea en `.agent-worktrees/<runtimeSessionId>`.
+5.  **Creación del Worktree**: `WorktreeManager` aísla completamente la ejecución mediante la funcionalidad de git worktrees. La carpeta se crea fuera del repo, en `~/.ralphito/worktrees/<runtimeSessionId>` (o en `RALPHITO_WORKTREE_ROOT/<runtimeSessionId>` si está configurado).
     ```bash
-    git worktree add -b jopen/<runtimeSessionId> .agent-worktrees/<runtimeSessionId> <base_commit_hash>
+    git worktree add -b jopen/<runtimeSessionId> ~/.ralphito/worktrees/<runtimeSessionId> <base_commit_hash>
     ```
     *(Nota: si hubiera que limpiar uno después, el motor utiliza `git worktree remove --force <ruta>` y `git worktree prune`).*
 6.  **Resolución de Locks**: Evalúa el `beadPath` para descubrir qué archivos/directorios tocará (el write scope). Intenta adquirir cerrojos (Locks en SQLite) vía `RuntimeLockRepository`. Si otro agente está usando esos archivos, la creación falla para evitar conflictos (Mutex).
@@ -94,7 +94,7 @@ Tras haber pusheado la rama (con o sin creación de PR, habitualmente se abre la
 2.  **Ricky (E2E QA Gate)**:
     Ejecuta `e2e-qa.ts`. Al no ser shadow mode, este chequeo es de carácter bloqueante. Si falla la automatización End-to-End, el merge es abortado automáticamente y se registra el fallo.
 3.  **Juez (Code Review Gate)**:
-    Extrae el diff utilizando una herramienta interna (`tool_get_diff.sh`). Analiza el código con agentes LLM y suelta warnings informativos por terminal. No aborta el merge en caso de "warnings" estéticos.
+    Extrae el diff directamente desde git contra el upstream o el commit previo. Analiza el código con agentes LLM y suelta warnings informativos por terminal. No aborta el merge en caso de "warnings" estéticos.
 4.  **Merge final**:
     Una vez aprobados los gates locales, se da la orden de fusionar (squash) con la rama destino usando GitHub CLI:
     ```bash

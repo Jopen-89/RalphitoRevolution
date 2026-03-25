@@ -7,7 +7,17 @@ repo_root() {
 }
 
 runtime_worktree_root() {
-    printf '%s\n' "$(repo_root)/.agent-worktrees"
+    if [ -n "${RALPHITO_WORKTREE_ROOT:-}" ]; then
+        printf '%s\n' "$RALPHITO_WORKTREE_ROOT"
+        return 0
+    fi
+
+    if [ -n "${RALPHITO_HOME:-}" ]; then
+        printf '%s\n' "$RALPHITO_HOME/worktrees"
+        return 0
+    fi
+
+    printf '%s\n' "$HOME/.ralphito/worktrees"
 }
 
 find_runtime_worktree() {

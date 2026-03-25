@@ -10,7 +10,7 @@ elif [ -f "$PWD/.ralphito-session.json" ]; then
 else
     REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
-ENGINE_CLI="$REPO_ROOT/src/features/engine/cli.ts"
+ENGINE_CLI="$REPO_ROOT/src/core/engine/cli.ts"
 
 info() {
     printf '%s\n' "$1"
@@ -238,7 +238,7 @@ notify_guardrail_failure() {
     require_cmd node
 
     local session_info
-    session_info="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null)" || return
+    session_info="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/src/app/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null)" || return
 
     local bead_id title has_error error_message summary snippet payload
     bead_id="$(echo "$session_info" | jq -r '.beadId // ""' 2>/dev/null)" || return
@@ -275,7 +275,7 @@ notify_session_success() {
     require_cmd node
 
     local session_info
-    session_info="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null)" || return
+    session_info="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/src/app/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null)" || return
 
     local bead_id title branch payload
     bead_id="$(echo "$session_info" | jq -r '.beadId // ""' 2>/dev/null)" || return
@@ -293,7 +293,7 @@ notify_session_success() {
 }
 
 run_miron_shadow() {
-    if [ ! -f "$REPO_ROOT/scripts/visual-qa.ts" ]; then
+    if [ ! -f "$REPO_ROOT/src/app/visual-qa.ts" ]; then
         info "ℹ️ Miron no disponible (visual-qa.ts no encontrado)."
         return 0
     fi
@@ -315,7 +315,7 @@ run_miron_shadow() {
 
     require_cmd node
 
-    if ! node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/visual-qa.ts" --repo-root "$REPO_ROOT" --shadow; then
+    if ! node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/src/app/visual-qa.ts" --repo-root "$REPO_ROOT" --shadow; then
         warn "⚠️ Miron reportó problemas visuales (shadow mode - solo informativo)."
     else
         info "✅ Miron: Sin problemas visuales detectados."
@@ -323,7 +323,7 @@ run_miron_shadow() {
 }
 
 run_ricky_e2e() {
-    if [ ! -f "$REPO_ROOT/scripts/e2e-qa.ts" ]; then
+    if [ ! -f "$REPO_ROOT/src/app/e2e-qa.ts" ]; then
         die "❌ Ricky no disponible (e2e-qa.ts no encontrado)."
     fi
 
@@ -343,10 +343,10 @@ run_ricky_e2e() {
 
     require_cmd node
 
-    if ! node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/e2e-qa.ts" --repo-root "$REPO_ROOT"; then
+    if ! node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/src/app/e2e-qa.ts" --repo-root "$REPO_ROOT"; then
         local session_id bead_id
         session_id="$(get_session_id)"
-        bead_id="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/scripts/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null | jq -r '.beadId // "UNKNOWN"')"
+        bead_id="$(node "$REPO_ROOT/node_modules/.bin/tsx" "$REPO_ROOT/src/app/ralphito-db.ts" get-session-chat "$session_id" 2>/dev/null | jq -r '.beadId // "UNKNOWN"')"
 
         notify_guardrail_failure "E2E (Ricky)"
 
@@ -367,23 +367,40 @@ run_juez_review() {
         return 0
     fi
 
-    if [ ! -f "$REPO_ROOT/scripts/tools/tool_get_diff.sh" ]; then
-        info "ℹ️ Judge saltado: tool_get_diff.sh no encontrado."
-        return 0
-    fi
-
     local diff_output
-    diff_output="$(bash "$REPO_ROOT/scripts/tools/tool_get_diff.sh" "$session_id" 2>&1)" || {
+    diff_output="$(collect_judge_diff 2>&1)" || {
         warn "⚠️ Judge no pudo obtener el diff."
         return 0
     }
 
-    if [ -f "$REPO_ROOT/agents/roles/CodeReviewer(Juez).md" ]; then
+    if [ -z "$diff_output" ]; then
+        info "ℹ️ Judge saltado: no hay diff relevante para revisar."
+        return 0
+    fi
+
+    if [ -f "$REPO_ROOT/src/core/prompt/roles/CodeReviewer(Juez).md" ]; then
         info "📋 Judge ha revisado el diff. Revisión completada."
         info "ℹ️ Judge es informativo: los hallazgos deben ser resueltos manualmente."
     else
         info "ℹ️ Judge: rol de CodeReviewer no encontrado, skipping."
     fi
+}
+
+collect_judge_diff() {
+    local upstream
+    upstream="$(resolve_upstream_ref)"
+
+    if git -C "$REPO_ROOT" rev-parse --verify "$upstream" >/dev/null 2>&1; then
+        git -C "$REPO_ROOT" diff "$upstream...HEAD"
+        return
+    fi
+
+    if git -C "$REPO_ROOT" rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+        git -C "$REPO_ROOT" diff HEAD~1..HEAD
+        return
+    fi
+
+    git -C "$REPO_ROOT" diff --cached
 }
 
 get_current_pr() {

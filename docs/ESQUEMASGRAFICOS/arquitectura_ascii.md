@@ -48,7 +48,7 @@ Este esquema representa la arquitectura del sistema post-refactor (Issue 56) uti
 │ │  BASE DE DATOS       │<───┤    WORKTREE MANAGER     │    │   (executorLoop.ts)     │   │
 │ │  (SQLite)            │    │  (worktreeManager.ts)   │    │  (El Bucle del Peón)    │   │
 │ │                      │    │                         │    │                         │   │
-│ │ Tabla: agent_sessions│    │ + Crea .agent-worktrees/│    │ Bucle while(!done) {    │   │
+│ │ Tabla: agent_sessions│    │ + Crea ~/.ralphito/    │    │ Bucle while(!done) {    │   │
 │ │ - id: rr-1           │    │ + git worktree add      │    │   hablar_con_gateway(); │   │
 │ │ - status: working    │    │ + git worktree remove   │    │   ejecutar_tools();     │   │
 │ │ - error_log: null    │    │                         │    │ }                       │   │
@@ -80,7 +80,7 @@ Este esquema representa la arquitectura del sistema post-refactor (Issue 56) uti
 │            │                            v                                                │
 │            │              ┌───────────────────────────┐                                  │
 │            │              │   CARPETA DEL PEÓN        │                                  │
-│            │              │ .agent-worktrees/rr-1/    │                                  │
+│            │              │ worktrees/rr-1/           │                                  │
 │            │              ├───────────────────────────┤                                  │
 │            │              │ El Peón ejecuta:          │                                  │
 │            │              │ 1. ls, cat (Lee specs)    │                                  │

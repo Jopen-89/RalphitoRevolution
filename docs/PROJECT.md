@@ -12,9 +12,9 @@ RalphitoRevolution es un laboratorio de orquestacion autonoma sobre Ralphito Eng
 
 - `src/`: producto, runtime propio, dashboard y persistencia
 - `docs/specs/`: ideas, specs y beads
-- `agents/`: roles y playbooks
-- `ops/`: config viva del runtime y estado operativo
-- `scripts/`: wrappers como `bd.sh`, `resume.sh`, QA y tooling
+- `src/core/prompt/roles/`: identidades y reglas de los agentes
+- `ops/runtime/`: estado operativo persistido en disco
+- `scripts/`: wrappers shell residuales; el runtime vivo ya apunta a `src/app/`
 - `skills/`: skills locales reutilizables
 
 ## Estado actual
