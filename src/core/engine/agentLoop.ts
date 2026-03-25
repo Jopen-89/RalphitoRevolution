@@ -89,8 +89,9 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
 
   while (iterations < MAX_ITERATIONS && !done) {
     iterations++;
+    console.log(`[AgentLoop] Iteration ${iterations}...`);
 
-    const session = sessionRepo.getByRuntimeSessionId(runtimeSessionId);
+    const session = sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
     if (session?.status === 'cancelled' || session?.status === 'failed') {
       return { exitCode: 1, iterations, lastResponse: 'Session cancelled or failed' };
     }
