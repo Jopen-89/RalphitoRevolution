@@ -1,6 +1,0 @@
-{
-  "project": "research-team",
-  "prompt": "Investiga qué es 'Agentic Frameworks' y crea un documento corto en docs/specs/meta/research/test-marta.md usando tus herramientas. Usa finish_task al terminar.",
-  "provider": "opencode",
-  "model": "minimax-m2.7"
-}

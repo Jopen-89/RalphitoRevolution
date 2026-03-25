@@ -1,6 +1,0 @@
-{
-  "project": "product-team",
-  "prompt": "Genera un archivo de PRD de prueba llamado test-issue-93.md en la ruta projects/test-issue-93.md con un contenido mínimo. Usa la herramienta write_spec_document. Después, usa finish_task.",
-  "provider": "opencode",
-  "model": "minimax-m2.7"
-}
