@@ -32,4 +32,5 @@
 
 - [ ] Fase 6 - Saneamiento final
   - [ ] Eliminar `scripts/` cuando ya no queden dependencias reales
-  - [ ] Consolidar entrypoints finales del sistema
+  - [x] Consolidar entrypoints finales del sistema
+  - [x] Retirar config AO/YAML y hooks Claude legacy del repo

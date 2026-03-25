@@ -40,7 +40,7 @@ El objetivo es que **todos los agentes tengan un `agentLoop` real**, puedan **co
 *   **Limpieza de `agentLoop.ts`**: Eliminar identidades hardcodeadas. El motor será una "vasija vacía" que acepta cualquier rol inyectado desde el CLI.
 
 ### FASE 2: Habilitar los Equipos Reales
-*   **Mapa de Orquestación**: Actualizar `ops/agent-orchestrator.yaml` para incluir todos los equipos (PM, Research, Architecture, etc.) vinculándolos a sus Markdowns de `src/core/prompt/roles/`.
+*   **Mapa de Orquestación**: Consolidar el routing en `AgentRegistry` y `src/core/prompt/roles/`, sin depender de YAML legacy en repo.
 *   **Mapeo de Herramientas**: Configurar el `toolCatalog.ts` para que cada agente tenga acceso a las tools que necesita (ej. Moncho -> Document Tools).
 
 ### FASE 3: El Puente Conversacional (Interactive Loop)
