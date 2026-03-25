@@ -38,7 +38,7 @@ Autopilot ya corre sobre Ralphito Engine. No hay runtime principal basado en AO 
 
 - migracion `ao_session_id` -> `runtime_session_id`
 - locking real en SQLite
-- worktrees propios en `.agent-worktrees/`
+- worktrees propios en `~/.ralphito/worktrees/`
 - spawn, status, resume y cleanup sin AO
 - dashboard y ops status leyendo engine + SQLite
 

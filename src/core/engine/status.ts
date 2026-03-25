@@ -1,6 +1,6 @@
 import { readRuntimeSessionFile } from './runtimeFiles.js';
 import { getRuntimeSessionRepository, type RuntimeSessionRecord } from './runtimeSessionRepository.js';
-import { TmuxRuntime } from './tmuxRuntime.js';
+import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 
 export interface EngineStatusSession {
   id: string;

@@ -1,5 +1,3 @@
-import { writeEvidenceTool } from './telegram-demo/index.js';
-
 export interface Tool {
   name: string;
   description: string;
@@ -18,16 +16,7 @@ export interface ToolCallResult {
   ok: boolean;
 }
 
-const tools: Tool[] = [
-  {
-    name: 'writeEvidence',
-    description: 'Write evidence content to a timestamped file in docs/automation/evidence/',
-    execute: async (params: Record<string, unknown>) => {
-      const content = params.content as string;
-      return writeEvidenceTool(content);
-    },
-  },
-];
+const tools: Tool[] = [];
 
 export function getTools(): Tool[] {
   return tools;

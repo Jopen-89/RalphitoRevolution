@@ -209,7 +209,7 @@ test('agentLoop reprompts finish-only text without using tool leakage message', 
       assert.equal(requests[1]?.messages.at(-1)?.role, 'user');
       assert.match(
         requests[1]?.messages.at(-1)?.content || '',
-        /You must explicitly use the finish_task tool or execute \.\/scripts\/bd\.sh sync/i,
+        /You must explicitly use the finish_task tool/i,
       );
       assert.doesNotMatch(
         requests[1]?.messages.at(-1)?.content || '',

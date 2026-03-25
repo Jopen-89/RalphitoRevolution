@@ -18,19 +18,26 @@ function createTempDirectory(prefix: string) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-function withTempRuntime<T>(fn: (repoRoot: string) => Promise<T> | T) {
+function runtimeWorktreePath(worktreeRoot: string, runtimeSessionId: string) {
+  return path.join(worktreeRoot, runtimeSessionId);
+}
+
+function withTempRuntime<T>(fn: (ctx: { repoRoot: string; worktreeRoot: string }) => Promise<T> | T) {
   const previousCwd = process.cwd();
   const previousDbPath = process.env.RALPHITO_DB_PATH;
+  const previousWorktreeRoot = process.env.RALPHITO_WORKTREE_ROOT;
   const repoRoot = createTempDirectory('rr-engine-phase4-');
+  const worktreeRoot = createTempDirectory('rr-engine-phase4-worktrees-');
 
   process.chdir(repoRoot);
   process.env.RALPHITO_DB_PATH = path.join(repoRoot, 'ops', 'runtime', 'ralphito', 'ralphito.sqlite');
+  process.env.RALPHITO_WORKTREE_ROOT = worktreeRoot;
   closeRalphitoDatabase();
   resetRuntimeSessionRepository();
   initializeRalphitoDatabase();
 
   return Promise.resolve()
-    .then(() => fn(repoRoot))
+    .then(() => fn({ repoRoot, worktreeRoot }))
     .finally(() => {
       closeRalphitoDatabase();
       resetRuntimeSessionRepository();
@@ -39,8 +46,14 @@ function withTempRuntime<T>(fn: (repoRoot: string) => Promise<T> | T) {
       } else {
         delete process.env.RALPHITO_DB_PATH;
       }
+      if (previousWorktreeRoot) {
+        process.env.RALPHITO_WORKTREE_ROOT = previousWorktreeRoot;
+      } else {
+        delete process.env.RALPHITO_WORKTREE_ROOT;
+      }
       process.chdir(previousCwd);
       rmSync(repoRoot, { force: true, recursive: true });
+      rmSync(worktreeRoot, { force: true, recursive: true });
     });
 }
 
@@ -59,10 +72,10 @@ function insertThread(runtimeSessionId: string, createdAt: string) {
 }
 
 test('getEngineSessionsStatus expone sesiones recientes del engine con metadata util para dashboard', async () => {
-  await withTempRuntime(async (repoRoot) => {
+  await withTempRuntime(async ({ repoRoot, worktreeRoot }) => {
     const repository = getRuntimeSessionRepository();
-    const runningWorktree = path.join(repoRoot, '.agent-worktrees', 'be-running');
-    const failedWorktree = path.join(repoRoot, '.agent-worktrees', 'be-failed');
+    const runningWorktree = runtimeWorktreePath(worktreeRoot, 'be-running');
+    const failedWorktree = runtimeWorktreePath(worktreeRoot, 'be-failed');
 
     mkdirSync(runningWorktree, { recursive: true });
     mkdirSync(failedWorktree, { recursive: true });

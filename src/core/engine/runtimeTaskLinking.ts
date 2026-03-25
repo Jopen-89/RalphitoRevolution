@@ -1,8 +1,8 @@
 import path from 'path';
-import { refreshRuntimeSessionSummary, refreshTaskSummary } from '../memory/summaryService.js';
+import { refreshRuntimeSessionSummary, refreshTaskSummary } from '../services/summaryService.js';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
-import type { RalphitoTaskStatus } from '../tasks/taskStateService.js';
-import { resolveEngineProjectConfig } from './config.js';
+import type { RalphitoTaskStatus } from '../services/taskStateService.js';
+import { ProjectService } from '../services/ProjectService.js';
 
 export interface RuntimeTaskLinkInput {
   runtimeSessionId: string;
@@ -40,7 +40,7 @@ export function resolveRuntimeTaskSourceSpecPath(projectId?: string | null, bead
   if (!beadPath) return null;
   if (path.isAbsolute(beadPath)) return path.resolve(beadPath);
 
-  const projectRoot = projectId ? resolveEngineProjectConfig(projectId).path : process.cwd();
+  const projectRoot = projectId ? ProjectService.resolve(projectId).path : process.cwd();
   return path.resolve(projectRoot, beadPath);
 }
 

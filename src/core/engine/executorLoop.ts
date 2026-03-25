@@ -7,7 +7,7 @@ import {
   DEFAULT_RUNTIME_MAX_COMMAND_TIME_MS,
   DEFAULT_RUNTIME_MAX_WALL_TIME_MS,
   DEFAULT_RUNTIME_OUTPUT_LINES,
-} from './constants.js';
+} from '../domain/constants.js';
 import {
   clearRuntimeExitCode,
   clearRuntimeFailureRecord,
@@ -18,11 +18,11 @@ import {
   isWaitingForLlm,
 } from './runtimeFiles.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
-import { enqueueEngineNotification } from './engineNotifications.js';
+import { enqueueEngineNotification } from '../services/EventBus.js';
 import { getRuntimeSessionRepository, type RuntimeSessionRecord } from './runtimeSessionRepository.js';
-import { TmuxRuntime } from './tmuxRuntime.js';
-import { WorktreeManager } from './worktreeManager.js';
-import { CommandRunner } from './commandRunner.js';
+import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
+import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
+import { CommandRunner } from '../../infrastructure/runtime/commandRunner.js';
 import {
   detectCredentialPrompt,
   detectSmartDefault,
@@ -31,7 +31,7 @@ import {
   type PromptMatch,
 } from './promptPatterns.js';
 import { syncRuntimeTaskLink } from './runtimeTaskLinking.js';
-import type { RalphitoTaskStatus } from '../tasks/taskStateService.js';
+import type { RalphitoTaskStatus } from '../services/taskStateService.js';
 
 export interface ExecutorLoopContext {
   runtimeSessionId: string;

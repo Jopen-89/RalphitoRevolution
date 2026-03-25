@@ -3,7 +3,7 @@ import { getRaymonOrchestrator } from '../../core/engine/raymonOrchestrator.js';
 const ORCHESTRATOR_PROJECT_ID = 'backend-team';
 
 export async function executeAgentTask(agent: string, instruction: string): Promise<string> {
-  const prompt = `ROLES: Usa la personalidad definida en agents/roles/ para ${agent}.\n\nINSTRUCCIÓN:\n${instruction}`;
+  const prompt = `ROLES: Usa la personalidad definida en src/core/prompt/roles/ para ${agent}.\n\nINSTRUCCIÓN:\n${instruction}`;
 
   try {
     const orchestrator = getRaymonOrchestrator();

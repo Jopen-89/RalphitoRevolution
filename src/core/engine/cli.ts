@@ -8,8 +8,8 @@ import {
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { RuntimeReaper } from './runtimeReaper.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
-import { WorktreeManager } from './worktreeManager.js';
-import { SessionSupervisor } from './sessionSupervisor.js';
+import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
+import { SessionSupervisor } from '../services/SessionManager.js';
 import { ExecutorLoop } from './executorLoop.js';
 import { agentLoop } from './agentLoop.js';
 import { getEngineSessionsStatus, formatEngineSessionLine } from './status.js';
@@ -22,9 +22,9 @@ import {
 import {
   enqueueEngineNotification,
   getEngineNotificationRepository,
-} from './engineNotifications.js';
+} from '../services/EventBus.js';
 import { EngineNotificationDispatcher } from '../../interfaces/telegram/engineNotificationDispatcher.js';
-import type { Provider } from '../../gateway/interfaces/gateway.types.js';
+import type { Provider } from '../domain/gateway.types.js';
 
 function printJson(payload: unknown) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);

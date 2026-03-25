@@ -1,9 +1,9 @@
 import fs from 'fs';
 import { spawn } from 'child_process';
 import path from 'path';
-import type { Provider } from '../../gateway/interfaces/gateway.types.js';
+import type { Provider } from '../domain/gateway.types.js';
 import { getRalphitoDatabasePath } from '../../infrastructure/persistence/db/index.js';
-import { CommandRunner } from './commandRunner.js';
+import { CommandRunner } from '../../infrastructure/runtime/commandRunner.js';
 import { getRuntimeExitCodeFilePath } from './runtimeFiles.js';
 
 function shellEscape(str: string) {

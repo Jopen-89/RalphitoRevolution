@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import type { AgentInfo } from './agentRegistry.js';
 import { getConversationSessionId, getRecentChatHistory, getThreadId, setConversationSessionId } from './conversationStore.js';
-import { loadDeterministicContext } from '../../core/context/contextLoader.js';
-import { formatMemoryContext, refreshMemoryContext } from '../../core/memory/summaryService.js';
-import type { ChatResponse } from '../../gateway/interfaces/gateway.types.js';
+import { loadDeterministicContext } from '../../core/services/contextLoader.js';
+import { formatMemoryContext, refreshMemoryContext } from '../../core/services/summaryService.js';
+import type { ChatResponse } from '../../core/domain/gateway.types.js';
 
 interface ChatResult {
   response: string;

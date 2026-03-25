@@ -8,7 +8,7 @@ import type {
   ToolDefinition,
   ToolCall,
   VisionResult,
-} from '../interfaces/gateway.types.js';
+} from '../../core/domain/gateway.types.js';
 
 export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
   name: Provider = 'gemini';

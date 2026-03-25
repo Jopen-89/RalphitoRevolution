@@ -1,8 +1,8 @@
 import { readFileSync } from 'fs';
 import { getEngineSessionsStatus, type EngineStatusSession } from '../../core/engine/status.js';
-import { getGuardrailLogPath, getManagedRuntimeWorktreePath } from '../../core/engine/runtimeFiles.js';
+import { getGuardrailLogPath } from '../../core/engine/runtimeFiles.js';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
-import { updateTaskStatus, type RalphitoTaskStatus } from '../../core/tasks/taskStateService.js';
+import { updateTaskStatus, type RalphitoTaskStatus } from '../../core/services/taskStateService.js';
 
 interface ThreadRow {
   threadId: number;
@@ -116,8 +116,22 @@ function truncateError(errorText: string) {
 }
 
 function getGuardrailErrorForSession(sessionId: string) {
+  const db = getRalphitoDatabase();
+
   try {
-    return truncateError(readFileSync(getGuardrailLogPath(getManagedRuntimeWorktreePath(sessionId)), 'utf8'));
+    const row = db
+      .prepare(
+        `
+          SELECT worktree_path AS worktreePath
+          FROM agent_sessions
+          WHERE runtime_session_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(sessionId) as { worktreePath: string | null } | undefined;
+
+    if (!row?.worktreePath) return null;
+    return truncateError(readFileSync(getGuardrailLogPath(row.worktreePath), 'utf8'));
   } catch {
     return null;
   }

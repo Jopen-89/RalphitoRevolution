@@ -11,7 +11,7 @@ Este documento resume la investigación arquitectónica y el plan de acción par
 *   **Agent-Orchestrator (Raymon)**: El "Mánager". Un agente VIP que corre sobre un `agentLoop` pero tiene herramientas especiales (`spawn_executor`) para crear y supervisar a otros agentes basándose en el mapa de configuración.
 
 ### Identidad y Reglas
-*   **Roles (`agents/roles/*.md`)**: El "Cerebro/Alma". Define la personalidad, especialidad y reglas específicas de cada agente (Moncho, Lola, Mapito, etc.).
+*   **Roles (`src/core/prompt/roles/*.md`)**: El "Cerebro/Alma". Define la personalidad, especialidad y reglas específicas de cada agente (Moncho, Lola, Mapito, etc.).
 *   **Reglas Técnicas**:
     *   **Engine Guardrails**: Instrucciones de supervivencia (sandbox, no interactividad, uso de tools).
     *   **Project Standards (`AGENTS.md`, `.agent-rules.md`)**: Normas del repositorio (Git, `bd sync`, protocolo anti-autoengaño).
@@ -40,7 +40,7 @@ El objetivo es que **todos los agentes tengan un `agentLoop` real**, puedan **co
 *   **Limpieza de `agentLoop.ts`**: Eliminar identidades hardcodeadas. El motor será una "vasija vacía" que acepta cualquier rol inyectado desde el CLI.
 
 ### FASE 2: Habilitar los Equipos Reales
-*   **Mapa de Orquestación**: Actualizar `ops/agent-orchestrator.yaml` para incluir todos los equipos (PM, Research, Architecture, etc.) vinculándolos a sus Markdowns de `agents/roles/`.
+*   **Mapa de Orquestación**: Actualizar `ops/agent-orchestrator.yaml` para incluir todos los equipos (PM, Research, Architecture, etc.) vinculándolos a sus Markdowns de `src/core/prompt/roles/`.
 *   **Mapeo de Herramientas**: Configurar el `toolCatalog.ts` para que cada agente tenga acceso a las tools que necesita (ej. Moncho -> Document Tools).
 
 ### FASE 3: El Puente Conversacional (Interactive Loop)

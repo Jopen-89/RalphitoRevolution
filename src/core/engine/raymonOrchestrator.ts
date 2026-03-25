@@ -1,12 +1,13 @@
 import path from 'path';
-import { existsSync, readdirSync, readFileSync, unlinkSync } from 'fs';
-import type { Provider } from '../../gateway/interfaces/gateway.types.js';
+import { existsSync, readFileSync, unlinkSync } from 'fs';
+import type { Provider } from '../domain/gateway.types.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
-import { SessionSupervisor, type SpawnRuntimeSessionInput } from './sessionSupervisor.js';
+import { SessionSupervisor, type SpawnRuntimeSessionInput } from '../services/SessionManager.js';
 import { getEngineSessionsStatus, type EngineStatusSession } from './status.js';
 import { resumeRuntimeSession } from './resume.js';
-import { ENGINE_WORKTREE_ROOT, RUNTIME_GUARDRAIL_LOG_NAME } from './constants.js';
+import { RUNTIME_GUARDRAIL_LOG_NAME } from '../domain/constants.js';
+import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 
 export interface RaymonSpawnInput {
   project: string;
@@ -140,35 +141,25 @@ export class RaymonOrchestrator {
   }
 
   private findWorktreePath(runtimeSessionId: string): string | null {
-    const worktreeRoot = path.join(this.repoRoot, ENGINE_WORKTREE_ROOT);
-    if (!existsSync(worktreeRoot)) return null;
-    const candidate = path.join(worktreeRoot, runtimeSessionId);
-    return existsSync(candidate) ? candidate : null;
+    return getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId)?.worktreePath || null;
   }
 
   private findGuardrailFailures(): GuardrailFailure[] {
-    const worktreeRoot = path.join(this.repoRoot, ENGINE_WORKTREE_ROOT);
-    if (!existsSync(worktreeRoot)) return [];
-
     const failures: GuardrailFailure[] = [];
-    try {
-      const entries = readdirSync(worktreeRoot, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const guardrailLogPath = path.join(worktreeRoot, entry.name, RUNTIME_GUARDRAIL_LOG_NAME);
-        if (existsSync(guardrailLogPath)) {
-          const lines = readFileSync(guardrailLogPath, 'utf8').trim().split('\n');
-          const snippet = lines.slice(-15).join('\n');
-          failures.push({
-            sessionId: entry.name,
-            worktreePath: path.join(worktreeRoot, entry.name),
-            errorSnippet: snippet,
-          });
-        }
-      }
-    } catch {
-      // directory may not exist or be readable
+    for (const session of getRuntimeSessionRepository().listRecent()) {
+      if (!session.worktreePath) continue;
+      const guardrailLogPath = path.join(session.worktreePath, RUNTIME_GUARDRAIL_LOG_NAME);
+      if (!existsSync(guardrailLogPath)) continue;
+
+      const lines = readFileSync(guardrailLogPath, 'utf8').trim().split('\n');
+      const snippet = lines.slice(-15).join('\n');
+      failures.push({
+        sessionId: session.runtimeSessionId,
+        worktreePath: session.worktreePath,
+        errorSnippet: snippet,
+      });
     }
+
     return failures;
   }
 }

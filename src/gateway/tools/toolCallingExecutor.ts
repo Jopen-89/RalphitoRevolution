@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
-import type { Message, ToolDefinition, ToolCall, ToolResult, ToolResultPayload } from '../interfaces/gateway.types.js';
-import type { IToolCallingProvider } from '../interfaces/gateway.types.js';
+import type { Message, ToolDefinition, ToolCall, ToolResult, ToolResultPayload } from '../../core/domain/gateway.types.js';
+import type { IToolCallingProvider } from '../../core/domain/gateway.types.js';
 import type { Tool } from './toolRegistry.js';
 
 export interface ToolCallingLoopResult {
@@ -61,9 +61,14 @@ export async function executeToolCallLoop(
 
   for (let i = 0; i < maxIterations; i++) {
     const { text, toolCalls: calls } = await provider.generateResponseWithTools(messages, toolDefinitions);
+    console.log(`[executeToolCallLoop] Iteration ${i + 1}: LLM returned ${calls?.length || 0} calls`);
 
     if (!calls || calls.length === 0) {
       return { text, toolCalls: allToolCalls, toolResults: allToolResults };
+    }
+
+    for (const call of calls) {
+      console.log(`[executeToolCallLoop] Iteration ${i + 1}: Calling ${call.name}(${JSON.stringify(call.arguments)})`);
     }
 
     const currentIterationSignature = calls.map(buildToolCallSignature).join('||');

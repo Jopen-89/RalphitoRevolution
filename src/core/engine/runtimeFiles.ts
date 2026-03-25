@@ -1,13 +1,14 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import path from 'path';
-import type { Provider } from '../../gateway/interfaces/gateway.types.js';
+import type { Provider } from '../domain/gateway.types.js';
 import {
   RUNTIME_EXIT_CODE_FILE_NAME,
   RUNTIME_FAILURE_FILE_NAME,
   RUNTIME_GUARDRAIL_LOG_NAME,
   RUNTIME_LLM_WAITING_FILE_NAME,
   RUNTIME_SESSION_FILE_NAME,
-} from './constants.js';
+} from '../domain/constants.js';
+import { ProjectService } from '../services/ProjectService.js';
 
 export interface RuntimeSessionFileRecord {
   runtimeSessionId: string;
@@ -62,8 +63,8 @@ export function getGuardrailLogPath(worktreePath: string) {
   return path.join(worktreePath, RUNTIME_GUARDRAIL_LOG_NAME);
 }
 
-export function getManagedRuntimeWorktreePath(runtimeSessionId: string, repoRoot = process.cwd()) {
-  return path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+export function getManagedRuntimeWorktreePath(runtimeSessionId: string, projectId = 'default') {
+  return ProjectService.resolveWorktreePath(projectId, runtimeSessionId);
 }
 
 export function readRuntimeSessionFile(worktreePath: string) {

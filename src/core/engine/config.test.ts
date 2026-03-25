@@ -1,47 +1,74 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { mkdtempSync, rmSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveEngineProjectConfig } from './config.js';
+import { AgentRegistryService } from '../services/AgentRegistry.js';
+import {
+  closeRalphitoDatabase,
+  initializeRalphitoDatabase,
+} from '../../infrastructure/persistence/db/index.js';
 
 function createTempDirectory(prefix: string) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-test('resolveEngineProjectConfig reads explicit provider and model from yaml', () => {
-  const repoRoot = createTempDirectory('rr-engine-config-');
-  const opsPath = path.join(repoRoot, 'ops');
-  const configPath = path.join(opsPath, 'agent-orchestrator.yaml');
+function withTempDb<T>(fn: () => Promise<T> | T) {
+  const previousDbPath = process.env.RALPHITO_DB_PATH;
+  const tmpDir = createTempDirectory('rr-engine-config-');
+  process.env.RALPHITO_DB_PATH = path.join(tmpDir, 'ralphito.sqlite');
+  closeRalphitoDatabase();
+  initializeRalphitoDatabase();
+  AgentRegistryService.sync();
 
-  try {
-    mkdirSync(opsPath, { recursive: true });
-    writeFileSync(
-      configPath,
-      [
-        'defaults:',
-        '  agent: opencode',
-        '  agentConfig:',
-        '    provider: opencode',
-        '    model: minimax-m2.7',
-        'projects:',
-        '  backend-team:',
-        `    path: ${repoRoot}`,
-        '    agentConfig:',
-        '      provider: gemini',
-        '      model: gemini-2.5-pro',
-        '',
-      ].join('\n'),
-      'utf8',
-    );
+  return Promise.resolve()
+    .then(() => fn())
+    .finally(() => {
+      closeRalphitoDatabase();
+      if (previousDbPath) {
+        process.env.RALPHITO_DB_PATH = previousDbPath;
+      } else {
+        delete process.env.RALPHITO_DB_PATH;
+      }
+      rmSync(tmpDir, { force: true, recursive: true });
+    });
+}
 
-    const config = resolveEngineProjectConfig('backend-team', configPath);
+test('resolveEngineProjectConfig reads provider and model from agent_registry', async () => {
+  await withTempDb(() => {
+    AgentRegistryService.updateAgentConfig('default', {
+      primary_provider: 'opencode',
+      provider: 'opencode',
+      model: 'minimax-m2.7',
+    });
 
+    const config = resolveEngineProjectConfig('backend-team');
+
+    assert.equal(config.id, 'backend-team');
     assert.equal(config.agent, 'opencode');
-    assert.equal(config.provider, 'gemini');
-    assert.equal(config.model, 'gemini-2.5-pro');
-    assert.equal(config.path, repoRoot);
-  } finally {
-    rmSync(repoRoot, { force: true, recursive: true });
-  }
+    assert.equal(config.provider, 'opencode');
+    assert.equal(config.model, 'minimax-m2.7');
+    assert.equal(config.path, process.cwd());
+    assert.ok(config.worktreeRoot.endsWith(path.join('.ralphito', 'worktrees')));
+    assert.equal(config.agentRulesFile, 'AGENTS.md');
+  });
+});
+
+test('resolveEngineProjectConfig reads direct role config from agent_registry', async () => {
+  await withTempDb(() => {
+    AgentRegistryService.updateAgentConfig('poncho', {
+      primary_provider: 'openai',
+      provider: 'openai',
+      model: 'gpt-5.4',
+    });
+
+    const config = resolveEngineProjectConfig('poncho');
+
+    assert.equal(config.id, 'poncho');
+    assert.equal(config.name, 'Poncho');
+    assert.equal(config.provider, 'openai');
+    assert.equal(config.model, 'gpt-5.4');
+    assert.equal(config.agentRulesFile, 'AGENTS.md');
+  });
 });

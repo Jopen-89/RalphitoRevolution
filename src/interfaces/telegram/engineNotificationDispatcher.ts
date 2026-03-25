@@ -12,7 +12,7 @@ import {
   type SessionSyncedNotificationPayload,
   type SessionTimeoutNotificationPayload,
 } from '../../core/engine/index.js';
-import type { SessionSuspendedHumanInputNotificationPayload } from '../../core/engine/engineNotifications.js';
+import type { SessionSuspendedHumanInputNotificationPayload } from '../../core/services/EventBus.js';
 import { sendTelegramMessage, type SendTelegramMessageResult } from './telegramSender.js';
 
 export interface EngineNotificationPollResult {

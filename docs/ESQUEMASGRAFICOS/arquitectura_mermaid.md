@@ -22,8 +22,8 @@ graph TD
     subgraph ORCH ["🧠 CAPA DE ORQUESTACIÓN Y DISEÑO (En Memoria)"]
         ROUTER["Enrutador de Intenciones<br/>(orchestrationExecutor.ts)"]
         
-        RAYMON["Raymon (Orchestrator)<br/>agents/roles/AgentOrchestrator.md"]
-        SABIOS["Moncho, Poncho, Lola...<br/>agents/roles/*.md"]
+        RAYMON["Raymon (Orchestrator)<br/>src/core/prompt/roles/AgentOrchestrator.md"]
+        SABIOS["Moncho, Poncho, Lola...<br/>src/core/prompt/roles/*.md"]
         
         ROUTER -- "Si es charla" --> RAYMON
         ROUTER -- "Menciones" --> SABIOS
@@ -78,8 +78,8 @@ graph TD
     %% CAPA 5: LA FÁBRICA (EJECUCIÓN FÍSICA)
     %% ==========================================
     subgraph WORKTREES ["🏗️ LA FÁBRICA (SISTEMA DE ARCHIVOS aisaldos)"]
-        WT1["Worktree Peón (Ralphito)<br/>./.agent-worktrees/be-1/"]
-        WT2["Worktree Sabio (Martapepis)<br/>./.agent-worktrees/rs-1/"]
+        WT1["Worktree Peón (Ralphito)<br/>~/.ralphito/worktrees/be-1/"]
+        WT2["Worktree Sabio (Martapepis)<br/>~/.ralphito/worktrees/rs-1/"]
         
         BASH_EXEC["Ejecución Bash Real<br/>(child_process)"]
         

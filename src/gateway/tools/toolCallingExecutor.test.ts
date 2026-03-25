@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { IToolCallingProvider, Message, ToolDefinition } from '../interfaces/gateway.types.js';
+import type { IToolCallingProvider, Message, ToolDefinition } from '../../core/domain/gateway.types.js';
 import { executeToolCallLoop } from './toolCallingExecutor.js';
 
 const TEST_TOOLS: ToolDefinition[] = [

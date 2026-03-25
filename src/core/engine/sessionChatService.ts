@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 import { deriveRuntimeTaskTitle, findRuntimeTaskLink } from './runtimeTaskLinking.js';
-import { getGuardrailLogPath, getManagedRuntimeWorktreePath, readRuntimeSessionFile } from './runtimeFiles.js';
+import { getGuardrailLogPath, readRuntimeSessionFile } from './runtimeFiles.js';
 
 export interface SessionChatResult {
   externalChatId: string | null;
@@ -21,7 +21,20 @@ function truncateError(errorText: string) {
 
 function getGuardrailErrorForSession(sessionId: string) {
   try {
-    return truncateError(readFileSync(getGuardrailLogPath(getManagedRuntimeWorktreePath(sessionId)), 'utf8'));
+    const db = getRalphitoDatabase();
+    const row = db
+      .prepare(
+        `
+          SELECT worktree_path AS worktreePath
+          FROM agent_sessions
+          WHERE runtime_session_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(sessionId) as { worktreePath: string | null } | undefined;
+
+    if (!row?.worktreePath) return null;
+    return truncateError(readFileSync(getGuardrailLogPath(row.worktreePath), 'utf8'));
   } catch {
     return null;
   }

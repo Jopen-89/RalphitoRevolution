@@ -28,9 +28,9 @@ const BASE_ENGINE_PROMPT = `You are an AI agent managed by Ralphito Engine.
 - If the task validates engine/runtime behavior rather than product behavior, prefer touching non-product files only.
 - For short validation or proof tasks, use this landing sequence exactly:
   1. edit or create the artifact
-  2. \`git add <files>\`
-  3. \`git commit -m "<message>"\`
-  4. \`./scripts/bd.sh sync\``;
+  2. use \`git_add\` with the touched files
+  3. use \`git_commit\` with a concise message
+  4. use the \`finish_task\` tool`;
 
 function readProjectRules(project: EngineProjectConfig) {
   if (!project.agentRulesFile) return null;

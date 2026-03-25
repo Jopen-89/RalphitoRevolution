@@ -9,9 +9,9 @@ import { ralphitoMigrations } from '../../infrastructure/persistence/db/migratio
 import { RuntimeLockConflictError, RuntimeLockRepository } from './runtimeLockRepository.js';
 import { RuntimeReaper } from './runtimeReaper.js';
 import { RuntimeSessionRepository } from './runtimeSessionRepository.js';
-import { EngineNotificationRepository } from './engineNotifications.js';
+import { EngineNotificationRepository } from '../services/EventBus.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
-import { WorktreeManager } from './worktreeManager.js';
+import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
 
 const GIT_BIN = '/usr/bin/git';
 
@@ -143,9 +143,10 @@ test('RuntimeLockRepository lista solo locks activos segun nowIso', () => {
 
 test('WorktreeManager crea y desmonta worktree propio', async () => {
   const { repoRoot, headCommit } = createGitRepo();
+  const worktreeRoot = createTempDirectory('rr-engine-phase2-worktrees-');
 
   try {
-    const manager = new WorktreeManager(repoRoot);
+    const manager = new WorktreeManager(repoRoot, worktreeRoot);
     const workspacePath = await manager.createWorkspace('rr-2', headCommit);
 
     assert.equal(existsSync(workspacePath), true);
@@ -155,12 +156,14 @@ test('WorktreeManager crea y desmonta worktree propio', async () => {
     assert.equal(existsSync(workspacePath), false);
   } finally {
     rmSync(repoRoot, { force: true, recursive: true });
+    rmSync(worktreeRoot, { force: true, recursive: true });
   }
 });
 
 test('RuntimeReaper marca stuck, limpia locks stale y borra worktree gestionado', async () => {
   const db = createMigratedDatabase();
   const { repoRoot, headCommit } = createGitRepo();
+  const worktreeRoot = createTempDirectory('rr-engine-phase2-worktrees-');
 
   try {
     const threadId = insertThread(db, 'chat-1');
@@ -173,7 +176,7 @@ test('RuntimeReaper marca stuck, limpia locks stale y borra worktree gestionado'
     const lockRepository = new RuntimeLockRepository(
       db as unknown as ReturnType<typeof createMigratedDatabase>,
     );
-    const worktreeManager = new WorktreeManager(repoRoot);
+    const worktreeManager = new WorktreeManager(repoRoot, worktreeRoot);
     const worktreePath = await worktreeManager.createWorkspace('rr-stale', headCommit);
     const staleHeartbeatAt = '2026-03-21T10:00:00.000Z';
 
@@ -232,5 +235,6 @@ test('RuntimeReaper marca stuck, limpia locks stale y borra worktree gestionado'
   } finally {
     db.close();
     rmSync(repoRoot, { force: true, recursive: true });
+    rmSync(worktreeRoot, { force: true, recursive: true });
   }
 });

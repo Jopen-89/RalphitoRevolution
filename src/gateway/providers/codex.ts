@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult } from '../interfaces/gateway.types.js';
+import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult } from '../../core/domain/gateway.types.js';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_MODEL = 'gpt-5.4';

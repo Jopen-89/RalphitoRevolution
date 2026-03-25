@@ -8,7 +8,7 @@ import type {
   ToolDefinition,
   ToolCall,
   VisionResult,
-} from '../interfaces/gateway.types.js';
+} from '../../core/domain/gateway.types.js';
 
 const VISION_MODELS = new Set(['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4-vision-preview', 'gpt-4o-search']);
 

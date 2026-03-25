@@ -1,8 +1,9 @@
-import type { AgentConfig, ToolDefinition } from '../interfaces/gateway.types.js';
+import type { AgentConfig, ToolDefinition } from '../../core/domain/gateway.types.js';
 import { createDocumentToolDefinitions, createDocumentTools } from './documentTools.js';
+import { createGitToolDefinitions, createGitTools } from './git/gitTools.js';
 import { createRaymonToolDefinitions, createRaymonTools } from './raymonTools.js';
-import { createSystemToolDefinitions, createSystemTools } from './systemTools.js';
-import { createResearchToolDefinitions, createResearchTools } from './researchTools.js';
+import { createSystemToolDefinitions, createSystemTools } from './filesystem/systemTools.js';
+import { createResearchToolDefinitions, createResearchTools } from './research/researchTools.js';
 import type { Tool } from './toolRegistry.js';
 
 interface ToolCatalogContext {
@@ -15,6 +16,7 @@ export function createAllToolDefinitions(): ToolDefinition[] {
   return [
     ...createRaymonToolDefinitions(),
     ...createDocumentToolDefinitions(),
+    ...createGitToolDefinitions(),
     ...createSystemToolDefinitions(),
     ...createResearchToolDefinitions(),
   ];
@@ -24,6 +26,7 @@ export function createAllToolImplementations(context: ToolCatalogContext = {}): 
   return [
     ...createRaymonTools(context),
     ...createDocumentTools(context.worktreePath),
+    ...createGitTools(context.worktreePath),
     ...createSystemTools(context.worktreePath),
     ...createResearchTools(),
   ];

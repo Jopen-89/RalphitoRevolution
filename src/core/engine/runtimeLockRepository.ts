@@ -1,5 +1,5 @@
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
-import { DEFAULT_RUNTIME_LOCK_TTL_MS } from './constants.js';
+import { DEFAULT_RUNTIME_LOCK_TTL_MS } from '../domain/constants.js';
 import {
   collapseRuntimeLockTargets,
   getRuntimePathCollisionRelation,

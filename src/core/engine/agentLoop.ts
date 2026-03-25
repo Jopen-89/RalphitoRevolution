@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { ChatRequest, Message, Provider, ToolCall, ToolResult } from '../../gateway/interfaces/gateway.types.js';
+import type { ChatRequest, Message, Provider, ToolCall, ToolResult } from '../domain/gateway.types.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 
 export interface AgentLoopInput {
@@ -26,12 +26,12 @@ export const MAX_FINISH_REPROMPTS = 3;
 export const MAX_TOOL_LEAK_REPROMPTS = 2;
 
 const TOOL_MARKDOWN_BLOCK_PATTERN = /```(?:bash|sh|shell)\b/i;
-const TEXTUAL_TOOL_INVOCATION_PATTERN = /\b(?:execute_bash|read_file_raw|write_file_raw|finish_task)\s*\(/i;
+const TEXTUAL_TOOL_INVOCATION_PATTERN = /\b(?:execute_bash|read_file_raw|write_file_raw|git_status|git_diff|git_add|git_commit|finish_task)\s*\(/i;
 
 const TOOL_LEAK_REPROMPT =
   'You provided shell commands or textual tool usage. You MUST invoke the appropriate tool directly. Do not output markdown code blocks or tool names as text. Please invoke the tool now.';
 const FINISH_REPROMPT =
-  'You must explicitly use the finish_task tool or execute ./scripts/bd.sh sync to complete this task. Natural language confirmation alone is insufficient. Please invoke the appropriate tool now.';
+  'You must explicitly use the finish_task tool to complete this task. Natural language confirmation alone is insufficient. Please invoke the appropriate tool now.';
 
 export function loadBeadFromInstruction(instruction: string): string {
   if (instruction.includes('\n') || instruction.endsWith('.md')) {
@@ -79,6 +79,7 @@ export function buildGatewayChatRequest(input: Pick<AgentLoopInput, 'provider' |
 export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult> {
   const { runtimeSessionId, worktreePath, systemPrompt, instruction } = input;
   const logFile = path.join(worktreePath, '.agent-loop.log');
+  fs.mkdirSync(worktreePath, { recursive: true });
   const log = (msg: string) => {
     fs.appendFileSync(logFile, `${new Date().toISOString()} ${msg}\n`);
     console.log(msg);
@@ -209,7 +210,7 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
           if (finishRepromptCount >= MAX_FINISH_REPROMPTS) {
             log(`[AgentLoop] Stuck in text-only finish`);
             done = true;
-            return { exitCode: 1, iterations, lastResponse: 'Agent stuck: failed to invoke finish_task or bd.sh sync' };
+            return { exitCode: 1, iterations, lastResponse: 'Agent stuck: failed to invoke finish_task tool' };
           }
           messages.push({
             role: 'user',

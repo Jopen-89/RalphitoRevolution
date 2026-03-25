@@ -6,15 +6,15 @@
   "type": "module",
   "scripts": {
     "start:bot": "node --import tsx src/interfaces/telegram/bot.ts",
-    "start:gateway": "tsx src/gateway/api/server.ts",
-    "db:migrate": "tsx src/cli/ralphito-db.ts migrate",
-    "backup:db": "tsx src/cli/ralphito-backup.ts backup",
-    "ops:status": "tsx src/cli/ralphito-backup.ts status",
-    "search:index": "tsx src/cli/ralphito-search.ts index",
-    "search": "tsx src/cli/ralphito-search.ts search",
+    "start:gateway": "tsx src/app/server.ts",
+    "db:migrate": "tsx src/app/ralphito-db.ts migrate",
+    "backup:db": "tsx src/app/ralphito-backup.ts backup",
+    "ops:status": "tsx src/app/ralphito-backup.ts status",
+    "search:index": "tsx src/app/ralphito-search.ts index",
+    "search": "tsx src/app/ralphito-search.ts search",
     "engine:clean": "tsx src/core/engine/cli.ts reap-stale",
-    "tasks:status": "tsx src/cli/ralphito-tasks.ts status-report",
-    "gateway": "npx tsx src/cli/gateway-dashboard.ts status",
+    "tasks:status": "tsx src/app/ralphito-tasks.ts status-report",
+    "gateway": "npx tsx src/app/gateway-dashboard.ts status",
     "test": "node --import tsx --test src/**/*.test.ts"
   },
   "repository": {

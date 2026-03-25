@@ -3,7 +3,7 @@ import { GeminiProvider } from './gemini.js';
 import { OpenAIProvider } from './openai.js';
 import { OpencodeProvider } from './opencode.js';
 import { CodexProvider } from './codex.js';
-import type { Provider, ILLMProvider, IVisionProvider } from '../interfaces/gateway.types.js';
+import type { Provider, ILLMProvider, IVisionProvider } from '../../core/domain/gateway.types.js';
 
 export class ProviderFactory {
   static create(

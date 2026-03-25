@@ -11,7 +11,7 @@ import {
   enqueueEngineNotification,
   getEngineNotificationRepository,
   resetEngineNotificationRepository,
-} from './engineNotifications.js';
+} from '../services/EventBus.js';
 import {
   EngineNotificationDispatcher,
   formatEngineNotificationMessage,

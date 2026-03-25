@@ -1,4 +1,4 @@
-import type { ILLMProvider, Provider, QuotaInfo, Message } from '../interfaces/gateway.types.js';
+import type { ILLMProvider, Provider, QuotaInfo, Message } from '../../core/domain/gateway.types.js';
 
 export class ArcticProvider implements ILLMProvider {
   name: Provider;

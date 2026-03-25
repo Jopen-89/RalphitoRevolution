@@ -1,10 +1,10 @@
 import { readdirSync } from 'fs';
-import { DEFAULT_RUNTIME_HEARTBEAT_TTL_MS } from './constants.js';
-import { enqueueEngineNotification } from './engineNotifications.js';
+import { DEFAULT_RUNTIME_HEARTBEAT_TTL_MS } from '../domain/constants.js';
+import { enqueueEngineNotification } from '../services/EventBus.js';
 import { RuntimeLockRepository } from './runtimeLockRepository.js';
 import { RuntimeSessionRepository, type RuntimeSessionRecord } from './runtimeSessionRepository.js';
-import { TmuxRuntime } from './tmuxRuntime.js';
-import { WorktreeManager } from './worktreeManager.js';
+import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
+import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
 
 export interface ReapRuntimeStateInput {
   nowIso?: string;

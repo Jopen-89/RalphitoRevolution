@@ -412,4 +412,35 @@ export const ralphitoMigrations: RalphitoMigration[] = [
       ALTER TABLE agent_sessions ADD COLUMN failure_reason_code TEXT;
     `,
   },
+  {
+    id: 16,
+    name: 'agent_registry_and_settings',
+    sql: `
+      CREATE TABLE IF NOT EXISTS agent_registry (
+        agent_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role_file_path TEXT NOT NULL,
+        session_prefix TEXT NOT NULL,
+        provider TEXT,
+        model TEXT,
+        capabilities_json TEXT,
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_agent_registry_is_active
+        ON agent_registry(is_active);
+    `,
+  },
+  {
+    id: 17,
+    name: 'agent_registry_permissions_and_strategy',
+    sql: `
+      ALTER TABLE agent_registry ADD COLUMN tool_mode TEXT DEFAULT 'none';
+      ALTER TABLE agent_registry ADD COLUMN allowed_tools_json TEXT;
+      ALTER TABLE agent_registry ADD COLUMN primary_provider TEXT;
+      ALTER TABLE agent_registry ADD COLUMN fallbacks_json TEXT;
+    `,
+  },
 ];

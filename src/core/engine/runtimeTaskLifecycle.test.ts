@@ -9,7 +9,7 @@ import {
 } from '../../infrastructure/persistence/db/index.js';
 import { ExecutorLoop } from './executorLoop.js';
 import { getRuntimeLockRepository, resetRuntimeLockRepository } from './runtimeLockRepository.js';
-import { SessionSupervisor } from './sessionSupervisor.js';
+import { SessionSupervisor } from '../services/SessionManager.js';
 import { getRuntimeSessionRepository, resetRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { writeRuntimeSessionFile } from './runtimeFiles.js';
 

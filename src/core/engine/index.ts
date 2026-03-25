@@ -32,9 +32,9 @@ export {
   RUNTIME_FAILURE_FILE_NAME,
   RUNTIME_GUARDRAIL_LOG_NAME,
   RUNTIME_SESSION_FILE_NAME,
-} from './constants.js';
+} from '../domain/constants.js';
 export { RuntimeReaper, type ReapRuntimeStateInput, type ReapRuntimeStateResult } from './runtimeReaper.js';
-export { WorktreeManager } from './worktreeManager.js';
+export { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
 export {
   readRuntimeFailureRecord,
   readRuntimeSessionFile,
@@ -49,14 +49,15 @@ export {
   type RuntimeSessionFileRecord,
 } from './runtimeFiles.js';
 export { resolveEngineProjectConfig, type EngineProjectConfig } from './config.js';
+export { ProjectService } from '../services/ProjectService.js';
 export { buildEnginePrompt } from './promptBuilder.js';
-export { CommandRunner, type RunCommandOptions, type RunCommandResult } from './commandRunner.js';
-export { TmuxRuntime } from './tmuxRuntime.js';
+export { CommandRunner, type RunCommandOptions, type RunCommandResult } from '../../infrastructure/runtime/commandRunner.js';
+export { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 export {
   SessionSupervisor,
   type SpawnRuntimeSessionInput,
   type SpawnRuntimeSessionResult,
-} from './sessionSupervisor.js';
+} from '../services/SessionManager.js';
 export {
   ExecutorLoop,
   type ExecutorLoopContext,
@@ -109,4 +110,4 @@ export {
   type SessionStartedNotificationPayload,
   type SessionSyncedNotificationPayload,
   type SessionTimeoutNotificationPayload,
-} from './engineNotifications.js';
+} from '../services/EventBus.js';

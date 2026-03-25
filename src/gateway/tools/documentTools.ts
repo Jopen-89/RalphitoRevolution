@@ -1,20 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { execSync } from 'child_process';
 import { getRalphitoRepositories } from '../../infrastructure/persistence/db/index.js';
 import type { Tool } from './toolRegistry.js';
-import type { ToolDefinition } from '../interfaces/gateway.types.js';
+import type { ToolDefinition } from '../../core/domain/gateway.types.js';
+import { GitService } from './git/gitService.js';
+import { requireString, resolvePathInsideRoot } from './filesystem/pathSafety.js';
 
 const REPO_ROOT = '/home/pepu/IAproject/RalphitoRevolution';
 const SPECS_PREFIX = path.join(REPO_ROOT, 'docs', 'specs');
-
-function requireString(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`Parameter '${name}' must be a non-empty string.`);
-  }
-  return value;
-}
 
 function optionalString(value: unknown): string | undefined {
   if (typeof value === 'string' && value.trim()) return value;
@@ -22,13 +16,7 @@ function optionalString(value: unknown): string | undefined {
 }
 
 function sanitizePath(base: string, userPath: string): string {
-  // Remueve barras iniciales para que path.resolve no lo interprete como ruta absoluta externa
-  const cleanUserPath = userPath.replace(/^\/+/, '');
-  const resolved = path.resolve(base, cleanUserPath);
-  if (!resolved.startsWith(base)) {
-    throw new Error(`Path traversal detected: ${userPath}`);
-  }
-  return resolved;
+  return resolvePathInsideRoot(base, userPath.replace(/^\/+/, ''));
 }
 
 export const DOCUMENT_TOOL_NAMES = ['write_spec_document', 'read_workspace_file', 'write_bead_document', 'inspect_workspace_path'] as const;
@@ -42,6 +30,7 @@ export function isDocumentToolName(name: string): name is DocumentToolName {
 export function createDocumentTools(worktreePath?: string): Tool[] {
   const activeRoot = worktreePath || REPO_ROOT;
   const activeSpecsPrefix = path.join(activeRoot, 'docs', 'specs');
+  const git = new GitService(activeRoot);
 
   return [
     {
@@ -62,9 +51,9 @@ export function createDocumentTools(worktreePath?: string): Tool[] {
 
         // Automatically stage the file so high-level agents don't need execute_bash
         try {
-          execSync(`git add "${fullPath}"`, { cwd: activeRoot });
-        } catch (e) {
-          console.warn(`Failed to git add ${fullPath}`, e);
+          await git.add([path.relative(activeRoot, fullPath)]);
+        } catch (error) {
+          console.warn(`Failed to git add ${fullPath}`, error);
         }
 
         return {
@@ -114,9 +103,9 @@ export function createDocumentTools(worktreePath?: string): Tool[] {
         fs.writeFileSync(fullPath, content, 'utf8');
 
         try {
-          execSync(`git add "${fullPath}"`, { cwd: activeRoot });
-        } catch (e) {
-          console.warn(`Failed to git add ${fullPath}`, e);
+          await git.add([path.relative(activeRoot, fullPath)]);
+        } catch (error) {
+          console.warn(`Failed to git add ${fullPath}`, error);
         }
 
         const repos = getRalphitoRepositories();

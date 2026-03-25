@@ -12,7 +12,7 @@ import {
 import {
   getEngineNotificationRepository,
   resetEngineNotificationRepository,
-} from './engineNotifications.js';
+} from '../services/EventBus.js';
 import { ExecutorLoop } from './executorLoop.js';
 import { getRuntimeLockRepository, resetRuntimeLockRepository } from './runtimeLockRepository.js';
 import { getRuntimeSessionRepository, resetRuntimeSessionRepository } from './runtimeSessionRepository.js';
@@ -23,7 +23,7 @@ import {
   writeRuntimeFailureRecord,
   writeRuntimeSessionFile,
 } from './runtimeFiles.js';
-import { SessionSupervisor } from './sessionSupervisor.js';
+import { SessionSupervisor } from '../services/SessionManager.js';
 
 const GIT_BIN = '/usr/bin/git';
 const SOURCE_REPO_ROOT = process.cwd();
@@ -41,7 +41,7 @@ function createTempRepo() {
 
   mkdirSync(path.join(repoRoot, 'ops'), { recursive: true });
   writeFileSync(
-    path.join(repoRoot, 'ops', 'agent-orchestrator.yaml'),
+    path.join(repoRoot, 'ops', 'engine-config.yaml'),
     [
       'defaults:',
       '  agent: opencode',
@@ -79,15 +79,22 @@ function createTempRepo() {
   return { repoRoot, headCommit };
 }
 
-function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string }) => Promise<T> | T) {
+function runtimeWorktreePath(worktreeRoot: string, runtimeSessionId: string) {
+  return path.join(worktreeRoot, runtimeSessionId);
+}
+
+function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string; worktreeRoot: string }) => Promise<T> | T) {
   const previousCwd = process.cwd();
   const previousDbPath = process.env.RALPHITO_DB_PATH;
   const previousDisableKick = process.env.RALPHITO_DISABLE_NOTIFICATION_KICK;
+  const previousWorktreeRoot = process.env.RALPHITO_WORKTREE_ROOT;
   const { repoRoot, headCommit } = createTempRepo();
+  const worktreeRoot = createTempDirectory('rr-engine-worktrees-');
 
   process.chdir(repoRoot);
   process.env.RALPHITO_DB_PATH = path.join(repoRoot, 'ops', 'runtime', 'ralphito', 'ralphito.sqlite');
   process.env.RALPHITO_DISABLE_NOTIFICATION_KICK = '1';
+  process.env.RALPHITO_WORKTREE_ROOT = worktreeRoot;
   closeRalphitoDatabase();
   resetRuntimeSessionRepository();
   resetRuntimeLockRepository();
@@ -95,7 +102,7 @@ function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string }) 
   initializeRalphitoDatabase();
 
   return Promise.resolve()
-    .then(() => fn({ repoRoot, headCommit }))
+    .then(() => fn({ repoRoot, headCommit, worktreeRoot }))
     .finally(() => {
       closeRalphitoDatabase();
       resetRuntimeSessionRepository();
@@ -111,26 +118,30 @@ function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string }) 
       } else {
         delete process.env.RALPHITO_DISABLE_NOTIFICATION_KICK;
       }
+      if (previousWorktreeRoot) {
+        process.env.RALPHITO_WORKTREE_ROOT = previousWorktreeRoot;
+      } else {
+        delete process.env.RALPHITO_WORKTREE_ROOT;
+      }
       process.chdir(previousCwd);
       rmSync(repoRoot, { force: true, recursive: true });
+      rmSync(worktreeRoot, { force: true, recursive: true });
     });
 }
 
 function createResumeScriptSandbox() {
   const repoRoot = createTempDirectory('rr-resume-script-');
   const scriptsRoot = path.join(repoRoot, 'scripts');
-  const toolsRoot = path.join(scriptsRoot, 'tools');
   const libRoot = path.join(scriptsRoot, 'lib');
   const binRoot = path.join(repoRoot, 'bin');
   const callLogPath = path.join(repoRoot, 'npx-calls.log');
 
-  mkdirSync(path.join(repoRoot, '.agent-worktrees'), { recursive: true });
-  mkdirSync(toolsRoot, { recursive: true });
+  const worktreeRoot = createTempDirectory('rr-resume-worktrees-');
+  mkdirSync(worktreeRoot, { recursive: true });
   mkdirSync(libRoot, { recursive: true });
   mkdirSync(binRoot, { recursive: true });
 
   copyFileSync(path.join(SOURCE_REPO_ROOT, 'scripts', 'resume.sh'), path.join(scriptsRoot, 'resume.sh'));
-  copyFileSync(path.join(SOURCE_REPO_ROOT, 'scripts', 'tools', 'tool_resume_executor.sh'), path.join(toolsRoot, 'tool_resume_executor.sh'));
   copyFileSync(path.join(SOURCE_REPO_ROOT, 'scripts', 'lib', 'runtime-paths.sh'), path.join(libRoot, 'runtime-paths.sh'));
 
   const fakeNpxPath = path.join(binRoot, 'npx');
@@ -147,7 +158,7 @@ function createResumeScriptSandbox() {
   );
   chmodSync(fakeNpxPath, 0o755);
 
-  return { repoRoot, callLogPath, pathEnv: `${binRoot}:${process.env.PATH || ''}` };
+  return { repoRoot, worktreeRoot, callLogPath, pathEnv: `${binRoot}:${process.env.PATH || ''}` };
 }
 
 function readScriptNpxCalls(callLogPath: string) {
@@ -159,11 +170,11 @@ function readScriptNpxCalls(callLogPath: string) {
     .map((line) => line.split('|'));
 }
 
-function runBashScript(scriptPath: string, args: string[], cwd: string, pathEnv: string) {
+function runBashScript(scriptPath: string, args: string[], cwd: string, pathEnv: string, worktreeRoot?: string) {
   try {
     return execFileSync('/bin/bash', [scriptPath, ...args], {
       cwd,
-      env: { ...process.env, PATH: pathEnv },
+      env: { ...process.env, PATH: pathEnv, ...(worktreeRoot ? { RALPHITO_WORKTREE_ROOT: worktreeRoot } : {}) },
       encoding: 'utf8',
     });
   } catch (error) {
@@ -176,7 +187,7 @@ function runBashScript(scriptPath: string, args: string[], cwd: string, pathEnv:
 }
 
 test('SessionSupervisor crea sesion runtime con thread sintetico y session file', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const detachedCalls: Array<{ command: string; args: string[] }> = [];
     const createdSessions: string[] = [];
     const launchCommands: string[] = [];
@@ -215,10 +226,10 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     const supervisor = new SessionSupervisor(
       runner as never,
       tmuxRuntime as never,
-      (projectRoot: string) =>
+      (project) =>
         ({
           async createWorkspace(runtimeSessionId: string) {
-            const workspacePath = path.join(projectRoot, '.agent-worktrees', runtimeSessionId);
+            const workspacePath = runtimeWorktreePath(project.worktreeRoot, runtimeSessionId);
             mkdirSync(workspacePath, { recursive: true });
             return workspacePath;
           },
@@ -267,11 +278,11 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     );
     assert.equal(createdEnvs[0]?.RALPHITO_LLM_PROVIDER, 'opencode');
     assert.equal(createdEnvs[0]?.RALPHITO_LLM_MODEL, 'minimax-m2.7');
-    assert.equal(detachedCalls.length, 1);
+    assert.equal(detachedCalls.length, 0);
     assert.match(createdEnvs[0]?.RALPHITO_INSTRUCTION || '', /Implementa la fase 3\./);
     assert.match(createdEnvs[0]?.RALPHITO_SYSTEM_PROMPT || '', /Validation Playbook/);
-    assert.match(createdEnvs[0]?.RALPHITO_SYSTEM_PROMPT || '', /git add <files>/);
-    assert.match(createdEnvs[0]?.RALPHITO_SYSTEM_PROMPT || '', /\.\/scripts\/bd\.sh sync/);
+    assert.match(createdEnvs[0]?.RALPHITO_SYSTEM_PROMPT || '', /use `git_add`/);
+    assert.match(createdEnvs[0]?.RALPHITO_SYSTEM_PROMPT || '', /bd sync/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"provider": "opencode"/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"pid": 987/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"notificationChatId": "chat-999"/);
@@ -284,12 +295,11 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     assert.equal(runCalls[0]?.command, 'git');
     assert.deepEqual(runCalls[0]?.args, ['rev-parse', 'HEAD']);
   });
-});
 
 test('ExecutorLoop marca done cuando la sesion termina limpia', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-done';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const now = new Date().toISOString();
 
@@ -386,9 +396,9 @@ test('ExecutorLoop marca done cuando la sesion termina limpia', async () => {
 });
 
 test('ExecutorLoop marca done si la sesion running sale con exit code 0', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-exit-zero';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const now = new Date().toISOString();
 
@@ -492,9 +502,9 @@ test('ExecutorLoop marca done si la sesion running sale con exit code 0', async 
 });
 
 test('ExecutorLoop ignora artifacts runtime legitimos al validar landing', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-exit-zero-runtime-artifacts';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const now = new Date().toISOString();
 
@@ -603,9 +613,9 @@ test('ExecutorLoop ignora artifacts runtime legitimos al validar landing', async
 });
 
 test('ExecutorLoop falla si exit 0 pero falta landing real', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-exit-zero-no-landing';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const now = new Date().toISOString();
 
@@ -717,9 +727,9 @@ test('ExecutorLoop falla si exit 0 pero falta landing real', async () => {
 });
 
 test('ExecutorLoop falla si exit 0 pero la rama remota no existe', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-exit-zero-no-remote';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const now = new Date().toISOString();
 
@@ -823,9 +833,9 @@ test('ExecutorLoop falla si exit 0 pero la rama remota no existe', async () => {
 });
 
 test('ExecutorLoop no repisa done si bd sync cierra la sesion con tmux vivo', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-done-race';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const now = new Date().toISOString();
 
@@ -960,9 +970,9 @@ test('ExecutorLoop no repisa done si bd sync cierra la sesion con tmux vivo', as
 });
 
 test('ExecutorLoop marca failed si la sesion running sale con exit code != 0', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-exit-nonzero';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const now = new Date().toISOString();
 
@@ -1055,9 +1065,9 @@ test('ExecutorLoop marca failed si la sesion running sale con exit code != 0', a
 });
 
 test('ExecutorLoop marca stuck si la sesion running muere sin exit file ni failure record', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-silent-exit';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const now = new Date().toISOString();
 
@@ -1148,9 +1158,9 @@ test('ExecutorLoop marca stuck si la sesion running muere sin exit file ni failu
 });
 
 test('ExecutorLoop auto-responde prompts y falla tras 3 intentos', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-prompt';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const now = new Date().toISOString();
 
@@ -1251,9 +1261,9 @@ test('ExecutorLoop auto-responde prompts y falla tras 3 intentos', async () => {
 });
 
 test('ExecutorLoop mata sesion cuando detecta daemon bloqueante', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-daemon';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const now = new Date().toISOString();
 
@@ -1346,9 +1356,9 @@ test('ExecutorLoop mata sesion cuando detecta daemon bloqueante', async () => {
 });
 
 test('resumeRuntimeSession reinyecta fallo estructurado y limpia estado', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-resume';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
 
     writeRuntimeSessionFile(worktreePath, {
@@ -1438,9 +1448,9 @@ test('resumeRuntimeSession reinyecta fallo estructurado y limpia estado', async 
 });
 
 test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-resume-dead';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
 
     writeRuntimeSessionFile(worktreePath, {
@@ -1548,17 +1558,16 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
     assert.doesNotMatch(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /Motivo verificacion:/);
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /src\/a\.ts:1 error TS1005/);
     assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /Validation Playbook/);
-    assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /git commit -m/);
-    assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /\.\/scripts\/bd\.sh sync/);
+    assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /use `git_commit`/);
+    assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /bd sync/);
     assert.equal(prompts.length, 0);
-    assert.equal(detachedCalls.length, 1);
-    assert.equal(detachedCalls[0]?.args.at(-1), runtimeSessionId);
+    assert.equal(detachedCalls.length, 0);
   });
 });
 
 test('scripts/resume.sh prioriza failure moderno', async () => {
   const sandbox = createResumeScriptSandbox();
-  const worktreePath = path.join(sandbox.repoRoot, '.agent-worktrees', 'be-modern-resume');
+  const worktreePath = runtimeWorktreePath(sandbox.worktreeRoot, 'be-modern-resume');
   const legacyLogPath = path.join(worktreePath, '.guardrail_error.log');
 
   mkdirSync(worktreePath, { recursive: true });
@@ -1583,6 +1592,7 @@ test('scripts/resume.sh prioriza failure moderno', async () => {
       ['be-modern-resume'],
       sandbox.repoRoot,
       sandbox.pathEnv,
+      sandbox.worktreeRoot,
     );
 
     const calls = readScriptNpxCalls(sandbox.callLogPath);
@@ -1595,39 +1605,10 @@ test('scripts/resume.sh prioriza failure moderno', async () => {
   }
 });
 
-test('tool_resume_executor hace fallback legacy y limpia guardrail log', async () => {
-  const sandbox = createResumeScriptSandbox();
-  const worktreePath = path.join(sandbox.repoRoot, '.agent-worktrees', 'be-legacy-resume');
-  const guardrailLogPath = path.join(worktreePath, '.guardrail_error.log');
-
-  mkdirSync(worktreePath, { recursive: true });
-  writeFileSync(guardrailLogPath, 'Legacy guardrail failure\nTail line\n', 'utf8');
-
-  try {
-    const output = runBashScript(
-      path.join(sandbox.repoRoot, 'scripts', 'tools', 'tool_resume_executor.sh'),
-      ['be-legacy-resume'],
-      sandbox.repoRoot,
-      sandbox.pathEnv,
-    );
-
-    const calls = readScriptNpxCalls(sandbox.callLogPath);
-    assert.match(output, /"status": "success"/);
-    assert.deepEqual(calls.map((call) => call[2]), ['record-failure', 'resume-session']);
-    assert.equal(calls[0]?.[3], 'be-legacy-resume');
-    assert.equal(calls[0]?.[4], 'legacy_guardrail_failed');
-    assert.equal(calls[0]?.[5], 'Legacy guardrail failure');
-    assert.equal(calls[0]?.[6], guardrailLogPath);
-    assert.equal(existsSync(guardrailLogPath), false);
-  } finally {
-    rmSync(sandbox.repoRoot, { force: true, recursive: true });
-  }
-});
-
 test('cli record-failure persiste failure record en DB y archivo', async () => {
-  await withTempRuntime(async ({ repoRoot, headCommit }) => {
+  await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-record-failure';
-    const worktreePath = path.join(repoRoot, '.agent-worktrees', runtimeSessionId);
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
     const logPath = path.join(worktreePath, '.guardrail_error.log');
     writeFileSync(logPath, 'src/a.ts:1 error TS1005\n', 'utf8');
@@ -1706,4 +1687,5 @@ test('cli record-failure persiste failure record en DB y archivo', async () => {
     assert.equal(failure.reasonCode, null);
     assert.match(failure.logTail || '', /TS1005/);
   });
+});
 });

@@ -1,6 +1,6 @@
 import path from 'path';
-import { CommandRunner } from './commandRunner.js';
-import { resolveEngineProjectConfig } from './config.js';
+import { CommandRunner } from '../../infrastructure/runtime/commandRunner.js';
+import { ProjectService } from '../services/ProjectService.js';
 import { buildEnginePrompt } from './promptBuilder.js';
 import {
   clearRuntimeExitCode,
@@ -16,7 +16,7 @@ import {
   spawnRuntimeLoop,
 } from './runtimeLaunch.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
-import { TmuxRuntime } from './tmuxRuntime.js';
+import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
 
 function buildResumePrompt(kind: string, summary: string, reasonCode: string | null, tail: string | null) {
@@ -72,7 +72,7 @@ export async function resumeRuntimeSession(
       throw new Error(`La sesion ${runtimeSessionId} no tiene .ralphito-session.json; no puedo relanzarla.`);
     }
 
-    const project = resolveEngineProjectConfig(sessionFile.projectId);
+    const project = ProjectService.resolve(sessionFile.projectId);
     const beadPath = resolveBeadPath(project.path, sessionFile.beadPath);
 
     if (beadPath) {

@@ -1,11 +1,11 @@
 import type { Tool, ToolCall } from './toolRegistry.js';
-import type { Provider, ToolDefinition } from '../interfaces/gateway.types.js';
+import type { Provider, ToolDefinition } from '../../core/domain/gateway.types.js';
 import { getRaymonOrchestrator } from '../../core/engine/raymonOrchestrator.js';
 import { sendTelegramMessage, getAllowedChatId } from '../../interfaces/telegram/telegramSender.js';
-import { TmuxRuntime } from '../../core/engine/tmuxRuntime.js';
+import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 import { getRuntimeSessionRepository } from '../../core/engine/runtimeSessionRepository.js';
 import { getRuntimeLockRepository } from '../../core/engine/runtimeLockRepository.js';
-import { WorktreeManager } from '../../core/engine/worktreeManager.js';
+import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
 
 const VALID_PROVIDERS = new Set<Provider>(['gemini', 'openai', 'opencode', 'codex']);
 

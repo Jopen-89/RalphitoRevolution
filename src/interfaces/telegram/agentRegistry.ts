@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import fs from 'fs';
+import path from 'path';
 
 export interface AgentInfo {
   id: string;
@@ -9,144 +9,142 @@ export interface AgentInfo {
   aliases: string[];
 }
 
-export interface AgentRoutingMatch {
+interface AgentMentionMatch {
   agent: AgentInfo;
-  instruction: string;
+  matchedText: string;
+  index: number;
 }
 
 export interface AgentMentionAnalysis {
   matches: AgentInfo[];
-  leadingMatch: AgentRoutingMatch | null;
+  leadingMatch: {
+    agent: AgentInfo;
+    instruction: string;
+  } | null;
 }
 
-const AGENT_METADATA: Record<string, string> = {
-  raymon: 'Agent Orchestrator',
-  moncho: 'Feature PM',
-  juez: 'Code Reviewer',
-  ricky: 'Pre-Flight QA',
-  miron: 'Visual QA',
-  mapito: 'Security Auditor',
-  poncho: 'Technical Architect',
-  tracker: 'Error Learning Analyst',
+const ROLES_DIR = path.join(process.cwd(), 'src', 'core', 'prompt', 'roles');
+
+const AGENT_ALIASES: Record<string, string[]> = {
+  raymon: ['raymon', 'ramon', 'raimon', 'ray mond', 'rei mon', 'orchestrator'],
+  moncho: ['moncho', 'product-team'],
+  poncho: ['poncho', 'architecture-team'],
+  martapepis: ['martapepis', 'marta', 'marta pepis', 'research-team'],
+  lola: ['lola', 'design-team'],
+  mapito: ['mapito', 'security-team'],
+  juez: ['juez'],
+  tracker: ['tracker'],
+  ricky: ['ricky', 'qa-team'],
+  miron: ['miron', 'visual-qa-team'],
+  relleno: ['relleno', 'automation-team'],
 };
-
-function buildAliases(name: string, id: string) {
-  return Array.from(new Set([id, name.toLowerCase()]));
-}
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function normalizeLeadingText(text: string) {
-  return text.trim().replace(/^[@¡!?,.\-\s]+/, '');
+function humanizeRole(rawRole: string) {
+  return rawRole
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim();
 }
 
-function stripVocativePrefix(text: string) {
-  return text.replace(/^(?:oye|hey|hola|buenas|ey)\b[,:\s-]*/i, '').trim();
-}
+function parseAgentFile(fileName: string): AgentInfo | null {
+  if (!fileName.endsWith('.md')) return null;
 
-function buildAliasesPattern(agent: AgentInfo) {
-  return agent.aliases.map((alias) => escapeRegex(alias)).join('|');
-}
+  const stem = fileName.slice(0, -3);
+  const match = stem.match(/^(.*?)\(([^)]+)\)$/);
+  if (!match) return null;
 
-function startsWithAgentAlias(text: string, aliasesPattern: string) {
-  const variants = [text, normalizeLeadingText(text), stripVocativePrefix(normalizeLeadingText(text))];
-
-  for (const variant of variants) {
-    const fullNameRegex = new RegExp(`^(?:${aliasesPattern})$`, 'i');
-    if (fullNameRegex.test(variant)) {
-      return { instruction: '' };
-    }
-
-    const namedRegex = new RegExp(`^(?:${aliasesPattern})(?:[,!?:\\s-]+)(.+)$`, 'i');
-    const match = variant.match(namedRegex);
-    if (match?.[1]) {
-      return { instruction: match[1].trim() };
-    }
-  }
-
-  return null;
-}
-
-export function loadAgentRegistry(): AgentInfo[] {
-  const rolesPath = path.join(process.cwd(), 'agents', 'roles');
-
-  try {
-    return fs
-      .readdirSync(rolesPath)
-      .filter((file) => file.endsWith('.md'))
-      .map((file) => {
-        const match = file.match(/\(([^)]+)\)/);
-        const name = match?.[1] ?? file.replace('.md', '');
-        const id = name.toLowerCase();
-
-        return {
-          id,
-          name,
-          role: AGENT_METADATA[id] || 'Agente',
-          rolePath: path.join(rolesPath, file),
-          aliases: buildAliases(name, id),
-        };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  } catch {
-    return [];
-  }
-}
-
-export function getAgentById(agents: AgentInfo[], agentId: string) {
-  return agents.find((agent) => agent.id === agentId);
-}
-
-export function analyzeAgentMentions(agents: AgentInfo[], text: string): AgentMentionAnalysis {
-  const trimmedText = text.trim();
-  const matches: AgentInfo[] = [];
-  let leadingMatch: AgentRoutingMatch | null = null;
-
-  for (const agent of agents) {
-    const aliasesPattern = buildAliasesPattern(agent);
-    const mentionRegex = new RegExp(`(^|[^\\p{L}\\p{N}_])(?:${aliasesPattern})(?=$|[^\\p{L}\\p{N}_])`, 'iu');
-
-    if (mentionRegex.test(trimmedText)) {
-      matches.push(agent);
-    }
-
-    if (!leadingMatch) {
-      const leading = startsWithAgentAlias(trimmedText, aliasesPattern);
-      if (leading) {
-        leadingMatch = {
-          agent,
-          instruction: leading.instruction,
-        };
-      }
-    }
-  }
+  const rawRole = match[1];
+  const rawName = match[2];
+  if (!rawRole || !rawName) return null;
+  const name = rawName.trim();
+  const id = name.toLowerCase();
+  const aliases = [...new Set([id, name.toLowerCase(), ...(AGENT_ALIASES[id] || [])])];
 
   return {
-    matches,
-    leadingMatch,
+    id,
+    name,
+    role: humanizeRole(rawRole),
+    rolePath: path.join(ROLES_DIR, fileName),
+    aliases,
   };
 }
 
-export function resolveAgentByLeadingName(agents: AgentInfo[], text: string) {
-  return analyzeAgentMentions(agents, text).leadingMatch;
+export function loadAgentRegistry(): AgentInfo[] {
+  if (!fs.existsSync(ROLES_DIR)) return [];
+
+  return fs
+    .readdirSync(ROLES_DIR)
+    .map(parseAgentFile)
+    .filter((agent): agent is AgentInfo => Boolean(agent))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function extractMultiAgentInstruction(agents: AgentInfo[], text: string) {
-  let remaining = stripVocativePrefix(normalizeLeadingText(text));
+export function getAgentById(agents: AgentInfo[], agentId: string) {
+  const normalized = agentId.trim().toLowerCase();
+  return agents.find((agent) => agent.id === normalized) || null;
+}
 
-  const leadingNames = agents
-    .slice()
-    .sort((a, b) => b.name.length - a.name.length)
-    .map((agent) => `(?:${buildAliasesPattern(agent)})`)
-    .join('|');
+function findMentionMatches(agents: AgentInfo[], text: string): AgentMentionMatch[] {
+  const normalizedText = text.toLowerCase();
+  const matches: AgentMentionMatch[] = [];
+  const seen = new Set<string>();
 
-  const leadingGroupRegex = new RegExp(
-    `^(?:${leadingNames})(?:\\s*(?:y|,|&|e)\\s*(?:${leadingNames}))*[,:!?.\\s-]*`,
-    'iu',
-  );
+  for (const agent of agents) {
+    let bestIndex = -1;
+    let bestAlias = '';
 
-  remaining = remaining.replace(leadingGroupRegex, '').trim();
-  return remaining;
+    for (const alias of agent.aliases) {
+      const regex = new RegExp(`(^|[^a-z0-9_])(${escapeRegex(alias)})(?=$|[^a-z0-9_])`, 'i');
+      const match = normalizedText.match(regex);
+      if (!match || typeof match.index !== 'number') continue;
+      const aliasIndex = match.index + (match[1]?.length || 0);
+      if (bestIndex === -1 || aliasIndex < bestIndex) {
+        bestIndex = aliasIndex;
+        bestAlias = match[2] || alias;
+      }
+    }
+
+    if (bestIndex === -1 || seen.has(agent.id)) continue;
+    seen.add(agent.id);
+    matches.push({ agent, matchedText: bestAlias, index: bestIndex });
+  }
+
+  return matches.sort((a, b) => a.index - b.index);
+}
+
+function buildLeadingMatch(matches: AgentMentionMatch[], text: string): AgentMentionAnalysis['leadingMatch'] {
+  const first = matches[0];
+  if (!first) return null;
+  if (first.index > 0) return null;
+
+  const consumed = text.slice(first.matchedText.length).replace(/^[\s,:;.-]+/, '');
+  return {
+    agent: first.agent,
+    instruction: consumed.trim(),
+  };
+}
+
+export function analyzeAgentMentions(agents: AgentInfo[], text: string): AgentMentionAnalysis {
+  const matches = findMentionMatches(agents, text);
+
+  return {
+    matches: matches.map((match) => match.agent),
+    leadingMatch: buildLeadingMatch(matches, text.trim()),
+  };
+}
+
+export function extractMultiAgentInstruction(targetAgents: AgentInfo[], text: string) {
+  let instruction = text;
+
+  for (const agent of targetAgents) {
+    for (const alias of agent.aliases) {
+      instruction = instruction.replace(new RegExp(`\\b${escapeRegex(alias)}\\b`, 'ig'), ' ');
+    }
+  }
+
+  return instruction.replace(/[,:;]+/g, ' ').replace(/\s+/g, ' ').trim();
 }

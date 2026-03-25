@@ -1,4 +1,4 @@
-import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult, IToolCallingProvider, ToolDefinition, ToolCall } from '../interfaces/gateway.types.js';
+import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult, IToolCallingProvider, ToolDefinition, ToolCall } from '../../core/domain/gateway.types.js';
 
 type AnthropicMessage = {
   role: 'user' | 'assistant';

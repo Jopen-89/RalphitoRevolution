@@ -1,47 +1,78 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'fs';
+import os from 'os';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import type { AgentConfig, GatewayConfig } from '../interfaces/gateway.types.js';
+import { mkdtempSync, rmSync } from 'fs';
+import { AgentRegistryService } from '../../core/services/AgentRegistry.js';
+import {
+  closeRalphitoDatabase,
+  initializeRalphitoDatabase,
+} from '../../infrastructure/persistence/db/index.js';
 import { createDocumentTools } from './documentTools.js';
 import { createAllToolDefinitions, resolveAllowedToolDefinitions } from './toolCatalog.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const gatewayConfigPath = path.join(__dirname, '..', 'gateway.config.json');
-
-function loadAgentConfig(agentId: string): AgentConfig {
-  const config = JSON.parse(fs.readFileSync(gatewayConfigPath, 'utf8')) as GatewayConfig;
-  const agent = config.agents.find((entry) => entry.agentId === agentId);
-  assert.ok(agent, `agent config missing for ${agentId}`);
-  return agent;
+function createTempDirectory(prefix: string) {
+  return mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-test('resolveAllowedToolDefinitions usa gateway.config.json para raymon', () => {
-  const raymonConfig = loadAgentConfig('raymon');
-  const { allowed, unknownNames } = resolveAllowedToolDefinitions(raymonConfig);
-  const names = allowed.map((tool) => tool.name).sort();
+function withTempDb<T>(fn: () => Promise<T> | T) {
+  const previousDbPath = process.env.RALPHITO_DB_PATH;
+  const tmpDir = createTempDirectory('rr-tool-catalog-');
+  process.env.RALPHITO_DB_PATH = path.join(tmpDir, 'ralphito.sqlite');
+  closeRalphitoDatabase();
+  initializeRalphitoDatabase();
+  AgentRegistryService.sync();
 
-  assert.deepEqual(unknownNames, []);
-  assert.ok(names.includes('spawn_executor'));
-  assert.ok(names.includes('read_workspace_file'));
-  assert.ok(names.includes('inspect_workspace_path'));
+  return Promise.resolve()
+    .then(() => fn())
+    .finally(() => {
+      closeRalphitoDatabase();
+      if (previousDbPath) {
+        process.env.RALPHITO_DB_PATH = previousDbPath;
+      } else {
+        delete process.env.RALPHITO_DB_PATH;
+      }
+      rmSync(tmpDir, { force: true, recursive: true });
+    });
+}
+
+function loadAgentConfig(agentId: string) {
+  const config = AgentRegistryService.getAgentConfig(agentId);
+  assert.ok(config, `agent config missing for ${agentId}`);
+  return config;
+}
+
+test('resolveAllowedToolDefinitions usa agent_registry para raymon', async () => {
+  await withTempDb(() => {
+    const raymonConfig = loadAgentConfig('raymon');
+    const { allowed, unknownNames } = resolveAllowedToolDefinitions(raymonConfig);
+    const names = allowed.map((tool) => tool.name).sort();
+
+    assert.deepEqual(unknownNames, []);
+    assert.ok(names.includes('spawn_executor'));
+    assert.ok(names.includes('read_workspace_file'));
+    assert.ok(names.includes('inspect_workspace_path'));
+  });
 });
 
-test('resolveAllowedToolDefinitions usa gateway.config.json para poncho', () => {
-  const ponchoConfig = loadAgentConfig('poncho');
-  const { allowed, unknownNames } = resolveAllowedToolDefinitions(ponchoConfig);
-  const names = allowed.map((tool) => tool.name).sort();
+test('resolveAllowedToolDefinitions usa agent_registry para poncho', async () => {
+  await withTempDb(() => {
+    const ponchoConfig = loadAgentConfig('poncho');
+    const { allowed, unknownNames } = resolveAllowedToolDefinitions(ponchoConfig);
+    const names = allowed.map((tool) => tool.name).sort();
 
-  assert.deepEqual(unknownNames, []);
-  assert.ok(names.includes('write_bead_document'));
-  assert.ok(names.includes('inspect_workspace_path'));
+    assert.deepEqual(unknownNames, []);
+    assert.ok(names.includes('write_bead_document'));
+    assert.ok(names.includes('inspect_workspace_path'));
+  });
 });
 
 test('createAllToolDefinitions expone inspect_workspace_path', () => {
   const names = createAllToolDefinitions().map((tool) => tool.name);
   assert.ok(names.includes('inspect_workspace_path'));
+  assert.ok(names.includes('git_status'));
+  assert.ok(names.includes('git_add'));
+  assert.ok(names.includes('git_commit'));
 });
 
 test('inspect_workspace_path verifica disco real', async () => {

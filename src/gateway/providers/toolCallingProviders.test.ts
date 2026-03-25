@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { OAuth2Client } from 'google-auth-library';
-import type { ToolDefinition } from '../interfaces/gateway.types.js';
+import type { ToolDefinition } from '../../core/domain/gateway.types.js';
 import { GeminiProvider } from './gemini.js';
 import { OpencodeProvider } from './opencode.js';
 
