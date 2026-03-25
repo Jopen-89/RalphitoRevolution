@@ -6,7 +6,7 @@ Definir el contrato machine-readable que acompana a una sesion o bead cuando una
 
 ## Campo canonico
 
-El payload estructurado de `tool_spawn_executor.sh` acepta un objeto `qaConfig`.
+El payload estructurado de una sesion runtime acepta un objeto `qaConfig`.
 
 ```json
 {
@@ -75,7 +75,8 @@ El payload estructurado de `tool_spawn_executor.sh` acepta un objeto `qaConfig`.
 
 ## Integracion actual
 
-- `tool_spawn_executor.sh` persiste `qaConfig` dentro de `.ralphito-session.json`.
-- `bd sync` usa esa metadata para lanzar a Miron en shadow mode.
-- `resume.sh` conserva `qaConfig` al reinyectar sesiones.
-- `npm run qa:e2e` ejecuta a Ricky sobre la metadata persistida de la sesion.
+- `src/core/engine/cli.ts spawn-session <payload_file>` persiste `qaConfig` dentro de `.ralphito-session.json`.
+- Raymon puede propagar `qaConfig` al crear sesiones mediante el runtime nativo.
+- `bd sync` usa esa metadata para lanzar a Miron.
+- `resume.sh` y `src/core/engine/cli.ts resume-session <runtime_session_id>` conservan `qaConfig` al reinyectar sesiones.
+- `src/app/e2e-qa.ts` ejecuta a Ricky leyendo la metadata persistida de la sesion.
