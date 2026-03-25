@@ -77,6 +77,13 @@ export function buildGatewayChatRequest(input: Pick<AgentLoopInput, 'provider' |
 
 export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult> {
   const { runtimeSessionId, worktreePath, systemPrompt, instruction } = input;
+  const logFile = path.join(worktreePath, '.agent-loop.log');
+  const log = (msg: string) => {
+    fs.appendFileSync(logFile, `${new Date().toISOString()} ${msg}\n`);
+    console.log(msg);
+  };
+
+  log(`[AgentLoop] Starting session ${runtimeSessionId}`);
   const sessionRepo = getRuntimeSessionRepository();
   const beadContent = loadBeadFromInstruction(instruction);
   const messages = buildInitialMessages(systemPrompt, beadContent);
@@ -89,14 +96,16 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
 
   while (iterations < MAX_ITERATIONS && !done) {
     iterations++;
-    console.log(`[AgentLoop] Iteration ${iterations}...`);
+    log(`[AgentLoop] Iteration ${iterations}...`);
 
     const session = sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
     if (session?.status === 'cancelled' || session?.status === 'failed') {
+      log(`[AgentLoop] Session cancelled or failed`);
       return { exitCode: 1, iterations, lastResponse: 'Session cancelled or failed' };
     }
 
     try {
+      log(`[AgentLoop] Calling gateway...`);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), MAX_COMMAND_TIME_MS);
 
@@ -114,7 +123,7 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`[AgentLoop] Gateway error ${response.status}: ${errorText}`);
+        log(`[AgentLoop] Gateway error ${response.status}: ${errorText}`);
         messages.push({
           role: 'assistant',
           content: `Gateway error: ${response.status}. Retrying...`,
@@ -130,6 +139,7 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
       };
 
       if (data.toolCalls && data.toolCalls.length > 0) {
+        log(`[AgentLoop] Tool calls: ${data.toolCalls.map(tc => tc.name).join(', ')}`);
         messages.push({
           role: 'assistant',
           content: data.response || '',
@@ -153,15 +163,16 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
               try {
                 const parsed = JSON.parse(result.content) as { success: boolean; message: string };
                 if (parsed.success) {
-                  console.log('[AgentLoop] finish_task succeeded');
+                  log('[AgentLoop] finish_task succeeded');
                   done = true;
                 } else {
-                  console.error(`[AgentLoop] finish_task failed: ${parsed.message}`);
+                  log(`[AgentLoop] finish_task failed: ${parsed.message}`);
                   done = true;
                   return { exitCode: 1, iterations, lastResponse: parsed.message };
                 }
               } catch {
                 if (result.content.toLowerCase().includes('success')) {
+                  log('[AgentLoop] finish_task succeeded (text match)');
                   done = true;
                 }
               }
@@ -169,6 +180,7 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
           }
         }
       } else if (data.response) {
+        log(`[AgentLoop] Assistant response: ${data.response.slice(0, 50)}...`);
         lastResponse = data.response;
         messages.push({
           role: 'assistant',
@@ -176,9 +188,10 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
         });
 
         if (hasToolInvocationLeak(data.response)) {
+          log(`[AgentLoop] Tool leak detected`);
           toolLeakRepromptCount++;
           if (toolLeakRepromptCount >= MAX_TOOL_LEAK_REPROMPTS) {
-            console.error(`[AgentLoop] Agent stuck in textual tool leakage after ${MAX_TOOL_LEAK_REPROMPTS} attempts.`);
+            log(`[AgentLoop] Stuck in tool leakage`);
             done = true;
             return { exitCode: 1, iterations, lastResponse: 'Agent stuck: failed to invoke a tool after textual shell/tool responses' };
           }
@@ -190,9 +203,10 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
         }
 
         if (hasFinishIndicator(data.response)) {
+          log(`[AgentLoop] Finish indicator detected, reprompting...`);
           finishRepromptCount++;
           if (finishRepromptCount >= MAX_FINISH_REPROMPTS) {
-            console.error(`[AgentLoop] Agent stuck in text-only responses after ${MAX_FINISH_REPROMPTS} attempts.`);
+            log(`[AgentLoop] Stuck in text-only finish`);
             done = true;
             return { exitCode: 1, iterations, lastResponse: 'Agent stuck: failed to invoke finish_task or bd.sh sync' };
           }
@@ -204,10 +218,10 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
       }
     } catch (error: any) {
       if (error instanceof Error && error.name === 'AbortError') {
-        console.error(`[AgentLoop] Timeout after ${MAX_COMMAND_TIME_MS}ms`);
+        log(`[AgentLoop] Timeout after ${MAX_COMMAND_TIME_MS}ms`);
         return { exitCode: 1, iterations, lastResponse: 'Command timeout' };
       }
-      console.error(`[AgentLoop] Error:`, error?.cause ? error.cause : error);
+      log(`[AgentLoop] Error: ${error?.cause ? error.cause : error}`);
       messages.push({
         role: 'assistant',
         content: `Error: ${error instanceof Error ? error.message : String(error)}. Retrying...`,
@@ -217,8 +231,10 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
   }
 
   if (iterations >= MAX_ITERATIONS && !done) {
+    log(`[AgentLoop] Max iterations reached`);
     return { exitCode: 1, iterations, lastResponse: 'Max iterations reached' };
   }
 
+  log(`[AgentLoop] Finished successfully`);
   return { exitCode: 0, iterations, lastResponse };
 }
