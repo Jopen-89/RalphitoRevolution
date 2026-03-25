@@ -34,3 +34,4 @@
   - [ ] Eliminar `scripts/` cuando ya no queden dependencias reales
   - [x] Consolidar entrypoints finales del sistema
   - [x] Retirar config AO/YAML y hooks Claude legacy del repo
+  - [x] Podar specs y planes legacy fuera del runtime real
