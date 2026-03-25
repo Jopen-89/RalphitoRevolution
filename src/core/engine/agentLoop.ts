@@ -20,7 +20,7 @@ export interface AgentLoopResult {
 
 export const MAX_ITERATIONS = 120;
 export const MAX_COMMAND_TIME_MS = 600000;
-export const GATEWAY_URL = 'http://127.0.0.1:3006/v1/chat';
+export const GATEWAY_URL = process.env.RALPHITO_GATEWAY_URL || 'http://localhost:3006/v1/chat';
 export const MAX_FINISH_REPROMPTS = 3;
 export const MAX_TOOL_LEAK_REPROMPTS = 2;
 
