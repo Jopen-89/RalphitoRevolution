@@ -63,7 +63,7 @@ function createTempRepo() {
     ].join('\n'),
     'utf8',
   );
-  writeFileSync(path.join(repoRoot, 'AGENTS.md'), 'Usa bd sync.\n', 'utf8');
+  writeFileSync(path.join(repoRoot, 'AGENTS.md'), 'Usa finish_task.\n', 'utf8');
   writeFileSync(path.join(repoRoot, 'package.json'), '{}\n', 'utf8');
   writeFileSync(path.join(repoRoot, 'seed.txt'), 'seed\n', 'utf8');
 
@@ -282,7 +282,7 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     assert.match(createdEnvs[0]?.RALPHITO_INSTRUCTION || '', /Implementa la fase 3\./);
     assert.match(createdEnvs[0]?.RALPHITO_SYSTEM_PROMPT || '', /Validation Playbook/);
     assert.match(createdEnvs[0]?.RALPHITO_SYSTEM_PROMPT || '', /use `git_add`/);
-    assert.match(createdEnvs[0]?.RALPHITO_SYSTEM_PROMPT || '', /bd sync/);
+    assert.match(createdEnvs[0]?.RALPHITO_SYSTEM_PROMPT || '', /finish_task/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"provider": "opencode"/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"pid": 987/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"notificationChatId": "chat-999"/);
@@ -832,7 +832,7 @@ test('ExecutorLoop falla si exit 0 pero la rama remota no existe', async () => {
   });
 });
 
-test('ExecutorLoop no repisa done si bd sync cierra la sesion con tmux vivo', async () => {
+test('ExecutorLoop no repisa done si finish_task cierra la sesion con tmux vivo', async () => {
   await withTempRuntime(async ({ repoRoot, headCommit, worktreeRoot }) => {
     const runtimeSessionId = 'be-loop-done-race';
     const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
@@ -1559,7 +1559,7 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /src\/a\.ts:1 error TS1005/);
     assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /Validation Playbook/);
     assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /use `git_commit`/);
-    assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /bd sync/);
+    assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /finish_task/);
     assert.equal(prompts.length, 0);
     assert.equal(detachedCalls.length, 0);
   });

@@ -2,6 +2,7 @@
 
 import chalk from 'chalk';
 import { AgentRegistryService } from '../core/services/AgentRegistry.js';
+import { getProviderCatalogStatus } from '../gateway/providers/providerCatalog.js';
 import { initializeRalphitoDatabase } from '../infrastructure/persistence/db/index.js';
 
 function printAgentList() {
@@ -29,10 +30,23 @@ function printAgentList() {
   }
 }
 
+function printProviderStatus() {
+  const providers = getProviderCatalogStatus({});
+
+  console.log(`\n${chalk.bold.cyan('Provider readiness')}`);
+  for (const provider of providers) {
+    const ready = provider.readiness.available ? chalk.green('ready') : chalk.yellow('degraded');
+    console.log(`${chalk.cyan(provider.provider)} -> ${ready} | auth=${provider.authMode} | models=${provider.officialModels.join(', ')}`);
+    console.log(`  capabilities: chat=${provider.chat} tools=${provider.toolCalling} vision=${provider.vision}`);
+    console.log(`  checks: ${provider.readiness.checks.join(', ')}`);
+  }
+}
+
 function main() {
   initializeRalphitoDatabase();
   AgentRegistryService.sync();
   printAgentList();
+  printProviderStatus();
 }
 
 main();

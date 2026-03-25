@@ -5,6 +5,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
+    "start": "node --import tsx src/app/office.ts",
+    "start:office": "node --import tsx src/app/office.ts",
     "start:bot": "node --import tsx src/interfaces/telegram/bot.ts",
     "start:gateway": "tsx src/app/server.ts",
     "db:migrate": "tsx src/app/ralphito-db.ts migrate",

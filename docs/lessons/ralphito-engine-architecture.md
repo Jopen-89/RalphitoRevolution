@@ -50,9 +50,9 @@ El sistema funciona en dos grandes fases:
 - Raymon lanza un **Ralphito (Peón)**.
 - El Motor "arranca la sesión": lo registra en SQLite, le crea su Worktree, le inyecta su Prompt y enciende su Bucle (Executor Loop).
 - El Peón usa su Tool de Bash para programar y testear (`tsc`, `npm test`).
-- Cuando termina, el Peón ejecuta `./scripts/bd.sh sync`. Este script hace el commit, se sincroniza con master y crea el Pull Request.
+- Cuando termina, el Peón ejecuta `finish_task`. Esta herramienta hace el commit, valida el worktree y deja el trabajo listo para PR y merge.
 - Juez y Ricky (QA) revisan el PR.
 - Raymon hace el `merge` final. La carpeta del Peón se borra.
 
 ## Resumen Arquitectónico
-Hemos construido una **Fábrica de Software Autónoma**. El humano solo toma decisiones estratégicas en Telegram. El Orquestador (Raymon) reparte el trabajo. El Gateway traduce la IA en acciones. Y el Engine (Motor + Worktrees) proporciona el entorno físico seguro para que los agentes construyan el producto.
+Hemos construido una **Fábrica de Software Autónoma**. El humano solo toma decisiones estratégicas en Telegram. El Orquestador reparte el trabajo. Raymon planifica y convoca especialistas. El Gateway traduce la IA en acciones. Y el Engine (Motor + Worktrees) proporciona el entorno físico seguro para que los agentes construyan el producto.

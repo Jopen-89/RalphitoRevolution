@@ -20,6 +20,8 @@ import type { IToolCallingProvider } from '../core/domain/gateway.types.js';
 import { RUNTIME_LLM_WAITING_FILE_NAME } from '../core/domain/constants.js';
 
 import { AgentRegistryService } from '../core/services/AgentRegistry.js';
+import type { AgentRegistryRecord } from '../core/services/AgentRegistry.js';
+import { getProviderCatalogStatus, PROVIDER_MATRIX } from '../gateway/providers/providerCatalog.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,6 +64,9 @@ const AGENT_ALIASES: Record<string, string[]> = {
   ralphito: ['ralphito', 'backend-team', 'frontend-team', 'devops-team'],
 };
 
+const VALID_PROVIDERS = new Set<Provider>(['gemini', 'openai', 'opencode', 'codex']);
+const VALID_TOOL_MODES = new Set(['none', 'allowed']);
+
 function normalizeAgentId(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -89,6 +94,63 @@ function buildProviderAuth() {
     ...(readEnvValue('OPENAI_API_KEY') ? { openAiKey: readEnvValue('OPENAI_API_KEY')! } : {}),
     ...(readEnvValue('MINIMAX_API_KEY') ? { minimaxKey: readEnvValue('MINIMAX_API_KEY')! } : {}),
   };
+}
+
+function parseJsonArray<T>(raw: string | null, fallback: T[]): T[] {
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw) as T[];
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function serializeAgentRecord(record: AgentRegistryRecord) {
+  const primaryProvider = (record.primary_provider || record.provider || DEFAULT_MODEL_BY_PROVIDER.gemini) as Provider;
+  return {
+    agentId: record.agent_id,
+    name: record.name,
+    roleFilePath: record.role_file_path,
+    aliases: AGENT_ALIASES[record.agent_id] || [record.agent_id],
+    isActive: Boolean(record.is_active),
+    primaryProvider,
+    model: record.model || DEFAULT_MODEL_BY_PROVIDER[primaryProvider],
+    toolMode: record.tool_mode || 'none',
+    allowedTools: parseJsonArray<string>(record.allowed_tools_json, []),
+    fallbacks: parseJsonArray<{ provider: Provider; model: string }>(record.fallbacks_json, []),
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+  };
+}
+
+function parseProvider(value: unknown): Provider | null {
+  return typeof value === 'string' && VALID_PROVIDERS.has(value as Provider) ? (value as Provider) : null;
+}
+
+function parseToolMode(value: unknown): 'none' | 'allowed' | null {
+  return typeof value === 'string' && VALID_TOOL_MODES.has(value) ? (value as 'none' | 'allowed') : null;
+}
+
+function parseFallbacks(value: unknown) {
+  if (!Array.isArray(value)) return null;
+
+  const fallbacks: { provider: Provider; model: string }[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return null;
+    const entry = item as Record<string, unknown>;
+    const provider = parseProvider(entry.provider);
+    const modelValue = entry.model;
+    const model = typeof modelValue === 'string' ? modelValue.trim() : '';
+    if (!provider || !model) return null;
+    fallbacks.push({ provider, model });
+  }
+
+  return fallbacks;
+}
+
+function buildSmokePrompt(provider: Provider, model: string) {
+  return [{ role: 'user', content: `Smoke test de provider ${provider} con modelo ${model}. Responde solo OK.` }];
 }
 
 // Cargar configuración de agentes dinámicamente desde la DB
@@ -440,28 +502,173 @@ app.get('/api/ops/status', async (_req, res) => {
 
 app.get('/api/providers/status', async (_req, res) => {
   const auth = buildProviderAuth();
+  const providers = getProviderCatalogStatus(auth);
 
   res.json({
     defaults: DEFAULT_MODEL_BY_PROVIDER,
-    providers: {
-      gemini: {
-        configured: Boolean(auth.googleAuthClient),
-        authMode: 'google-oauth',
-      },
-      openai: {
-        configured: Boolean(auth.openAiKey),
-        authMode: 'env',
-      },
-      opencode: {
-        configured: Boolean(auth.minimaxKey),
-        authMode: 'env',
-      },
-      codex: {
-        configured: true,
-        authMode: 'opencode-cli',
+    providers,
+    routing: {
+      gpt54: {
+        directApiProvider: 'openai',
+        cliSubscriptionProvider: 'codex',
+        toolCallingProvider: 'openai',
       },
     },
   });
+});
+
+app.post('/api/providers/smoke', async (req, res) => {
+  const requestedProvider = parseProvider(req.body?.provider);
+  if (!requestedProvider) {
+    res.status(400).json({ error: 'Invalid provider' });
+    return;
+  }
+
+  const matrix = PROVIDER_MATRIX[requestedProvider];
+  const model = typeof req.body?.model === 'string' && req.body.model.trim()
+    ? req.body.model.trim()
+    : matrix.officialModels[0];
+  const requireToolCalling = req.body?.toolCalling === true;
+
+  if (requireToolCalling && !matrix.toolCalling) {
+    res.status(400).json({
+      error: 'TOOL_CALLING_UNSUPPORTED',
+      message: `Provider ${requestedProvider} no soporta tool-calling en smoke tests.`,
+    });
+    return;
+  }
+
+  try {
+    const provider = ProviderFactory.create(requestedProvider, model, buildProviderAuth());
+    const messages = buildSmokePrompt(requestedProvider, model);
+
+    if (requireToolCalling && 'generateResponseWithTools' in provider) {
+      const toolProvider = provider as IToolCallingProvider;
+      const result = await toolProvider.generateResponseWithTools(messages, []);
+      res.json({
+        ok: true,
+        provider: requestedProvider,
+        model,
+        toolCalling: true,
+        responsePreview: result.text.slice(0, 200),
+        toolCalls: result.toolCalls.length,
+      });
+      return;
+    }
+
+    const responseText = await provider.generateResponse(messages);
+    res.json({
+      ok: true,
+      provider: requestedProvider,
+      model,
+      toolCalling: false,
+      responsePreview: responseText.slice(0, 200),
+    });
+  } catch (error) {
+    res.status(502).json({
+      ok: false,
+      provider: requestedProvider,
+      model,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+app.get('/api/agents', (_req, res) => {
+  const agents = AgentRegistryService.getAllActive()
+    .filter((record) => record.agent_id !== 'default')
+    .sort((a, b) => a.agent_id.localeCompare(b.agent_id))
+    .map(serializeAgentRecord);
+
+  res.json({ agents, defaults: DEFAULT_MODEL_BY_PROVIDER });
+});
+
+app.get('/api/agents/:id', (req, res) => {
+  const record = AgentRegistryService.getById(req.params.id);
+  if (!record || !record.is_active) {
+    res.status(404).json({ error: 'Agent not found' });
+    return;
+  }
+
+  res.json({ agent: serializeAgentRecord(record) });
+});
+
+app.patch('/api/agents/:id', (req, res) => {
+  const existing = AgentRegistryService.getById(req.params.id);
+  if (!existing) {
+    res.status(404).json({ error: 'Agent not found' });
+    return;
+  }
+
+  const body = (req.body || {}) as Record<string, unknown>;
+  const updates: Partial<AgentRegistryRecord> = {};
+
+  if ('primaryProvider' in body) {
+    const provider = parseProvider(body.primaryProvider);
+    if (!provider) {
+      res.status(400).json({ error: 'Invalid primaryProvider' });
+      return;
+    }
+    updates.primary_provider = provider;
+    updates.provider = provider;
+  }
+
+  if ('model' in body) {
+    const model = typeof body.model === 'string' ? body.model.trim() : '';
+    if (!model) {
+      res.status(400).json({ error: 'Invalid model' });
+      return;
+    }
+    updates.model = model;
+  }
+
+  if ('toolMode' in body) {
+    const toolMode = parseToolMode(body.toolMode);
+    if (!toolMode) {
+      res.status(400).json({ error: 'Invalid toolMode' });
+      return;
+    }
+    updates.tool_mode = toolMode;
+  }
+
+  if ('allowedTools' in body) {
+    if (!Array.isArray(body.allowedTools) || body.allowedTools.some((tool) => typeof tool !== 'string')) {
+      res.status(400).json({ error: 'Invalid allowedTools' });
+      return;
+    }
+    updates.allowed_tools_json = JSON.stringify(body.allowedTools);
+  }
+
+  if ('fallbacks' in body) {
+    const fallbacks = parseFallbacks(body.fallbacks);
+    if (!fallbacks) {
+      res.status(400).json({ error: 'Invalid fallbacks' });
+      return;
+    }
+    updates.fallbacks_json = JSON.stringify(fallbacks);
+  }
+
+  if ('isActive' in body) {
+    if (typeof body.isActive !== 'boolean') {
+      res.status(400).json({ error: 'Invalid isActive' });
+      return;
+    }
+    updates.is_active = body.isActive ? 1 : 0;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: 'No valid agent fields provided' });
+    return;
+  }
+
+  AgentRegistryService.updateAgentConfig(req.params.id, updates);
+  const refreshed = AgentRegistryService.getById(req.params.id);
+  if (!refreshed) {
+    res.status(404).json({ error: 'Agent not found after update' });
+    return;
+  }
+
+  res.json({ success: true, agent: serializeAgentRecord(refreshed) });
 });
 
 app.post('/api/ops/backup', async (_req, res) => {

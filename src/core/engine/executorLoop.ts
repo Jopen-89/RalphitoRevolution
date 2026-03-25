@@ -175,7 +175,7 @@ export class ExecutorLoop {
       if (relevantStatusLines.length > 0) {
         return {
           ok: false,
-          summary: `Proceso salió 0 pero el worktree quedó sucio: ${summarizeGitStatusLines(relevantStatusLines)}. Faltó bd sync.`,
+          summary: `Proceso salió 0 pero el worktree quedó sucio: ${summarizeGitStatusLines(relevantStatusLines)}. Faltó finish_task.`,
           reasonCode: 'dirty_worktree' satisfies LandingFailureReasonCode,
         } satisfies LandingVerificationResult;
       }

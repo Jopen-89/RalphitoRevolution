@@ -1,5 +1,5 @@
-import fs from 'fs';
 import path from 'path';
+import { AgentRegistryService, type AgentRegistryRecord } from '../../core/services/AgentRegistry.js';
 
 export interface AgentInfo {
   id: string;
@@ -7,6 +7,10 @@ export interface AgentInfo {
   role: string;
   rolePath: string;
   aliases: string[];
+  provider?: string;
+  model?: string;
+  toolMode?: string;
+  allowedTools?: string[];
 }
 
 interface AgentMentionMatch {
@@ -22,8 +26,6 @@ export interface AgentMentionAnalysis {
     instruction: string;
   } | null;
 }
-
-const ROLES_DIR = path.join(process.cwd(), 'src', 'core', 'prompt', 'roles');
 
 const AGENT_ALIASES: Record<string, string[]> = {
   raymon: ['raymon', 'ramon', 'raimon', 'ray mond', 'rei mon'],
@@ -50,10 +52,7 @@ function humanizeRole(rawRole: string) {
     .trim();
 }
 
-function parseAgentFile(fileName: string): AgentInfo | null {
-  if (!fileName.endsWith('.md')) return null;
-
-  const stem = fileName.slice(0, -3);
+function parseRoleStem(stem: string, rolePath: string, provider?: string | null, model?: string | null, toolMode?: string | null, allowedTools?: string[] | null): AgentInfo | null {
   const match = stem.match(/^(.*?)\(([^)]+)\)$/);
   if (!match) return null;
 
@@ -68,17 +67,34 @@ function parseAgentFile(fileName: string): AgentInfo | null {
     id,
     name,
     role: humanizeRole(rawRole),
-    rolePath: path.join(ROLES_DIR, fileName),
+    rolePath,
     aliases,
+    ...(provider ? { provider } : {}),
+    ...(model ? { model } : {}),
+    ...(toolMode ? { toolMode } : {}),
+    ...(allowedTools ? { allowedTools } : {}),
   };
 }
 
 export function loadAgentRegistry(): AgentInfo[] {
-  if (!fs.existsSync(ROLES_DIR)) return [];
+  const activeAgents = AgentRegistryService.getAllActive();
 
-  return fs
-    .readdirSync(ROLES_DIR)
-    .map(parseAgentFile)
+  return activeAgents
+    .filter((record) => record.agent_id !== 'default')
+    .map((record: AgentRegistryRecord) => {
+      const rolePath = path.join(process.cwd(), record.role_file_path);
+      const stem = path.basename(record.role_file_path, '.md');
+      const allowedTools = record.allowed_tools_json ? JSON.parse(record.allowed_tools_json) as string[] : [];
+
+      return parseRoleStem(
+        stem,
+        rolePath,
+        record.primary_provider || record.provider,
+        record.model,
+        record.tool_mode,
+        allowedTools,
+      );
+    })
     .filter((agent): agent is AgentInfo => Boolean(agent))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

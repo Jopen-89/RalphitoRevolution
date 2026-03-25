@@ -8,13 +8,13 @@ Este documento resume la investigación arquitectónica y el plan de acción par
 *   **Engine (`agentLoop.ts`)**: El "Cuerpo" o motor genérico. Ejecuta un bucle infinito de razonamiento (IA), gestiona el historial de mensajes y ejecuta herramientas. No tiene identidad propia.
 *   **CLI (`cli.ts`)**: El "Mecanismo de Disparo". Prepara el entorno físico (Git Worktrees), la base de datos y lanza el proceso persistente del agente en **TMUX**.
 *   **LLM-Gateway**: El "Traductor y las Manos". Interfaz unificada para diferentes modelos (Gemini, OpenAI, etc.) y encargado de ejecutar las **Tools** (leer/escribir archivos, ejecutar bash).
-*   **Agent-Orchestrator (Raymon)**: El "Mánager". Un agente VIP que corre sobre un `agentLoop` pero tiene herramientas especiales (`spawn_executor`) para crear y supervisar a otros agentes basándose en el mapa de configuración.
+*   **Raymon (Planner IA)**: El "Mánager". Un agente VIP que corre sobre un `agentLoop` pero tiene herramientas especiales (`spawn_executor`) para crear y supervisar a otros agentes basándose en el mapa de configuración.
 
 ### Identidad y Reglas
 *   **Roles (`src/core/prompt/roles/*.md`)**: El "Cerebro/Alma". Define la personalidad, especialidad y reglas específicas de cada agente (Moncho, Lola, Mapito, etc.).
 *   **Reglas Técnicas**:
     *   **Engine Guardrails**: Instrucciones de supervivencia (sandbox, no interactividad, uso de tools).
-    *   **Project Standards (`AGENTS.md`, `.agent-rules.md`)**: Normas del repositorio (Git, `bd sync`, protocolo anti-autoengaño).
+    *   **Project Standards (`AGENTS.md`, `.agent-rules.md`)**: Normas del repositorio (Git, `finish_task`, protocolo anti-autoengaño).
 
 ---
 

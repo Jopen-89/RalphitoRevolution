@@ -58,12 +58,12 @@ La capa operativa se reparte entre `src/`, `docs/` y un conjunto reducido de scr
 2. Arquitectura la divide en beads.
 3. El engine crea sesion, branch, worktree y locks.
 4. SQLite persiste estado y memoria.
-5. `bd sync` valida y aterriza via entrypoints nativos.
+5. `finish_task` valida y aterriza via entrypoints nativos.
 6. Si falla, `resume` reinyecta el error estructurado.
 
-## 6. Reglas de `bd sync`
+## 6. Reglas de `finish_task`
 
 - worktree limpio: sin unstaged ni untracked
 - cambios staged o commits locales antes de sincronizar
-- si no hay nada que sync, termina sin push
+- si no hay nada que aterrizar, termina sin push
 - fuera de tmux no mata procesos

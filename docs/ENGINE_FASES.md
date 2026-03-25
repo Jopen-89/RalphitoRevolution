@@ -39,8 +39,8 @@ El run-loop es un proceso invisible en background que no bloquea la máquina pri
 
 ---
 
-## Fase 3: Sync, Rebase y Guardrails Locales (bd sync)
-Cuando el agente termina satisfactoriamente la tarea dentro de su worktree, se ejecuta el script `scripts/bd.sh sync` para empaquetar el trabajo y preparar la Pull Request.
+## Fase 3: Landing y Guardrails Locales (`finish_task`)
+Cuando el agente termina satisfactoriamente la tarea dentro de su worktree, ejecuta `finish_task` para validar el estado del worktree, crear el commit y dejar el trabajo listo para PR y merge.
 
 1.  **Validaciones de estado**:
     ```bash

@@ -34,7 +34,7 @@ function buildResumePrompt(kind: string, summary: string, reasonCode: string | n
     sections.push(`Tail:\n\`\`\`\n${tail}\n\`\`\``);
   }
 
-  sections.push('Continua desde ahi. Corrige el fallo y vuelve a ejecutar `bd sync` si aplica.');
+  sections.push('Continua desde ahi. Corrige el fallo y vuelve a ejecutar `finish_task` si aplica.');
   return sections.join('\n\n');
 }
 

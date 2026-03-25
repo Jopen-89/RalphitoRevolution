@@ -6,6 +6,7 @@ import { executeAgentTask } from './chatExecutor.js';
 import { publishAgentReply } from './agentMessenger.js';
 import { initializeRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 import { EngineNotificationDispatcher } from './engineNotificationDispatcher.js';
+import { AgentRegistryService } from '../../core/services/AgentRegistry.js';
 
 // Capturar errores no manejados para ver el error real y no "[Object: null prototype]"
 process.on('uncaughtException', (err) => {
@@ -17,6 +18,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 dotenv.config();
 initializeRalphitoDatabase();
+AgentRegistryService.sync();
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const allowedChatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
@@ -27,15 +29,19 @@ if (!token || token === 'pega_tu_token_aqui_sin_comillas') {
 }
 
 const bot = new Telegraf(token);
-const agents = loadAgentRegistry();
 const ACTIVE_AGENT_WINDOW_MS = 15 * 60 * 1000;
 const DUPLICATE_MESSAGE_WINDOW_MS = 8 * 1000;
 const processingChats = new Set<string>();
 const notificationDispatcher = new EngineNotificationDispatcher();
-console.log(`🚀 Agentes detectados: ${agents.map(a => `${a.name} (${a.role})`).join(', ')}`);
+
+function getAgents() {
+    return loadAgentRegistry();
+}
+
+console.log(`🚀 Agentes detectados: ${getAgents().map(a => `${a.name} (${a.role})`).join(', ')}`);
 
 function listAgentNames() {
-    return agents.map((agent) => agent.name).join(', ');
+    return getAgents().map((agent) => agent.name).join(', ');
 }
 
 function normalizeErrorMessage(error: unknown) {
@@ -73,14 +79,14 @@ function resolveAgentFromReply(ctx: Context) {
     const agentId = convStore.getAgentRouteForMessage(String(ctx.chat.id), replyMessageId);
     if (!agentId) return null;
 
-    return getAgentById(agents, agentId) || null;
+    return getAgentById(getAgents(), agentId) || null;
 }
 
 function resolveRecentActiveAgent(chatId: string) {
     const activeAgentId = convStore.getRecentActiveAgent(chatId, ACTIVE_AGENT_WINDOW_MS);
     if (!activeAgentId) return null;
 
-    return getAgentById(agents, activeAgentId) || null;
+    return getAgentById(getAgents(), activeAgentId) || null;
 }
 
 async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: string) {
@@ -125,7 +131,7 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
 }
 
 // Comandos
-for (const agent of agents) {
+for (const agent of getAgents()) {
     bot.command(agent.id, async (ctx) => {
         const chatId = ctx.chat.id.toString();
         if (allowedChatId && chatId !== allowedChatId) {
@@ -180,7 +186,7 @@ bot.on('text', async (ctx) => {
     // Si no es un comando de agente, lo tratamos como texto normal (fallback a Raymon)
     const isCommand = text.startsWith('/');
     const commandName = isCommand ? text.split(' ')[0]?.slice(1).toLowerCase() : null;
-    const isAgentCommand = commandName && agents.some(a => a.id === commandName);
+    const isAgentCommand = commandName && getAgents().some(a => a.id === commandName);
 
     // Si es un comando de agente, el bot.command ya lo habrá capturado.
     // Si es otro tipo de comando (ej: /hola), seguimos adelante para que Raymon conteste.
@@ -213,7 +219,7 @@ bot.on('text', async (ctx) => {
     }
 
     if (!text.startsWith('/')) {
-        const defaultAgent = getAgentById(agents, 'raymon');
+        const defaultAgent = getAgentById(getAgents(), 'raymon');
         if (defaultAgent) {
             console.log(`👉 Enrutando mensaje a Raymon como puerta de entrada: "${text}"`);
             await processAgentRequest(ctx, defaultAgent, text.trim());

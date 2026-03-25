@@ -6,10 +6,10 @@ Autopilot ya corre sobre Ralphito Engine. No hay runtime principal basado en AO 
 
 ## Componentes vivos
 
-### 1. `scripts/bd.sh`
+### 1. Aterrizaje nativo
 
-- `bd sync` es el unico comando de aterrizaje
-- corre guardrails, sincroniza git y hace push
+- `finish_task` es la accion de aterrizaje del runtime
+- corre guardrails, valida git y completa el cierre del trabajo
 - registra step count, heartbeat y fallo estructurado en SQLite
 
 ### 2. Ralphito Engine
@@ -28,7 +28,7 @@ Autopilot ya corre sobre Ralphito Engine. No hay runtime principal basado en AO 
 
 ### Guardrails y landing
 
-- `bd sync` / `bd merge`
+- `finish_task` / `bd merge`
 - kill efimero tras sync
 - reanudacion desde fallo estructurado
 - notificaciones push a Telegram

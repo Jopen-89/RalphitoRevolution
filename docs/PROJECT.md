@@ -21,7 +21,7 @@ RalphitoRevolution es un laboratorio de orquestacion autonoma sobre Ralphito Eng
 
 - **Ralphito Engine:** runtime vivo para spawn, status, resume, locks y cleanup
 - **SQLite:** fuente canonica para threads, mensajes, tasks, sesiones y observabilidad
-- **QA Pipeline:** Miron, Ricky y Juez via `bd sync` / `bd merge`
+- **QA Pipeline:** Miron, Ricky y Juez via `finish_task` / `bd merge`
 - **Dashboard Operativo:** vista unificada engine + SQLite en `/dashboard`
 - **Notificaciones Push:** telemetria asincrona a Telegram al cerrar trabajo
 

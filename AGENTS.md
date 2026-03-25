@@ -24,12 +24,12 @@ Este repo combina producto, operación de agentes y automatización local. El mo
 - Un trabajo solo está terminado cuando: se valida, hace commit, push, PR y merge a `master`.
 
 ## Comandos Operativos (`bd`)
-El proyecto usa **bd** (beads) para gestión de tareas y aterrizaje.
+El proyecto sigue usando **bd** (beads) para gestión de tareas. El aterrizaje nativo del runtime se hace con `finish_task` y la oficina virtual arranca con `npm start`.
 ```bash
 bd ready              # Buscar trabajo disponible
 bd update <id> --status in_progress
 bd close <id>         # Marcar tarea como terminada
-bd sync               # COMANDO ÚNICO DE ATERRIZAJE: corre guardrails, commit y push al PR.
+bd sync               # Legacy/operativo humano: guardrails, commit y push al PR.
 bd merge              # Integra a master (Ejecuta QA: Ricky + Juez)
 ```
 
@@ -42,7 +42,7 @@ El trabajo **NO está completo** hasta que uses la herramienta de finalización.
 
 ## Pipeline QA
 `Lola -> Poncho -> Ralphito -> Miron -> Ricky -> Juez -> Raymon`
-- **Miron:** Bloquea `bd sync` si la UI no cumple la rúbrica visual.
+- **Miron:** Bloquea el aterrizaje final si la UI no cumple la rúbrica visual.
 - **Ricky:** Bloquea el merge final si fallan los tests E2E.
 - **Juez:** Revisa el diff (Tool Calling) antes de aprobar el PR.
 
