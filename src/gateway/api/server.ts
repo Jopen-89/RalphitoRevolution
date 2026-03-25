@@ -39,18 +39,18 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<Provider, string> = {
 
 const AGENT_ALIASES: Record<string, string[]> = {
   default: ['default', 'ralphito'],
-  raymon: ['raymon', 'ramon', 'raimon', 'ray mond', 'rei mon'],
-  moncho: ['moncho'],
-  poncho: ['poncho'],
-  martapepis: ['martapepis', 'marta', 'marta pepis'],
-  lola: ['lola'],
-  mapito: ['mapito'],
+  raymon: ['raymon', 'ramon', 'raimon', 'ray mond', 'rei mon', 'orchestrator'],
+  moncho: ['moncho', 'product-team'],
+  poncho: ['poncho', 'architecture-team'],
+  martapepis: ['martapepis', 'marta', 'marta pepis', 'research-team'],
+  lola: ['lola', 'design-team'],
+  mapito: ['mapito', 'security-team'],
   juez: ['juez'],
   tracker: ['tracker'],
-  ricky: ['ricky'],
-  miron: ['miron'],
-  relleno: ['relleno'],
-  ralphito: ['ralphito'],
+  ricky: ['ricky', 'qa-team'],
+  miron: ['miron', 'visual-qa-team'],
+  relleno: ['relleno', 'automation-team'],
+  ralphito: ['ralphito', 'backend-team', 'frontend-team', 'devops-team'],
 };
 
 // Cargar configuración de agentes
@@ -74,10 +74,12 @@ const normalizeAgentId = (value: string) => value
 
 const resolveAgentConfig = (config: GatewayConfig, rawAgentId: string) => {
   const requestedId = normalizeAgentId(rawAgentId || 'default');
+  console.log(`[Gateway] Resolviendo config para agentId: "${rawAgentId}" (normalized: "${requestedId}")`);
   const configsById = new Map(config.agents.map((agent) => [normalizeAgentId(agent.agentId), agent]));
 
   const direct = configsById.get(requestedId);
   if (direct) {
+    console.log(`[Gateway] Encontrado config directa para "${requestedId}"`);
     return { agentConfig: direct, resolvedAgentId: normalizeAgentId(direct.agentId), requestedId };
   }
 
@@ -85,10 +87,12 @@ const resolveAgentConfig = (config: GatewayConfig, rawAgentId: string) => {
     if (!aliases.map(normalizeAgentId).includes(requestedId)) continue;
     const aliasMatch = configsById.get(canonicalId);
     if (aliasMatch) {
+      console.log(`[Gateway] Encontrado config via alias: "${requestedId}" -> "${canonicalId}"`);
       return { agentConfig: aliasMatch, resolvedAgentId: canonicalId, requestedId };
     }
   }
 
+  console.log(`[Gateway] No se encontró config para "${requestedId}", usando fallback "default"`);
   const fallback = configsById.get('default');
   if (fallback) {
     return { agentConfig: fallback, resolvedAgentId: 'default', requestedId };
@@ -222,6 +226,7 @@ app.post('/v1/chat', async (req, res) => {
       ];
 
   const { allowed: allowedToolDefinitions, unknownNames } = resolveAllowedToolDefinitions(agentConfig);
+  console.log(`[Gateway] Tools permitidas para "${resolvedAgentId}":`, allowedToolDefinitions.map(d => d.name));
   const useToolCalling = allowedToolDefinitions.length > 0;
   const toolProviders = new Set(['openai', 'gemini', 'opencode']);
 
@@ -425,14 +430,15 @@ app.post('/api/ops/backup', async (_req, res) => {
   }
 });
 
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3005;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3006;
 
 function bootstrap() {
   console.log('🔄 Iniciando secuencia de arranque del Gateway...');
 
-  const server = app.listen(PORT, () => {
-    console.log(`🚀 LLM Gateway escuchando en http://localhost:${PORT}`);
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 LLM Gateway escuchando en http://0.0.0.0:${PORT}`);
 
+    /*
     if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       authenticateGoogle()
         .then((client) => {
@@ -445,6 +451,7 @@ function bootstrap() {
     } else {
       console.warn('⚠️ GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET no configurados. Gemini quedará deshabilitado.');
     }
+    */
   });
 
   server.on('error', (error) => {

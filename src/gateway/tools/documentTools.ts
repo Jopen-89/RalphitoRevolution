@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { execSync } from 'child_process';
 import { getRalphitoRepositories } from '../../infrastructure/persistence/db/index.js';
 import type { Tool } from './toolRegistry.js';
 import type { ToolDefinition } from '../interfaces/gateway.types.js';
@@ -38,7 +39,10 @@ export function isDocumentToolName(name: string): name is DocumentToolName {
   return DOCUMENT_TOOL_NAMES.includes(name as DocumentToolName);
 }
 
-export function createDocumentTools(): Tool[] {
+export function createDocumentTools(worktreePath?: string): Tool[] {
+  const activeRoot = worktreePath || REPO_ROOT;
+  const activeSpecsPrefix = path.join(activeRoot, 'docs', 'specs');
+
   return [
     {
       name: 'write_spec_document',
@@ -48,13 +52,20 @@ export function createDocumentTools(): Tool[] {
         const relativePath = requireString(params.path, 'path');
         const content = requireString(params.content, 'content');
 
-        const fullPath = sanitizePath(SPECS_PREFIX, relativePath);
+        const fullPath = sanitizePath(activeSpecsPrefix, relativePath);
         const dir = path.dirname(fullPath);
 
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
         }
         fs.writeFileSync(fullPath, content, 'utf8');
+
+        // Automatically stage the file so high-level agents don't need execute_bash
+        try {
+          execSync(`git add "${fullPath}"`, { cwd: activeRoot });
+        } catch (e) {
+          console.warn(`Failed to git add ${fullPath}`, e);
+        }
 
         return {
           filePath: fullPath,
@@ -70,7 +81,7 @@ export function createDocumentTools(): Tool[] {
       execute: async (params: Record<string, unknown>) => {
         const filePath = requireString(params.filePath, 'filePath');
 
-        const fullPath = sanitizePath(REPO_ROOT, filePath);
+        const fullPath = sanitizePath(activeRoot, filePath);
 
         if (!fs.existsSync(fullPath)) {
           throw new Error(`File not found: ${filePath}`);
@@ -94,13 +105,19 @@ export function createDocumentTools(): Tool[] {
         const title = requireString(params.title, 'title');
         const content = optionalString(params.content) || '';
 
-        const fullPath = sanitizePath(SPECS_PREFIX, beadPath);
+        const fullPath = sanitizePath(activeSpecsPrefix, beadPath);
         const dir = path.dirname(fullPath);
 
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
         }
         fs.writeFileSync(fullPath, content, 'utf8');
+
+        try {
+          execSync(`git add "${fullPath}"`, { cwd: activeRoot });
+        } catch (e) {
+          console.warn(`Failed to git add ${fullPath}`, e);
+        }
 
         const repos = getRalphitoRepositories();
         const taskId = randomUUID();
@@ -125,7 +142,7 @@ export function createDocumentTools(): Tool[] {
         'Verifica si una ruta del workspace existe realmente en disco y devuelve su tipo y ruta resuelta.',
       execute: async (params: Record<string, unknown>) => {
         const requestedPath = requireString(params.path, 'path');
-        const fullPath = sanitizePath(REPO_ROOT, requestedPath);
+        const fullPath = sanitizePath(activeRoot, requestedPath);
         const exists = fs.existsSync(fullPath);
         const resolvedPath = exists ? fs.realpathSync.native(fullPath) : fullPath;
         const kind = exists ? (fs.statSync(fullPath).isDirectory() ? 'directory' : 'file') : 'missing';

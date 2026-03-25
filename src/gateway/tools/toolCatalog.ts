@@ -2,6 +2,7 @@ import type { AgentConfig, ToolDefinition } from '../interfaces/gateway.types.js
 import { createDocumentToolDefinitions, createDocumentTools } from './documentTools.js';
 import { createRaymonToolDefinitions, createRaymonTools } from './raymonTools.js';
 import { createSystemToolDefinitions, createSystemTools } from './systemTools.js';
+import { createResearchToolDefinitions, createResearchTools } from './researchTools.js';
 import type { Tool } from './toolRegistry.js';
 
 interface ToolCatalogContext {
@@ -11,11 +12,21 @@ interface ToolCatalogContext {
 }
 
 export function createAllToolDefinitions(): ToolDefinition[] {
-  return [...createRaymonToolDefinitions(), ...createDocumentToolDefinitions(), ...createSystemToolDefinitions()];
+  return [
+    ...createRaymonToolDefinitions(),
+    ...createDocumentToolDefinitions(),
+    ...createSystemToolDefinitions(),
+    ...createResearchToolDefinitions(),
+  ];
 }
 
 export function createAllToolImplementations(context: ToolCatalogContext = {}): Tool[] {
-  return [...createRaymonTools(context), ...createDocumentTools(), ...createSystemTools(context.worktreePath)];
+  return [
+    ...createRaymonTools(context),
+    ...createDocumentTools(context.worktreePath),
+    ...createSystemTools(context.worktreePath),
+    ...createResearchTools(),
+  ];
 }
 
 export function resolveAllowedToolDefinitions(agentConfig: AgentConfig | undefined): {

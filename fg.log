@@ -1,0 +1,43 @@
+[dotenv@17.3.1] injecting env (6) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+🔄 Iniciando secuencia de arranque del Gateway...
+🚀 LLM Gateway escuchando en http://localhost:3005
+⚠️ No se encontró token válido de Google. Iniciando autenticación...
+
+======================================================
+🔐 Por favor, abre el siguiente enlace en tu navegador para autorizar a Ralphito:
+
+https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&prompt=consent&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgenerative-language.retriever&response_type=code&client_id=528662942853-9mr09t5if74oosl615ln2igui4r23qeh.apps.googleusercontent.com&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Fcallback
+
+Esperando respuesta en el puerto 8080...
+======================================================
+
+[Gateway] Tool-calling con gemini (gemini-3.1-pro-preview)...
+⚠️ Falló tool-calling con gemini: Google OAuth no está autenticado.
+[Gateway] Tool-calling con opencode (minimax-m2.7)...
+[OpencodeProvider] Enrutando petición a minimax-m2.7 con 5 tools...
+[OpencodeProvider] Enrutando petición a minimax-m2.7 con 5 tools...
+[OpencodeProvider] Enrutando petición a minimax-m2.7 con 5 tools...
+fatal: not a git repository (or any of the parent directories): .git
+Failed to git add /tmp/docs/specs/agentic-frameworks.md Error: Command failed: git add "/tmp/docs/specs/agentic-frameworks.md"
+fatal: not a git repository (or any of the parent directories): .git
+
+    at genericNodeError (node:internal/errors:983:15)
+    at wrappedFn (node:internal/errors:537:14)
+    at checkExecSyncError (node:child_process:924:11)
+    at execSync (node:child_process:996:15)
+    at Object.execute (/home/pepu/IAproject/RalphitoRevolution/src/gateway/tools/documentTools.ts:65:11)
+    at executeToolCallLoop (/home/pepu/IAproject/RalphitoRevolution/src/gateway/tools/toolCallingExecutor.ts:104:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async <anonymous> (/home/pepu/IAproject/RalphitoRevolution/src/gateway/api/server.ts:260:50) {
+  status: 128,
+  signal: null,
+  output: [
+    null,
+    <Buffer >,
+    <Buffer 66 61 74 61 6c 3a 20 6e 6f 74 20 61 20 67 69 74 20 72 65 70 6f 73 69 74 6f 72 79 20 28 6f 72 20 61 6e 79 20 6f 66 20 74 68 65 20 70 61 72 65 6e 74 20 ... 19 more bytes>
+  ],
+  pid: 50227,
+  stdout: <Buffer >,
+  stderr: <Buffer 66 61 74 61 6c 3a 20 6e 6f 74 20 61 20 67 69 74 20 72 65 70 6f 73 69 74 6f 72 79 20 28 6f 72 20 61 6e 79 20 6f 66 20 74 68 65 20 70 61 72 65 6e 74 20 ... 19 more bytes>
+}
+[OpencodeProvider] Enrutando petición a minimax-m2.7 con 5 tools...

@@ -137,6 +137,7 @@ async function main() {
       const result = await agentLoop({
         runtimeSessionId,
         worktreePath,
+        ...(process.env.RALPHITO_PROJECT_ID ? { projectId: process.env.RALPHITO_PROJECT_ID } : {}),
         systemPrompt: process.env.RALPHITO_SYSTEM_PROMPT || '',
         instruction: process.env.RALPHITO_INSTRUCTION || '',
         provider,

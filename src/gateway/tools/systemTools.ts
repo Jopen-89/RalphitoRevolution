@@ -85,7 +85,7 @@ export async function finishTask(worktreePath: string): Promise<{
   try {
     const { stdout } = await execAsync(
       'bash -c \'./scripts/bd.sh sync; echo "EXIT_CODE:$?"\' 2>&1',
-      { cwd, env: { ...process.env, RALPHITO_WORKTREE_PATH: worktreePath }, timeout: 600000 },
+      { cwd, env: { ...process.env, RALPHITO_WORKTREE_PATH: worktreePath, TMUX: '' }, timeout: 600000 },
     );
 
     const lines = stdout.trim().split('\n');

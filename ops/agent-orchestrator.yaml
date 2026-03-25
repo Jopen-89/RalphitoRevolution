@@ -11,6 +11,28 @@ defaults:
   notifiers:
     - desktop
 projects:
+  product-team:
+    name: Ralphito Product (Moncho)
+    sessionPrefix: pm
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: agents/roles/FeaturePM(Moncho).md
+    agent: opencode
+    agentConfig:
+      provider: opencode
+      model: minimax-m2.7
+  architecture-team:
+    name: Ralphito Architecture (Poncho)
+    sessionPrefix: ar
+    repo: Jopen-89/RalphitoRevolution
+    path: /home/pepu/IAproject/RalphitoRevolution
+    defaultBranch: master
+    agentRulesFile: agents/roles/TechnicalArchitect(Poncho).md
+    agent: opencode
+    agentConfig:
+      provider: opencode
+      model: minimax-m2.7
   backend-team:
     name: Ralphito Backend
     sessionPrefix: be

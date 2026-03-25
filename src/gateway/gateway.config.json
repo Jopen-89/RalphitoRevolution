@@ -50,7 +50,9 @@
       "toolMode": "allowed",
       "allowedTools": [
         "write_spec_document",
-        "read_workspace_file"
+        "read_workspace_file",
+        "summon_agent_to_chat",
+        "finish_task"
       ]
     },
     {
@@ -68,7 +70,9 @@
         "write_spec_document",
         "read_workspace_file",
         "write_bead_document",
-        "inspect_workspace_path"
+        "inspect_workspace_path",
+        "summon_agent_to_chat",
+        "finish_task"
       ]
     },
     {
@@ -83,7 +87,11 @@
       ],
       "toolMode": "allowed",
       "allowedTools": [
-        "read_workspace_file"
+        "read_workspace_file",
+        "write_spec_document",
+        "summon_agent_to_chat",
+        "finish_task",
+        "google_web_search"
       ]
     },
     {
@@ -99,7 +107,9 @@
       "toolMode": "allowed",
       "allowedTools": [
         "read_workspace_file",
-        "write_spec_document"
+        "write_spec_document",
+        "summon_agent_to_chat",
+        "finish_task"
       ]
     },
     {
@@ -114,7 +124,10 @@
       ],
       "toolMode": "allowed",
       "allowedTools": [
-        "read_workspace_file"
+        "read_workspace_file",
+        "write_spec_document",
+        "summon_agent_to_chat",
+        "finish_task"
       ]
     },
     {

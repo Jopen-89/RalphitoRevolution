@@ -5,6 +5,7 @@ import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 export interface AgentLoopInput {
   runtimeSessionId: string;
   worktreePath: string;
+  projectId?: string;
   systemPrompt: string;
   instruction: string;
   provider?: Provider | null;
@@ -19,7 +20,7 @@ export interface AgentLoopResult {
 
 export const MAX_ITERATIONS = 120;
 export const MAX_COMMAND_TIME_MS = 600000;
-export const GATEWAY_URL = 'http://localhost:3005/v1/chat';
+export const GATEWAY_URL = 'http://127.0.0.1:3006/v1/chat';
 export const MAX_FINISH_REPROMPTS = 3;
 export const MAX_TOOL_LEAK_REPROMPTS = 2;
 
@@ -65,9 +66,9 @@ export function hasToolInvocationLeak(text: string): boolean {
   return TOOL_MARKDOWN_BLOCK_PATTERN.test(text) || TEXTUAL_TOOL_INVOCATION_PATTERN.test(text);
 }
 
-export function buildGatewayChatRequest(input: Pick<AgentLoopInput, 'provider' | 'model'>, messages: Message[]): ChatRequest {
+export function buildGatewayChatRequest(input: Pick<AgentLoopInput, 'provider' | 'model'> & { projectId?: string }, messages: Message[]): ChatRequest {
   return {
-    agentId: 'ralphito',
+    agentId: input.projectId || 'ralphito',
     messages,
     ...(input.provider ? { provider: input.provider } : {}),
     ...(input.provider && input.model ? { model: input.model } : {}),
@@ -117,6 +118,7 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
           role: 'assistant',
           content: `Gateway error: ${response.status}. Retrying...`,
         });
+        await new Promise((r) => setTimeout(r, 2000));
         continue;
       }
 
@@ -199,16 +201,17 @@ export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult>
           });
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof Error && error.name === 'AbortError') {
         console.error(`[AgentLoop] Timeout after ${MAX_COMMAND_TIME_MS}ms`);
         return { exitCode: 1, iterations, lastResponse: 'Command timeout' };
       }
-      console.error(`[AgentLoop] Error:`, error instanceof Error ? error.message : String(error));
+      console.error(`[AgentLoop] Error:`, error?.cause ? error.cause : error);
       messages.push({
         role: 'assistant',
         content: `Error: ${error instanceof Error ? error.message : String(error)}. Retrying...`,
       });
+      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 
