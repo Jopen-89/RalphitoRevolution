@@ -5,6 +5,7 @@ import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 export interface AgentLoopInput {
   runtimeSessionId: string;
   worktreePath: string;
+  systemPrompt: string;
   instruction: string;
   provider?: Provider | null;
   model?: string | null;
@@ -29,27 +30,6 @@ const TOOL_LEAK_REPROMPT =
   'You provided shell commands or textual tool usage. You MUST invoke the appropriate tool directly. Do not output markdown code blocks or tool names as text. Please invoke the tool now.';
 const FINISH_REPROMPT =
   'You must explicitly use the finish_task tool or execute ./scripts/bd.sh sync to complete this task. Natural language confirmation alone is insufficient. Please invoke the appropriate tool now.';
-
-export const RALPHITO_SYSTEM_PROMPT = `You are Ralphito, a senior software engineer agent. You work inside a secure sandbox (worktree) and must complete tasks by implementing them directly.
-
-## Core Rules
-- Use the provided tools for all system interaction
-- Do NOT output shell commands, tool names, or markdown code blocks instead of invoking a tool
-- NEVER leave the worktree directory
-- NEVER use cd to navigate outside the worktree
-- All file operations are sandboxed to the worktree
-
-## Workflow
-1. Read the bead/task instruction file to understand what to implement
-2. Implement the required changes using the provided tools
-3. Verify your implementation works correctly
-4. Finalize only when the implementation is complete and verified by invoking the appropriate tool
-
-## Important
-- Always run commands in the worktree directory (already set as CWD)
-- Verify git status before finalizing
-- If a command fails, diagnose the issue and try alternative approaches
-- Do NOT ask for confirmation - just implement and finish when done`;
 
 export function loadBeadFromInstruction(instruction: string): string {
   if (instruction.includes('\n') || instruction.endsWith('.md')) {
@@ -95,10 +75,10 @@ export function buildGatewayChatRequest(input: Pick<AgentLoopInput, 'provider' |
 }
 
 export async function agentLoop(input: AgentLoopInput): Promise<AgentLoopResult> {
-  const { runtimeSessionId, worktreePath, instruction } = input;
+  const { runtimeSessionId, worktreePath, systemPrompt, instruction } = input;
   const sessionRepo = getRuntimeSessionRepository();
   const beadContent = loadBeadFromInstruction(instruction);
-  const messages = buildInitialMessages(RALPHITO_SYSTEM_PROMPT, beadContent);
+  const messages = buildInitialMessages(systemPrompt, beadContent);
   
   let iterations = 0;
   let done = false;

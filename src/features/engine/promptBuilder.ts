@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import type { EngineProjectConfig } from './config.js';
 
-const BASE_ENGINE_PROMPT = `You are an AI coding agent managed by Ralphito Engine.
+const BASE_ENGINE_PROMPT = `You are an AI agent managed by Ralphito Engine.
 
 ## Session Contract
 - You run inside a dedicated git worktree and session.
@@ -11,6 +11,16 @@ const BASE_ENGINE_PROMPT = `You are an AI coding agent managed by Ralphito Engin
 - If guardrails fail, you will receive a structured resume prompt. Fix the issue and continue from the same worktree.
 - You operate in a headless runtime. Never launch servers, watchers, \`tail -f\`, interactive prompts, or commands that do not terminate.
 - Stay scoped to the assigned task.
+
+## Core Tool Rules
+- Use the provided tools for all system interaction.
+- Do NOT output shell commands, tool names, or markdown code blocks instead of invoking a tool.
+- NEVER leave the worktree directory.
+- NEVER use cd to navigate outside the worktree.
+- All file operations are sandboxed to the worktree.
+- Always run commands in the worktree directory (already set as CWD).
+- Verify git status before finalizing.
+- If a command fails, diagnose the issue and try alternative approaches.
 
 ## Validation Playbook
 - If the task is a short validation or proof task, create the smallest deterministic artifact that satisfies the acceptance criteria.
@@ -36,21 +46,27 @@ function readProjectRules(project: EngineProjectConfig) {
 
 export function buildEnginePrompt(project: EngineProjectConfig, userPrompt: string, branchName: string) {
   const rules = readProjectRules(project);
-  const sections = [
-    BASE_ENGINE_PROMPT,
+  const systemSections = [];
+
+  if (rules) {
+    systemSections.push(rules);
+  } else {
+    systemSections.push("You are Ralphito, a senior software engineer agent. You work inside a secure sandbox (worktree) and must complete tasks by implementing them directly.");
+  }
+
+  systemSections.push(BASE_ENGINE_PROMPT);
+  systemSections.push(
     [
       '## Runtime Context',
       `- Project: ${project.name}`,
       `- Repository path: ${project.path}`,
       `- Default branch: ${project.defaultBranch}`,
       `- Working branch: ${branchName}`,
-    ].join('\n'),
-  ];
+    ].join('\n')
+  );
 
-  if (rules) {
-    sections.push(`## Project Rules\n${rules}`);
-  }
-
-  sections.push(`## Task\n${userPrompt}`);
-  return sections.join('\n\n');
+  return {
+    systemPrompt: systemSections.join('\n\n'),
+    userTask: userPrompt
+  };
 }

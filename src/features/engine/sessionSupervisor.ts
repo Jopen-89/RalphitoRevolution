@@ -149,7 +149,7 @@ export class SessionSupervisor {
       const createdAt = new Date().toISOString();
 
       worktreePath = await worktreeManager.createWorkspace(runtimeSessionId, baseCommitHash, branchName);
-      const prompt = buildEnginePrompt(project, input.prompt, branchName);
+      const enginePrompt = buildEnginePrompt(project, input.prompt, branchName);
       const threadId = ensureRuntimeThread(runtimeSessionId);
 
       const sessionFile = {
@@ -221,7 +221,8 @@ export class SessionSupervisor {
           runtimeSessionId,
           worktreePath,
           projectId: project.id,
-          instruction: prompt,
+          systemPrompt: enginePrompt.systemPrompt,
+          instruction: enginePrompt.userTask,
           provider,
           model,
         }),

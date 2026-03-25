@@ -40,6 +40,7 @@ export interface BuildRuntimeEnvironmentInput {
   runtimeSessionId: string;
   worktreePath: string;
   projectId: string;
+  systemPrompt: string;
   instruction: string;
   provider?: Provider | null;
   model?: string | null;
@@ -70,6 +71,7 @@ export function buildRuntimeEnvironment(
     RALPHITO_ENGINE_MANAGED: '1',
     RALPHITO_PROJECT_ID: input.projectId,
     RALPHITO_WORKTREE_PATH: input.worktreePath,
+    RALPHITO_SYSTEM_PROMPT: input.systemPrompt,
     RALPHITO_INSTRUCTION: input.instruction,
     RALPHITO_LLM_PROVIDER: input.provider || '',
     RALPHITO_LLM_MODEL: input.model || '',

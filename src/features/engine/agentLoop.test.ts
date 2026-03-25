@@ -16,7 +16,6 @@ import {
   hasFinishIndicator,
   hasToolInvocationLeak,
   MAX_ITERATIONS,
-  RALPHITO_SYSTEM_PROMPT,
 } from './agentLoop.js';
 
 function createTempDirectory(prefix: string) {
@@ -118,30 +117,8 @@ test('buildGatewayChatRequest forwards explicit provider and model', () => {
   assert.equal(request.messages[0]?.content, 'Implement the fix');
 });
 
-test('RALPHITO_SYSTEM_PROMPT instructs tool-only interaction without listing tool names', () => {
-  assert.ok(RALPHITO_SYSTEM_PROMPT.includes('Use the provided tools for all system interaction'));
-  assert.ok(RALPHITO_SYSTEM_PROMPT.includes('Do NOT output shell commands, tool names, or markdown code blocks'));
-  assert.equal(RALPHITO_SYSTEM_PROMPT.includes('## Available Tools'), false);
-  assert.equal(RALPHITO_SYSTEM_PROMPT.includes('execute_bash('), false);
-  assert.equal(RALPHITO_SYSTEM_PROMPT.includes('read_file_raw('), false);
-  assert.equal(RALPHITO_SYSTEM_PROMPT.includes('write_file_raw('), false);
-  assert.equal(RALPHITO_SYSTEM_PROMPT.includes('finish_task()'), false);
-  assert.ok(RALPHITO_SYSTEM_PROMPT.includes('worktree'));
-});
-
 test('MAX_ITERATIONS is 120', () => {
   assert.equal(MAX_ITERATIONS, 120);
-});
-
-test('RALPHITO_SYSTEM_PROMPT contains security rules', () => {
-  assert.ok(RALPHITO_SYSTEM_PROMPT.includes('NEVER leave the worktree'));
-  assert.ok(RALPHITO_SYSTEM_PROMPT.includes('cd'));
-});
-
-test('RALPHITO_SYSTEM_PROMPT contains workflow instructions', () => {
-  assert.ok(RALPHITO_SYSTEM_PROMPT.includes('Read the bead'));
-  assert.ok(RALPHITO_SYSTEM_PROMPT.includes('provided tools'));
-  assert.ok(RALPHITO_SYSTEM_PROMPT.includes('invoking the appropriate tool'));
 });
 
 test('agentLoop reprompts markdown tool leakage and recovers on real tool call', async () => {
@@ -174,6 +151,7 @@ test('agentLoop reprompts markdown tool leakage and recovers on real tool call',
       const result = await agentLoop({
         runtimeSessionId: 'session-tool-leak',
         worktreePath: '/tmp/worktree',
+        systemPrompt: 'Test system prompt',
         instruction: 'Implement the fix',
       });
 
@@ -221,6 +199,7 @@ test('agentLoop reprompts finish-only text without using tool leakage message', 
       const result = await agentLoop({
         runtimeSessionId: 'session-finish-only',
         worktreePath: '/tmp/worktree',
+        systemPrompt: 'Test system prompt',
         instruction: 'Implement the fix',
       });
 
@@ -283,6 +262,7 @@ test('agentLoop preserves tool name and structured payload for next gateway turn
       const result = await agentLoop({
         runtimeSessionId: 'session-tool-payload',
         worktreePath: '/tmp/worktree',
+        systemPrompt: 'Test system prompt',
         instruction: 'Inspect package.json and finish',
       });
 
