@@ -1,4 +1,5 @@
-import { readFileSync } from 'fs';
+import fs from 'fs';
+import path from 'path';
 import type { ChatRequest, Message, Provider, ToolCall, ToolResult } from '../../gateway/interfaces/gateway.types.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 
@@ -36,7 +37,7 @@ export function loadBeadFromInstruction(instruction: string): string {
   if (instruction.includes('\n') || instruction.endsWith('.md')) {
     const beadPath = instruction.trim();
     try {
-      return readFileSync(beadPath, 'utf-8');
+      return fs.readFileSync(beadPath, 'utf-8');
     } catch {
       return instruction;
     }
