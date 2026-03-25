@@ -29,7 +29,7 @@ Este esquema representa la arquitectura del sistema post-refactor (Issue 56) uti
 │           │  Si Raymon decide que hay que "picar código", usa sus Bash Tools:            │
 │           v                                                                              │
 │ ┌───────────────────────────────┐ ┌──────────────────────────────────────────────────┐   │
-│ │ tool_spawn_executor.sh <bead> │ │ tool_check_status.sh / tool_resume_executor.sh   │   │
+│ │ spawn-session <payload>       │ │ status / resume-session                           │   │
 │ └──────────────┬────────────────┘ └───────────────────────┬──────────────────────────┘   │
 └────────────────┼──────────────────────────────────────────┼──────────────────────────────┘
                  │                                          │
@@ -39,7 +39,7 @@ Este esquema representa la arquitectura del sistema post-refactor (Issue 56) uti
 │                 CAPA 3: RALPHITO ENGINE (El Nuevo Motor - Issue 56)                      │
 │                                                                                          │
 │ ┌──────────────────────────────────────────────────────────────────────────────────────┐ │
-│ │  CLI Interna (src/features/engine/cli.ts) [spawn, kill, resume, status]              │ │
+│ │  CLI Interna (src/core/engine/cli.ts) [spawn-session, resume-session, status]         │ │
 │ └──────────┬────────────────────────────┬─────────────────────────────┬────────────────┘ │
 │            │ 1. Crea Sesión             │ 2. Crea Carpeta             │ 3. Arranca       │
 │            v                            v                             v                  │

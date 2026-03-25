@@ -9,7 +9,7 @@ graph TD
     %% ==========================================
     subgraph UI ["📱 CAPA DE INGRESO (INTERFAZ)"]
         T_USER(("Tú (Usuario)"))
-        TBOT["Telegram Bot<br/>(src/features/telegram/bot.ts)"]
+        TBOT["Telegram Bot<br/>(src/interfaces/telegram/bot.ts)"]
         CLI["(Futura) CLI Conversacional<br/>(npx ralphito chat)"]
         
         T_USER -- "Mensajes de Chat" --> TBOT
@@ -20,16 +20,16 @@ graph TD
     %% CAPA 2: ORQUESTACIÓN (RAYMON Y LOS SABIOS)
     %% ==========================================
     subgraph ORCH ["🧠 CAPA DE ORQUESTACIÓN Y DISEÑO (En Memoria)"]
-        ROUTER["Enrutador de Intenciones<br/>(orchestrationExecutor.ts)"]
+        ROUTER["Enrutador de Intenciones<br/>(chatExecutor.ts)"]
         
         RAYMON["Raymon (Orchestrator)<br/>src/core/prompt/roles/AgentOrchestrator.md"]
         SABIOS["Moncho, Poncho, Lola...<br/>src/core/prompt/roles/*.md"]
         
         ROUTER -- "Si es charla" --> RAYMON
         ROUTER -- "Menciones" --> SABIOS
-        RAYMON -- "Decide lanzar Sabios" --> TOOL_DIV["Bash Tool:<br/>tool_divergence_phase.sh"]
-        RAYMON -- "Decide lanzar Ejecutor" --> TOOL_SPAWN["Bash Tool:<br/>tool_spawn_executor.sh"]
-        RAYMON -- "Supervisa/Resucita" --> TOOL_MGMT["Bash Tools:<br/>check_status / resume"]
+        RAYMON -- "Decide lanzar Sabios" --> TOOL_DIV["Runtime nativo:<br/>divergence via engine"]
+        RAYMON -- "Decide lanzar Ejecutor" --> TOOL_SPAWN["Runtime nativo:<br/>spawn-session"]
+        RAYMON -- "Supervisa/Resucita" --> TOOL_MGMT["Runtime nativo:<br/>status / resume-session"]
     end
 
     %% ==========================================
@@ -38,16 +38,16 @@ graph TD
     subgraph ENGINE ["⚙️ RALPHITO ENGINE (El Nuevo Motor Core)"]
         
         %% Componente: CLI Nativa
-        CLI_ENGINE["CLI del Motor<br/>(src/features/engine/cli.ts)<br/>Comandos: spawn, kill, resume"]
+        CLI_ENGINE["CLI del Motor<br/>(src/core/engine/cli.ts)<br/>Comandos: spawn-session, resume-session, status"]
         
         %% Componente: Gestor de Worktrees
-        WT_MANAGER["Worktree Manager<br/>(src/features/engine/worktreeManager.ts)<br/>Crea y destruye entornos"]
+        WT_MANAGER["Worktree Manager<br/>(src/infrastructure/runtime/worktreeManager.ts)<br/>Crea y destruye entornos"]
         
         %% Componente: Bucle Autónomo
-        EXEC_LOOP["Executor Loop (El Bucle)<br/>(src/features/engine/executorLoop.ts)<br/>Bucle 'While' asíncrono"]
+        EXEC_LOOP["Executor Loop (El Bucle)<br/>(src/core/engine/executorLoop.ts)<br/>Bucle 'While' asíncrono"]
         
         %% Componente: Base de Datos
-        SQLITE[("SQLite (Single Source of Truth)<br/>src/features/persistence/db/")]
+        SQLITE[("SQLite (Single Source of Truth)<br/>src/infrastructure/persistence/db/")]
         
         %% Conexiones dentro del motor
         CLI_ENGINE -- "1. Escribe Estado" --> SQLITE
@@ -61,7 +61,7 @@ graph TD
     %% CAPA 4: EL GATEWAY Y LAS TOOLS DE IA
     %% ==========================================
     subgraph GATEWAY ["🌐 LLM GATEWAY & INYECCIÓN DE TOOLS"]
-        LLM["API Gateway<br/>(src/features/llm-gateway/server.ts)"]
+        LLM["API Gateway<br/>(src/app/server.ts)"]
         REGISTRY["Tool Registry dinámico<br/>(toolRegistry.ts)"]
         
         T_READ["readFileTool"]

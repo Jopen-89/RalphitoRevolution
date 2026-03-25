@@ -179,7 +179,7 @@ export function createDocumentToolDefinitions(): ToolDefinition[] {
         type: 'object',
         properties: {
           beadPath: { type: 'string', description: 'Ruta relativa del .md del bead' },
-          projectKey: { type: 'string', description: 'Project key (ej: test-opencode-spawn-fix)' },
+          projectKey: { type: 'string', description: 'Project key (ej: qa-pipeline-smoke)' },
           title: { type: 'string', description: 'Título de la task' },
           content: { type: 'string', description: 'Contenido markdown del bead' },
         },
