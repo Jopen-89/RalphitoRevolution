@@ -1,3 +1,5 @@
+import fs from 'fs';
+import { spawn } from 'child_process';
 import path from 'path';
 import type { Provider } from '../../gateway/interfaces/gateway.types.js';
 import { getRalphitoDatabasePath } from '../../infrastructure/persistence/db/index.js';
@@ -85,11 +87,9 @@ export function spawnRuntimeLoop(
   env: NodeJS.ProcessEnv = process.env,
 ) {
   const logPath = path.join(projectPath, 'ops', 'runtime', 'ralphito', `executor-${runtimeSessionId}.log`);
-  const fs = require('fs');
   const out = fs.openSync(logPath, 'a');
   const err = fs.openSync(logPath, 'a');
 
-  const { spawn } = require('child_process');
   const child = spawn(
     process.execPath,
     ['--import', 'tsx', path.join(projectPath, 'src/core/engine/cli.ts'), 'run-loop', runtimeSessionId],
