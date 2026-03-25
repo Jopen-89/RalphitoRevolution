@@ -287,7 +287,7 @@ app.post('/v1/chat', async (req, res) => {
     });
   }
 
-  let lastError: any = null;
+  let lastError: unknown = null;
 
   for (const attempt of attempts) {
     try {

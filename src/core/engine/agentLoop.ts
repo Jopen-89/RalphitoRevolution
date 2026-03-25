@@ -21,7 +21,7 @@ export const MAX_ITERATIONS = 120;
 export const MAX_COMMAND_TIME_MS = 600000;
 export const GATEWAY_URL = 'http://localhost:3005/v1/chat';
 export const MAX_FINISH_REPROMPTS = 3;
-export const MAX_TOOL_LEAK_REPROMPTS = 3;
+export const MAX_TOOL_LEAK_REPROMPTS = 2;
 
 const TOOL_MARKDOWN_BLOCK_PATTERN = /```(?:bash|sh|shell)\b/i;
 const TEXTUAL_TOOL_INVOCATION_PATTERN = /\b(?:execute_bash|read_file_raw|write_file_raw|finish_task)\s*\(/i;

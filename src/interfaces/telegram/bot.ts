@@ -218,8 +218,8 @@ for (const agent of agents) {
             console.log(`⚠️ Acceso denegado en comando /${agent.id}: El Chat ID ${chatId} no coincide con el permitido (${allowedChatId})`);
             return;
         }
-        // @ts-ignore
-        const text = ctx.message?.text || '';
+        const message = ctx.message as any;
+        const text = message?.text || '';
         const instruction = text.replace(new RegExp(`^/${agent.id}\\s*`, 'i'), '').trim();
         await processAgentRequest(ctx, agent, instruction);
     });
