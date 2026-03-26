@@ -423,14 +423,14 @@ export function renderDashboardPage() {
     }
 
     function formatAllowedToolsValue(tools) {
-      return Array.isArray(tools) ? tools.join('\n') : '';
+      return Array.isArray(tools) ? tools.join('|||') : '';
     }
 
     function formatFallbackDraftValue(fallbacks) {
       if (!Array.isArray(fallbacks) || fallbacks.length === 0) return '';
       return fallbacks.map((fallback) => {
         return fallback.provider + ':' + fallback.model + (fallback.providerProfile ? ('@' + fallback.providerProfile) : '');
-      }).join('\n');
+      }).join('|||');
     }
 
     function buildAgentDraft(agent) {
@@ -453,14 +453,14 @@ export function renderDashboardPage() {
 
     function parseMultilineList(value) {
       return String(value || '')
-        .split(/[,\n]/)
+        .split('|||')
         .map((item) => item.trim())
         .filter(Boolean);
     }
 
     function parseFallbackDraft(value) {
       const lines = String(value || '')
-        .split('\n')
+        .split('|||')
         .map((line) => line.trim())
         .filter(Boolean);
 
@@ -468,7 +468,7 @@ export function renderDashboardPage() {
       for (const line of lines) {
         const colonIndex = line.indexOf(':');
         if (colonIndex <= 0 || colonIndex === line.length - 1) {
-          return { error: 'Usa una linea por fallback con formato provider:model o provider:model@profile.' };
+          return { error: 'Separados por |||: provider:model o provider:model@profile.' };
         }
 
         const provider = line.slice(0, colonIndex).trim();
@@ -583,13 +583,13 @@ export function renderDashboardPage() {
                     '</div>' +
                     '<div class="field full">' +
                       '<label>Allowed Tools</label>' +
-                      '<textarea data-agent-field="allowedTools" data-agent-id="' + agent.agentId + '" placeholder="una tool por linea">' + escapeHtml(draft.allowedTools) + '</textarea>' +
+                      '<textarea data-agent-field="allowedTools" data-agent-id="' + agent.agentId + '" placeholder="tool1|||tool2|||tool3">' + escapeHtml(draft.allowedTools) + '</textarea>' +
                       '<small>Disponibles: ' + escapeHtml(state.agentMeta.toolNames.join(', ')) + '</small>' +
                     '</div>' +
                     '<div class="field full">' +
                       '<label>Fallbacks</label>' +
-                      '<textarea data-agent-field="fallbacks" data-agent-id="' + agent.agentId + '" placeholder="provider:model o provider:model@profile">' + escapeHtml(draft.fallbacks) + '</textarea>' +
-                      '<small>Formato por linea: <code>provider:model</code> o <code>provider:model@profile</code>.</small>' +
+                      '<textarea data-agent-field="fallbacks" data-agent-id="' + agent.agentId + '" placeholder="provider:model|||provider:model@profile">' + escapeHtml(draft.fallbacks) + '</textarea>' +
+                      '<small>Separados por <code>|||</code>: <code>provider:model</code> o <code>provider:model@profile</code>.</small>' +
                     '</div>' +
                   '</div>' +
                   (message ? '<div class="agent-message ' + escapeHtml(message.type) + '">' + escapeHtml(message.text) + '</div>' : '') +
