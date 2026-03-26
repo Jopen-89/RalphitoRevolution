@@ -8,35 +8,61 @@ import { AgentRegistryService } from '../services/AgentRegistry.js';
 import {
   closeRalphitoDatabase,
   initializeRalphitoDatabase,
+  resetRalphitoRepositories,
 } from '../../infrastructure/persistence/db/index.js';
 
 function createTempDirectory(prefix: string) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-function withTempDb<T>(fn: () => Promise<T> | T) {
+function withTempDb<T>(fn: (ctx: { repoRoot: string; worktreeRoot: string }) => Promise<T> | T) {
   const previousDbPath = process.env.RALPHITO_DB_PATH;
+  const previousRepoRoot = process.env.RALPHITO_REPO_ROOT;
+  const previousWorktreeRoot = process.env.RALPHITO_WORKTREE_ROOT;
+  const previousDefaultBranch = process.env.RALPHITO_DEFAULT_BRANCH;
   const tmpDir = createTempDirectory('rr-engine-config-');
+  const repoRoot = path.join(tmpDir, 'repo-root');
+  const worktreeRoot = path.join(tmpDir, 'worktrees-root');
   process.env.RALPHITO_DB_PATH = path.join(tmpDir, 'ralphito.sqlite');
+  process.env.RALPHITO_REPO_ROOT = repoRoot;
+  process.env.RALPHITO_WORKTREE_ROOT = worktreeRoot;
+  process.env.RALPHITO_DEFAULT_BRANCH = 'main';
   closeRalphitoDatabase();
+  resetRalphitoRepositories();
   initializeRalphitoDatabase();
   AgentRegistryService.sync();
 
   return Promise.resolve()
-    .then(() => fn())
+    .then(() => fn({ repoRoot, worktreeRoot }))
     .finally(() => {
       closeRalphitoDatabase();
+      resetRalphitoRepositories();
       if (previousDbPath) {
         process.env.RALPHITO_DB_PATH = previousDbPath;
       } else {
         delete process.env.RALPHITO_DB_PATH;
+      }
+      if (previousRepoRoot) {
+        process.env.RALPHITO_REPO_ROOT = previousRepoRoot;
+      } else {
+        delete process.env.RALPHITO_REPO_ROOT;
+      }
+      if (previousWorktreeRoot) {
+        process.env.RALPHITO_WORKTREE_ROOT = previousWorktreeRoot;
+      } else {
+        delete process.env.RALPHITO_WORKTREE_ROOT;
+      }
+      if (previousDefaultBranch) {
+        process.env.RALPHITO_DEFAULT_BRANCH = previousDefaultBranch;
+      } else {
+        delete process.env.RALPHITO_DEFAULT_BRANCH;
       }
       rmSync(tmpDir, { force: true, recursive: true });
     });
 }
 
 test('resolveEngineProjectConfig reads provider and model from agent_registry', async () => {
-  await withTempDb(() => {
+  await withTempDb(({ repoRoot, worktreeRoot }) => {
     AgentRegistryService.updateAgentConfig('default', {
       primary_provider: 'opencode',
       provider: 'opencode',
@@ -46,11 +72,13 @@ test('resolveEngineProjectConfig reads provider and model from agent_registry', 
     const config = resolveEngineProjectConfig('backend-team');
 
     assert.equal(config.id, 'backend-team');
+    assert.equal(config.canonicalId, 'system');
     assert.equal(config.agent, 'opencode');
     assert.equal(config.provider, 'opencode');
     assert.equal(config.model, 'minimax-m2.7');
-    assert.equal(config.path, process.cwd());
-    assert.ok(config.worktreeRoot.endsWith(path.join('.ralphito', 'worktrees')));
+    assert.equal(config.path, repoRoot);
+    assert.equal(config.worktreeRoot, worktreeRoot);
+    assert.equal(config.defaultBranch, 'main');
     assert.equal(config.agentRulesFile, 'AGENTS.md');
   });
 });

@@ -6,6 +6,7 @@ import path from 'path';
 import {
   closeRalphitoDatabase,
   initializeRalphitoDatabase,
+  resetRalphitoRepositories,
 } from '../../infrastructure/persistence/db/index.js';
 import { findRuntimeTaskLink, syncRuntimeTaskLink } from './runtimeTaskLinking.js';
 
@@ -19,12 +20,14 @@ function withTempDatabase<T>(fn: () => Promise<T> | T) {
 
   process.env.RALPHITO_DB_PATH = path.join(runtimeRoot, 'ops', 'runtime', 'ralphito', 'ralphito.sqlite');
   closeRalphitoDatabase();
+  resetRalphitoRepositories();
   initializeRalphitoDatabase();
 
   return Promise.resolve()
     .then(() => fn())
     .finally(() => {
       closeRalphitoDatabase();
+      resetRalphitoRepositories();
       if (previousDbPath) {
         process.env.RALPHITO_DB_PATH = previousDbPath;
       } else {

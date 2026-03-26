@@ -3,6 +3,7 @@ import path from 'path';
 import type { Provider } from '../domain/gateway.types.js';
 import { DEFAULT_RALPHITO_HOME_DIRNAME, ENGINE_WORKTREE_ROOT } from '../domain/constants.js';
 import { AgentRegistryService } from './AgentRegistry.js';
+import { getRalphitoRepositories } from '../../infrastructure/persistence/db/index.js';
 
 const FALLBACK_PROVIDER: Provider = 'opencode';
 const FALLBACK_MODEL = 'minimax-m2.7';
@@ -11,6 +12,12 @@ const DEFAULT_EXECUTION_AGENT = 'opencode';
 const DEFAULT_BRANCH = process.env.RALPHITO_DEFAULT_BRANCH?.trim() || 'master';
 
 const PROJECT_ALIASES: Record<string, string> = {
+  'backend-team': 'system',
+  'frontend-team': 'system',
+  'devops-team': 'system',
+};
+
+const PROJECT_AGENT_ALIASES: Record<string, string> = {
   'backend-team': 'default',
   'frontend-team': 'default',
   'devops-team': 'default',
@@ -68,20 +75,25 @@ export class ProjectService {
   static resolve(projectId: string): EngineProjectConfig {
     const normalizedId = normalizeProjectId(projectId);
     const canonicalId = PROJECT_ALIASES[normalizedId] || normalizedId;
-    const agent = AgentRegistryService.getById(canonicalId);
-    const repoRoot = resolveRepoRoot();
+    const agentConfigId = PROJECT_AGENT_ALIASES[normalizedId] || canonicalId;
+    const project = getRalphitoRepositories().projects.getById(canonicalId);
+    const agent = AgentRegistryService.getById(agentConfigId);
+    const repoRoot = project?.repoPath || resolveRepoRoot();
+    const worktreeRoot = project?.worktreeRoot || resolveBaseWorktreeRoot();
+    const defaultBranch = project?.defaultBranch || DEFAULT_BRANCH;
+    const agentRulesFile = project?.agentRulesFile || DEFAULT_RULES_FILE;
 
     if (!agent) {
       return {
         id: normalizedId,
-        name: projectId,
+        name: project?.name || projectId,
         canonicalId,
         aliases: listAliasesFor(canonicalId),
         sessionPrefix: deriveSessionPrefix(normalizedId),
         path: repoRoot,
-        worktreeRoot: resolveBaseWorktreeRoot(),
-        defaultBranch: DEFAULT_BRANCH,
-        agentRulesFile: DEFAULT_RULES_FILE,
+        worktreeRoot,
+        defaultBranch,
+        agentRulesFile,
         agent: DEFAULT_EXECUTION_AGENT,
         provider: FALLBACK_PROVIDER,
         model: FALLBACK_MODEL,
@@ -90,14 +102,14 @@ export class ProjectService {
 
     return {
       id: normalizedId,
-      name: normalizedId === canonicalId ? agent.name : projectId,
+      name: normalizedId === canonicalId ? (project?.name || agent.name) : projectId,
       canonicalId,
       aliases: listAliasesFor(canonicalId),
       sessionPrefix: agent.session_prefix || deriveSessionPrefix(canonicalId),
       path: repoRoot,
-      worktreeRoot: resolveBaseWorktreeRoot(),
-      defaultBranch: DEFAULT_BRANCH,
-      agentRulesFile: DEFAULT_RULES_FILE,
+      worktreeRoot,
+      defaultBranch,
+      agentRulesFile,
       agent: DEFAULT_EXECUTION_AGENT,
       provider: (agent.primary_provider as Provider) || (agent.provider as Provider) || FALLBACK_PROVIDER,
       model: agent.model || FALLBACK_MODEL,

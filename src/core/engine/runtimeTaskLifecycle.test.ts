@@ -6,6 +6,7 @@ import path from 'path';
 import {
   closeRalphitoDatabase,
   initializeRalphitoDatabase,
+  resetRalphitoRepositories,
 } from '../../infrastructure/persistence/db/index.js';
 import { ExecutorLoop } from './executorLoop.js';
 import { getRuntimeLockRepository, resetRuntimeLockRepository } from './runtimeLockRepository.js';
@@ -23,6 +24,7 @@ function withTempRuntime<T>(fn: () => Promise<T> | T) {
 
   process.env.RALPHITO_DB_PATH = path.join(runtimeRoot, 'ops', 'runtime', 'ralphito', 'ralphito.sqlite');
   closeRalphitoDatabase();
+  resetRalphitoRepositories();
   resetRuntimeSessionRepository();
   resetRuntimeLockRepository();
   initializeRalphitoDatabase();
@@ -31,6 +33,7 @@ function withTempRuntime<T>(fn: () => Promise<T> | T) {
     .then(() => fn())
     .finally(() => {
       closeRalphitoDatabase();
+      resetRalphitoRepositories();
       resetRuntimeSessionRepository();
       resetRuntimeLockRepository();
       if (previousDbPath) {

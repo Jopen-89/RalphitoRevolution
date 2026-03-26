@@ -1,6 +1,8 @@
 import Database from 'better-sqlite3';
+import os from 'os';
 import { mkdirSync } from 'fs';
 import path from 'path';
+import { DEFAULT_RALPHITO_HOME_DIRNAME, ENGINE_WORKTREE_ROOT } from '../../../core/domain/constants.js';
 import { ralphitoMigrations } from './migrations.js';
 
 type RalphitoDatabase = InstanceType<typeof Database>;
@@ -15,6 +17,27 @@ interface AppliedMigrationRow {
 
 function getDatabasePath() {
   return process.env.RALPHITO_DB_PATH || DEFAULT_DB_PATH;
+}
+
+function resolveRepoRoot() {
+  const configured = process.env.RALPHITO_REPO_ROOT?.trim();
+  return path.resolve(configured || process.cwd());
+}
+
+function resolveRalphitoHomeRoot() {
+  const configured = process.env.RALPHITO_HOME?.trim();
+  if (configured) return path.resolve(configured);
+  return path.join(os.homedir(), DEFAULT_RALPHITO_HOME_DIRNAME);
+}
+
+function resolveWorktreeRoot() {
+  const configured = process.env.RALPHITO_WORKTREE_ROOT?.trim();
+  if (configured) return path.resolve(configured);
+  return path.join(resolveRalphitoHomeRoot(), ENGINE_WORKTREE_ROOT);
+}
+
+function resolveDefaultBranch() {
+  return process.env.RALPHITO_DEFAULT_BRANCH?.trim() || 'master';
 }
 
 export function getRalphitoDatabasePath() {
@@ -69,6 +92,47 @@ function runMigrations(db: RalphitoDatabase) {
   }
 }
 
+function seedSystemProject(db: RalphitoDatabase) {
+  const now = new Date().toISOString();
+
+  db.prepare(
+    `
+      INSERT INTO projects (
+        project_id,
+        name,
+        kind,
+        repo_path,
+        worktree_root,
+        default_branch,
+        agent_rules_file,
+        is_active,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      ON CONFLICT(project_id)
+      DO UPDATE SET
+        name = excluded.name,
+        kind = excluded.kind,
+        repo_path = excluded.repo_path,
+        worktree_root = excluded.worktree_root,
+        default_branch = excluded.default_branch,
+        agent_rules_file = excluded.agent_rules_file,
+        is_active = excluded.is_active,
+        updated_at = excluded.updated_at
+    `,
+  ).run(
+    'system',
+    'Ralphito System',
+    'system',
+    resolveRepoRoot(),
+    resolveWorktreeRoot(),
+    resolveDefaultBranch(),
+    'AGENTS.md',
+    now,
+    now,
+  );
+}
+
 export function initializeRalphitoDatabase(): RalphitoDatabase {
   if (database) return database;
 
@@ -78,6 +142,7 @@ export function initializeRalphitoDatabase(): RalphitoDatabase {
   const db = new Database(databasePath);
   applyPragmas(db);
   runMigrations(db);
+  seedSystemProject(db);
 
   database = db;
 

@@ -1,8 +1,7 @@
 import path from 'path';
-import { refreshRuntimeSessionSummary, refreshTaskSummary } from '../services/summaryService.js';
-import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 import type { RalphitoTaskStatus } from '../services/taskStateService.js';
 import { ProjectService } from '../services/ProjectService.js';
+import { BeadLifecycleService, type LifecycleTaskRecord } from '../services/BeadLifecycleService.js';
 
 export interface RuntimeTaskLinkInput {
   runtimeSessionId: string;
@@ -23,7 +22,7 @@ export interface RuntimeTaskLinkRecord {
   sourceSpecPath: string | null;
 }
 
-function mapTaskRow(row: Record<string, unknown> | undefined): RuntimeTaskLinkRecord | null {
+function mapTaskRow(row: Record<string, unknown> | LifecycleTaskRecord | null | undefined): RuntimeTaskLinkRecord | null {
   if (!row) return null;
 
   return {
@@ -51,48 +50,12 @@ export function deriveRuntimeTaskTitle(beadPath?: string | null) {
 }
 
 export function findRuntimeTaskLink(input: RuntimeTaskLinkInput): RuntimeTaskLinkRecord | null {
-  const db = getRalphitoDatabase();
-
-  const linkedTask = mapTaskRow(
-    db
-      .prepare(
-        `
-          SELECT
-            id,
-            title,
-            status,
-            assigned_agent AS assignedAgent,
-            runtime_session_id AS runtimeSessionId,
-            source_spec_path AS sourceSpecPath
-          FROM tasks
-          WHERE runtime_session_id = ?
-          LIMIT 1
-        `,
-      )
-      .get(input.runtimeSessionId) as Record<string, unknown> | undefined,
-  );
+  const linkedTask = mapTaskRow(BeadLifecycleService.resolveTask({ runtimeSessionId: input.runtimeSessionId }));
 
   if (linkedTask) return linkedTask;
 
   if (input.workItemKey) {
-    const workItemTask = mapTaskRow(
-      db
-        .prepare(
-          `
-            SELECT
-              id,
-              title,
-              status,
-              assigned_agent AS assignedAgent,
-              runtime_session_id AS runtimeSessionId,
-              source_spec_path AS sourceSpecPath
-            FROM tasks
-            WHERE id = ?
-            LIMIT 1
-          `,
-        )
-        .get(input.workItemKey) as Record<string, unknown> | undefined,
-    );
+    const workItemTask = mapTaskRow(BeadLifecycleService.resolveTask({ taskId: input.workItemKey }));
 
     if (workItemTask) return workItemTask;
   }
@@ -101,23 +64,10 @@ export function findRuntimeTaskLink(input: RuntimeTaskLinkInput): RuntimeTaskLin
   if (!sourceSpecPath) return null;
 
   return mapTaskRow(
-    db
-      .prepare(
-        `
-          SELECT
-            id,
-            title,
-            status,
-            assigned_agent AS assignedAgent,
-            runtime_session_id AS runtimeSessionId,
-            source_spec_path AS sourceSpecPath
-          FROM tasks
-          WHERE source_spec_path = ?
-          ORDER BY updated_at DESC, id DESC
-          LIMIT 1
-        `,
-      )
-      .get(sourceSpecPath) as Record<string, unknown> | undefined,
+    BeadLifecycleService.resolveTask({
+      ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
+      beadPath: sourceSpecPath,
+    }),
   );
 }
 
@@ -125,46 +75,15 @@ export function syncRuntimeTaskLink(input: RuntimeTaskLinkInput): RuntimeTaskLin
   const task = findRuntimeTaskLink(input);
   if (!task || !input.status) return task;
 
-  const db = getRalphitoDatabase();
-  const now = new Date().toISOString();
-  const sourceSpecPath = resolveRuntimeTaskSourceSpecPath(input.projectId, input.beadPath);
-  const completedAt = input.status === 'done' ? now : null;
-  const eventPayload = JSON.stringify({
-    sourceSpecPath,
-    beadPath: input.beadPath || null,
-    assignedAgent: input.assignedAgent || null,
-    runtimeSessionId: input.runtimeSessionId,
-    failureReason: input.failureReason || null,
+  const updated = BeadLifecycleService.transitionTask({
+    taskId: task.id,
     status: input.status,
+    ...(input.projectId ? { projectId: input.projectId } : {}),
+    ...(input.assignedAgent ? { assignedAgent: input.assignedAgent } : {}),
+    ...(input.runtimeSessionId ? { runtimeSessionIdToSet: input.runtimeSessionId } : {}),
+    ...(input.beadPath ? { beadPath: input.beadPath } : {}),
+    ...(input.failureReason ? { failureReason: input.failureReason } : {}),
   });
 
-  db.prepare(
-    `
-      UPDATE tasks
-      SET status = ?,
-          assigned_agent = COALESCE(?, assigned_agent),
-          runtime_session_id = ?,
-          source_spec_path = COALESCE(source_spec_path, ?),
-          updated_at = ?,
-          completed_at = ?
-      WHERE id = ?
-    `,
-  ).run(
-    input.status,
-    input.assignedAgent || null,
-    input.runtimeSessionId,
-    sourceSpecPath,
-    now,
-    completedAt,
-    task.id,
-  );
-
-  db.prepare(
-    'INSERT INTO task_events (task_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)',
-  ).run(task.id, 'status_changed', eventPayload, now);
-
-  refreshTaskSummary(task.id);
-  refreshRuntimeSessionSummary(input.runtimeSessionId);
-
-  return findRuntimeTaskLink(input);
+  return mapTaskRow(updated);
 }

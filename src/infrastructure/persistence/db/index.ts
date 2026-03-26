@@ -4,4 +4,4 @@ export {
   getRalphitoDatabasePath,
   initializeRalphitoDatabase,
 } from './client.js';
-export { getRalphitoRepositories, type RalphitoRepositories } from './repositories.js';
+export { getRalphitoRepositories, resetRalphitoRepositories, type RalphitoRepositories } from './repositories.js';
