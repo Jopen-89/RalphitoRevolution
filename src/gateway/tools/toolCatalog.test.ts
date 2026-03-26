@@ -7,6 +7,7 @@ import { AgentRegistryService } from '../../core/services/AgentRegistry.js';
 import {
   closeRalphitoDatabase,
   initializeRalphitoDatabase,
+  resetRalphitoRepositories,
 } from '../../infrastructure/persistence/db/index.js';
 import { createDocumentTools } from './documentTools.js';
 import { createAllToolDefinitions, resolveAllowedToolDefinitions } from './toolCatalog.js';
@@ -17,9 +18,13 @@ function createTempDirectory(prefix: string) {
 
 function withTempDb<T>(fn: () => Promise<T> | T) {
   const previousDbPath = process.env.RALPHITO_DB_PATH;
+  const previousRepoRoot = process.env.RALPHITO_REPO_ROOT;
   const tmpDir = createTempDirectory('rr-tool-catalog-');
+  const repoRoot = path.join(tmpDir, 'repo-root');
   process.env.RALPHITO_DB_PATH = path.join(tmpDir, 'ralphito.sqlite');
+  process.env.RALPHITO_REPO_ROOT = repoRoot;
   closeRalphitoDatabase();
+  resetRalphitoRepositories();
   initializeRalphitoDatabase();
   AgentRegistryService.sync();
 
@@ -27,10 +32,16 @@ function withTempDb<T>(fn: () => Promise<T> | T) {
     .then(() => fn())
     .finally(() => {
       closeRalphitoDatabase();
+      resetRalphitoRepositories();
       if (previousDbPath) {
         process.env.RALPHITO_DB_PATH = previousDbPath;
       } else {
         delete process.env.RALPHITO_DB_PATH;
+      }
+      if (previousRepoRoot) {
+        process.env.RALPHITO_REPO_ROOT = previousRepoRoot;
+      } else {
+        delete process.env.RALPHITO_REPO_ROOT;
       }
       rmSync(tmpDir, { force: true, recursive: true });
     });
@@ -94,4 +105,48 @@ test('inspect_workspace_path verifica disco real', async () => {
   };
   assert.equal(missing.exists, false);
   assert.equal(missing.kind, 'missing');
+});
+
+test('write_bead_document crea task via lifecycle unificado', async () => {
+  await withTempDb(async () => {
+    const tool = createDocumentTools().find((item) => item.name === 'write_bead_document');
+    assert.ok(tool, 'write_bead_document tool missing');
+
+    const result = await tool.execute({
+      beadPath: 'projects/system/test-bead.md',
+      projectKey: 'system',
+      title: 'Test bead task',
+      content: '# Test bead\n',
+    }) as { filePath: string; taskId: string; success: boolean };
+
+    const db = initializeRalphitoDatabase();
+    const task = db
+      .prepare(
+        `
+          SELECT
+            project_id AS projectId,
+            bead_path AS beadPath,
+            source_spec_path AS sourceSpecPath,
+            status
+          FROM tasks
+          WHERE id = ?
+        `,
+      )
+      .get(result.taskId) as {
+      projectId: string | null;
+      beadPath: string | null;
+      sourceSpecPath: string | null;
+      status: string;
+    };
+    const event = db
+      .prepare('SELECT event_type AS eventType FROM task_events WHERE task_id = ? ORDER BY id ASC LIMIT 1')
+      .get(result.taskId) as { eventType: string };
+
+    assert.equal(result.success, true);
+    assert.equal(task.projectId, 'system');
+    assert.equal(task.beadPath, result.filePath);
+    assert.equal(task.sourceSpecPath, result.filePath);
+    assert.equal(task.status, 'pending');
+    assert.equal(event.eventType, 'task_created');
+  });
 });

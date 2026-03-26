@@ -1,11 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { getRalphitoRepositories } from '../../infrastructure/persistence/db/index.js';
 import type { Tool } from './toolRegistry.js';
 import type { ToolDefinition } from '../../core/domain/gateway.types.js';
 import { GitService } from './git/gitService.js';
 import { requireString, resolvePathInsideRoot } from './filesystem/pathSafety.js';
+import { BeadLifecycleService } from '../../core/services/BeadLifecycleService.js';
 
 const REPO_ROOT = '/home/pepu/IAproject/RalphitoRevolution';
 const SPECS_PREFIX = path.join(REPO_ROOT, 'docs', 'specs');
@@ -87,7 +87,7 @@ export function createDocumentTools(worktreePath?: string): Tool[] {
     {
       name: 'write_bead_document',
       description:
-        'Guarda un archivo .md de Bead en docs/specs/projects/<project>/ y registra la Task directamente en SQLite usando TaskRepository.',
+        'Guarda un archivo .md de Bead en docs/specs/projects/<project>/ y registra la Task en SQLite usando el lifecycle unificado.',
       execute: async (params: Record<string, unknown>) => {
         const beadPath = requireString(params.beadPath, 'beadPath');
         const projectKey = requireString(params.projectKey, 'projectKey');
@@ -108,14 +108,14 @@ export function createDocumentTools(worktreePath?: string): Tool[] {
           console.warn(`Failed to git add ${fullPath}`, error);
         }
 
-        const repos = getRalphitoRepositories();
         const taskId = randomUUID();
-        repos.tasks.create({
-          id: taskId,
+        BeadLifecycleService.createTask({
+          taskId,
+          projectId: projectKey,
           projectKey,
           title,
           sourceSpecPath: fullPath,
-          status: 'pending',
+          beadPath: fullPath,
         });
 
         return {
