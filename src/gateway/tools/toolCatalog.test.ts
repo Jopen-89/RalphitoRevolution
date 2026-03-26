@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'os';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { mkdtempSync, rmSync } from 'fs';
 import { AgentRegistryService } from '../../core/services/AgentRegistry.js';
 import {
@@ -23,6 +24,7 @@ function withTempDb<T>(fn: () => Promise<T> | T) {
   const repoRoot = path.join(tmpDir, 'repo-root');
   process.env.RALPHITO_DB_PATH = path.join(tmpDir, 'ralphito.sqlite');
   process.env.RALPHITO_REPO_ROOT = repoRoot;
+  execFileSync('git', ['init', repoRoot], { stdio: 'ignore' });
   closeRalphitoDatabase();
   resetRalphitoRepositories();
   initializeRalphitoDatabase();

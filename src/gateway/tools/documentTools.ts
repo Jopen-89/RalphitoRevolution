@@ -7,8 +7,10 @@ import { GitService } from './git/gitService.js';
 import { requireString, resolvePathInsideRoot } from './filesystem/pathSafety.js';
 import { BeadLifecycleService } from '../../core/services/BeadLifecycleService.js';
 
-const REPO_ROOT = '/home/pepu/IAproject/RalphitoRevolution';
-const SPECS_PREFIX = path.join(REPO_ROOT, 'docs', 'specs');
+function resolveDocumentRepoRoot() {
+  const configured = process.env.RALPHITO_REPO_ROOT?.trim();
+  return path.resolve(configured || process.cwd());
+}
 
 function optionalString(value: unknown): string | undefined {
   if (typeof value === 'string' && value.trim()) return value;
@@ -28,7 +30,7 @@ export function isDocumentToolName(name: string): name is DocumentToolName {
 }
 
 export function createDocumentTools(worktreePath?: string): Tool[] {
-  const activeRoot = worktreePath || REPO_ROOT;
+  const activeRoot = path.resolve(worktreePath || resolveDocumentRepoRoot());
   const activeSpecsPrefix = path.join(activeRoot, 'docs', 'specs');
   const git = new GitService(activeRoot);
 
