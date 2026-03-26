@@ -50,7 +50,9 @@ export async function invokeAgentInChatThread(
   const sanitizedResponse = sanitizeTelegramVisibleText(result.response);
 
   if (result.sessionId) {
-    convStore.setConversationSessionId(input.chatId, input.agent.id, result.sessionId);
+    convStore.setConversationSessionId(input.chatId, input.agent.id, {
+      sessionId: result.sessionId,
+    });
   }
 
   await deps.publishAgentReply(input.chatId, input.statusMessageId, input.agent, sanitizedResponse);

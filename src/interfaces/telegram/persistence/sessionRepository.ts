@@ -1,10 +1,15 @@
-import type { AddHistoryMessageInput } from '../telegramStateRepository.js';
+import type {
+  AddHistoryMessageInput,
+  ConversationSessionContext,
+  SetConversationSessionInput,
+} from '../telegramStateRepository.js';
 import { getTelegramStateRepository } from '../telegramStateRepository.js';
 
 export interface SessionRepository {
   getThreadId(chatId: string): number | null;
+  getConversationSessionContext(chatId: string, agentId: string): ConversationSessionContext | null;
   getConversationSessionId(chatId: string, agentId: string): string | null;
-  setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string, updatedAt?: string): void;
+  setConversationSessionId(chatId: string, agentId: string, input: SetConversationSessionInput): void;
   setMessageAgentRoute(chatId: string, messageId: number, agentId: string, updatedAt?: string): void;
   getAgentRouteForMessage(chatId: string, messageId: number): string | null;
   setActiveAgent(chatId: string, agentId: string, updatedAt?: string): void;
@@ -26,8 +31,12 @@ export class SQLiteSessionRepository implements SessionRepository {
     return this.repository.getConversationSessionId(chatId, agentId);
   }
 
-  setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string, updatedAt?: string) {
-    this.repository.setConversationSessionId(chatId, agentId, sessionId, baseCommitHash, updatedAt);
+  getConversationSessionContext(chatId: string, agentId: string) {
+    return this.repository.getConversationSessionContext(chatId, agentId);
+  }
+
+  setConversationSessionId(chatId: string, agentId: string, input: SetConversationSessionInput) {
+    this.repository.setConversationSessionId(chatId, agentId, input);
   }
 
   setMessageAgentRoute(chatId: string, messageId: number, agentId: string, updatedAt?: string) {
@@ -72,4 +81,8 @@ export function getSessionRepository(): SessionRepository {
   return sessionRepository;
 }
 
-export type { AddHistoryMessageInput };
+export function resetSessionRepository() {
+  sessionRepository = null;
+}
+
+export type { AddHistoryMessageInput, ConversationSessionContext, SetConversationSessionInput };

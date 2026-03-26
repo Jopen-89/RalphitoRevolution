@@ -8,7 +8,8 @@ import {
   initializeRalphitoDatabase,
   resetRalphitoRepositories,
 } from '../../infrastructure/persistence/db/index.js';
-import { ExecutorLoop } from './executorLoop.js';
+import { getEngineNotificationRepository, resetEngineNotificationRepository } from '../services/EventBus.js';
+import { SessionLoop } from './sessionLoop.js';
 import { getRuntimeLockRepository, resetRuntimeLockRepository } from './runtimeLockRepository.js';
 import { SessionSupervisor } from '../services/SessionManager.js';
 import { getRuntimeSessionRepository, resetRuntimeSessionRepository } from './runtimeSessionRepository.js';
@@ -20,13 +21,16 @@ function createTempDirectory(prefix: string) {
 
 function withTempRuntime<T>(fn: () => Promise<T> | T) {
   const previousDbPath = process.env.RALPHITO_DB_PATH;
+  const previousDisableNotificationKick = process.env.RALPHITO_DISABLE_NOTIFICATION_KICK;
   const runtimeRoot = createTempDirectory('rr-runtime-task-lifecycle-');
 
   process.env.RALPHITO_DB_PATH = path.join(runtimeRoot, 'ops', 'runtime', 'ralphito', 'ralphito.sqlite');
+  process.env.RALPHITO_DISABLE_NOTIFICATION_KICK = '1';
   closeRalphitoDatabase();
   resetRalphitoRepositories();
   resetRuntimeSessionRepository();
   resetRuntimeLockRepository();
+  resetEngineNotificationRepository();
   initializeRalphitoDatabase();
 
   return Promise.resolve()
@@ -36,10 +40,16 @@ function withTempRuntime<T>(fn: () => Promise<T> | T) {
       resetRalphitoRepositories();
       resetRuntimeSessionRepository();
       resetRuntimeLockRepository();
+      resetEngineNotificationRepository();
       if (previousDbPath) {
         process.env.RALPHITO_DB_PATH = previousDbPath;
       } else {
         delete process.env.RALPHITO_DB_PATH;
+      }
+      if (previousDisableNotificationKick) {
+        process.env.RALPHITO_DISABLE_NOTIFICATION_KICK = previousDisableNotificationKick;
+      } else {
+        delete process.env.RALPHITO_DISABLE_NOTIFICATION_KICK;
       }
       rmSync(runtimeRoot, { force: true, recursive: true });
     });
@@ -237,7 +247,7 @@ test('ExecutorLoop marca done la task ligada cuando el landing cierra bien', asy
       updatedAt: now,
     });
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       {
         async isAlive() {
           return false;
@@ -278,10 +288,13 @@ test('ExecutorLoop marca done la task ligada cuando el landing cierra bien', asy
         `,
       )
       .get('task-done-link') as { status: string; runtimeSessionId: string | null };
+    const notifications = getEngineNotificationRepository().listAll();
 
     assert.equal(result.terminalStatus, 'done');
     assert.equal(task.status, 'done');
     assert.equal(task.runtimeSessionId, runtimeSessionId);
+    assert.equal(notifications[0]?.eventType, 'session.synced');
+    assert.equal(notifications[0]?.runtimeSessionId, runtimeSessionId);
 
     rmSync(worktreePath, { force: true, recursive: true });
   });

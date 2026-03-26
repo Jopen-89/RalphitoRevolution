@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import path from 'path';
 import type { Provider } from '../domain/gateway.types.js';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
@@ -31,6 +30,7 @@ import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
 import { resolveWriteScopeTargetsFromBeadFile } from '../engine/writeScope.js';
 import { RuntimeReaper } from '../engine/runtimeReaper.js';
+import { WorktreeProvisioningService } from './WorktreeProvisioningService.js';
 
 export interface SpawnRuntimeSessionInput {
   project: string;
@@ -57,10 +57,6 @@ function resolveBeadPath(repoRoot: string, beadPath: string | undefined) {
   if (!beadPath) return null;
   const candidate = path.isAbsolute(beadPath) ? beadPath : path.join(repoRoot, beadPath);
   return candidate;
-}
-
-function createRuntimeSessionId(sessionPrefix: string) {
-  return `${sessionPrefix}-${Date.now().toString(36)}-${randomUUID().slice(0, 6)}`;
 }
 
 function ensureRuntimeThread(runtimeSessionId: string) {
@@ -115,6 +111,7 @@ export class SessionSupervisor {
       wtManager: WorktreeManager,
       tmux: TmuxRuntime,
     ) => new RuntimeReaper(sessionRepo, lockRepo, wtManager, tmux),
+    private readonly worktreeProvisioningService = new WorktreeProvisioningService(commandRunner),
   ) {}
 
   async spawn(input: SpawnRuntimeSessionInput) {
@@ -132,25 +129,29 @@ export class SessionSupervisor {
     );
     await reaper.reap();
 
-    const runtimeSessionId = createRuntimeSessionId(project.sessionPrefix);
-    const branchName = `jopen/${runtimeSessionId}`;
     const beadPath = resolveBeadPath(project.path, input.beadPath);
     const provider = input.provider || project.provider;
     const model = input.model || (input.provider && project.agent === 'opencode' ? null : project.model);
     const maxSteps = DEFAULT_RUNTIME_MAX_STEPS;
     const maxWallTimeMs = DEFAULT_RUNTIME_MAX_WALL_TIME_MS;
     const maxCommandTimeMs = DEFAULT_RUNTIME_MAX_COMMAND_TIME_MS;
+    let runtimeSessionId = '';
+    let branchName = '';
+    let baseCommitHash = '';
     let worktreePath: string | null = null;
     let tmuxCreated = false;
 
     try {
-      const { stdout } = await this.commandRunner.run('git', ['rev-parse', 'HEAD'], {
-        cwd: project.path,
+      const provisioned = await this.worktreeProvisioningService.provision({
+        project,
+        worktreeManager,
       });
-      const baseCommitHash = stdout.trim();
+      runtimeSessionId = provisioned.runtimeSessionId;
+      branchName = provisioned.branchName;
+      baseCommitHash = provisioned.baseCommitHash;
+      worktreePath = provisioned.worktreePath;
       const createdAt = new Date().toISOString();
 
-      worktreePath = await worktreeManager.createWorkspace(runtimeSessionId, baseCommitHash, branchName);
       const enginePrompt = buildEnginePrompt(project, input.prompt, branchName);
       const threadId = ensureRuntimeThread(runtimeSessionId);
 

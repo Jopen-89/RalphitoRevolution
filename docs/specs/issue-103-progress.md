@@ -27,20 +27,44 @@ PR: `#104`
   - `set_task_priority` for Raymon
   - agent permission updates for Poncho and Raymon
 
-## Remaining work after Stage 2
+## Stage 4
 
-- Stage 3: dynamic worktree isolation and session persistence for worktree paths
-- Stage 4: proactive async executor flow and legacy executor shutdown
-- Stage 5: final validation, cleanup, and landing flow
+- Status: completed on branch
+- Delivered:
+  - Stage 4 contract spec in `docs/specs/issue-103-stage4-proactive-execution.md`
+  - Raymon tool rename from legacy `*_executor` names to session-centric runtime tools
+  - detached runtime `session loop` naming in active CLI/runtime surfaces
+  - removal of active `scripts/resume.sh` wrapper in favor of native `cli.ts resume-session`
+  - compatibility shim export for legacy `ExecutorLoop` imports while active runtime uses `SessionLoop`
+  - runtime project resolution hardened against transient closed-DB reads in loop/resume flows
+
+## Stage 5
+
+- Status: completed on branch
+- Delivered:
+  - Stage 5 contract spec in `docs/specs/issue-103-stage5-validation-landing.md`
+  - canonical landing ownership moved so `finish_task` requests landing while `SessionLoop` decides final `done`
+  - `session.synced` notification emitted only after landing verification passes
+  - managed worktree cleanup after verified successful landing
+  - bounded auto-resume for deterministic guardrail and rebase failures on the same worktree
+  - terminal guardrail notification when auto-resume budget is exhausted
+
+## Remaining work after Stage 5
+
+- Landing to canonical git state for this issue branch: commit, push, PR, merge
 
 ## Validation snapshot
 
-- Focused tests passing for Stage 1 and Stage 2 flows on this branch
-- Latest Stage 2 validation includes:
+- Focused tests passing for Stage 5 runtime/tooling flows on this branch
+- Latest Stage 5 validation includes:
+  - `src/core/engine/runtimeLaunch.test.ts`
+  - `src/core/engine/runtimePhase3.test.ts`
+  - `src/core/engine/runtimePhase5.test.ts`
+  - `src/core/engine/runtimeTaskLifecycle.test.ts`
+  - `src/gateway/tools/filesystem/systemTools.test.ts`
   - `src/gateway/tools/raymonTools.test.ts`
   - `src/gateway/tools/toolCatalog.test.ts`
   - `src/core/services/AgentRegistry.test.ts`
-  - `src/core/domain/bead.types.test.ts`
 
 ## Resume instructions
 
@@ -49,4 +73,7 @@ PR: `#104`
   - `docs/specs/issue-103-progress.md`
   - `docs/specs/issue-103-stage1-foundation.md`
   - `docs/specs/issue-103-stage2-design-contract.md`
-- Next implementation target: Stage 3 worktree isolation
+  - `docs/specs/issue-103-stage3-worktree-isolation.md`
+  - `docs/specs/issue-103-stage4-proactive-execution.md`
+  - `docs/specs/issue-103-stage5-validation-landing.md`
+- Next implementation target: landing this branch to canonical git state

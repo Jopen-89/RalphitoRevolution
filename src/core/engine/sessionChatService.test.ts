@@ -147,6 +147,8 @@ test('getSessionChat resuelve beadId y title usando beadPath cuando runtime_sess
     assert.equal(sessionChat.notificationChatId, 'chat-notify');
     assert.equal(sessionChat.beadId, 'task-chat');
     assert.equal(sessionChat.title, 'Prueba de Engine 02');
+    assert.equal(sessionChat.worktreePath, worktreePath);
+    assert.equal(sessionChat.branchName, 'jopen/be-session-chat');
     assert.equal(sessionChat.hasGuardrailError, false);
 
     rmSync(worktreePath, { force: true, recursive: true });

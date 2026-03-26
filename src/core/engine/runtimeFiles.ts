@@ -31,6 +31,7 @@ export interface RuntimeSessionFileRecord {
   qaConfig: unknown;
   originThreadId: number | null;
   notificationChatId: string | null;
+  autoResumeAttempts?: Record<string, number>;
   maxSteps: number;
   maxWallTimeMs: number;
   maxCommandTimeMs: number;

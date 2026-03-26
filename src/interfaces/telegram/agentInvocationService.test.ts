@@ -6,6 +6,8 @@ import test from 'node:test';
 import type { AgentInfo } from './agentRegistry.js';
 import { invokeAgentInChatThread } from './agentInvocationService.js';
 import { getConversationSessionId, getRecentActiveAgent, getRecentChatHistory } from './conversationStore.js';
+import { resetSessionRepository } from './persistence/sessionRepository.js';
+import { resetTelegramStateRepository } from './telegramStateRepository.js';
 import {
   closeRalphitoDatabase,
   initializeRalphitoDatabase,
@@ -20,12 +22,16 @@ function withTempDb<T>(fn: () => Promise<T> | T) {
   const tmpDir = createTempDirectory('rr-agent-invocation-');
   process.env.RALPHITO_DB_PATH = path.join(tmpDir, 'ralphito.sqlite');
   closeRalphitoDatabase();
+  resetSessionRepository();
+  resetTelegramStateRepository();
   initializeRalphitoDatabase();
 
   return Promise.resolve()
     .then(() => fn())
     .finally(() => {
       closeRalphitoDatabase();
+      resetSessionRepository();
+      resetTelegramStateRepository();
       if (previousDbPath) {
         process.env.RALPHITO_DB_PATH = previousDbPath;
       } else {

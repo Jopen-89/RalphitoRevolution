@@ -9,6 +9,8 @@ export interface SessionChatResult {
   notificationChatId: string | null;
   beadId: string | null;
   title: string | null;
+  worktreePath: string | null;
+  branchName: string | null;
   hasGuardrailError: boolean;
   guardrailError: string | null;
 }
@@ -101,6 +103,8 @@ export function getSessionChat(sessionId: string): SessionChatResult {
     notificationChatId: session?.notificationChatId ?? null,
     beadId: task?.id ?? sessionFile?.workItemKey ?? deriveFallbackBeadId(sessionFile?.beadPath) ?? null,
     title: task?.title ?? deriveRuntimeTaskTitle(sessionFile?.beadPath) ?? null,
+    worktreePath: session?.worktreePath ?? sessionFile?.worktreePath ?? null,
+    branchName: sessionFile?.branchName ?? null,
     hasGuardrailError: guardrailError !== null,
     guardrailError,
   };

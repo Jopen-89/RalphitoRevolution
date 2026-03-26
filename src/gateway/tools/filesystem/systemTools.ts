@@ -113,7 +113,7 @@ export function createSystemTools(worktreePath?: string): Tool[] {
     {
       name: 'finish_task',
       description:
-        'Marks the task as complete. Commits any uncommitted changes to git. Use when the implementation is verified and done.',
+        'Requests the final landing flow. Runs git landing steps in the worktree; runtime closure happens after session verification.',
       execute: async () => {
         if (!effectiveWorktree) {
           throw new Error('worktreePath is required for finish_task');
@@ -177,7 +177,7 @@ export function createSystemToolDefinitions(): ToolDefinition[] {
     {
       name: 'finish_task',
       description:
-        'Marks the task as complete. Commits any uncommitted changes to git. Use when the implementation is verified and done.',
+        'Requests the final landing flow. Runs git landing steps in the worktree; runtime closure happens after session verification.',
       parameters: {
         type: 'object',
         properties: {},

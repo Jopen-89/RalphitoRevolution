@@ -87,21 +87,6 @@ async function notifyGuardrailFailure(runtimeSessionId: string, guardrail: strin
   });
 }
 
-async function notifySessionSynced(runtimeSessionId: string, branchName: string) {
-  const sessionChat = getSessionChat(runtimeSessionId);
-  enqueueEngineNotification({
-    runtimeSessionId,
-    eventType: 'session.synced',
-    payload: {
-      beadId: sessionChat.beadId,
-      title: sessionChat.title,
-      branchName,
-      prUrl: null,
-    },
-    ...(sessionChat.externalChatId ? { targetChatId: sessionChat.externalChatId } : {}),
-  });
-}
-
 async function markRuntimeFailure(worktreePath: string, failureKind: string, failureSummary: string) {
   const runtimeSessionId = getRuntimeSessionId(worktreePath);
   if (!runtimeSessionId) return;
@@ -133,14 +118,6 @@ async function clearRuntimeFailure(worktreePath: string) {
 
   clearRuntimeFailureRecord(worktreePath);
   getRuntimeSessionRepository().clearFailure({ runtimeSessionId, status: 'running' });
-}
-
-async function finishRuntimeSession(worktreePath: string, branchName: string) {
-  const runtimeSessionId = getRuntimeSessionId(worktreePath);
-  if (!runtimeSessionId) return;
-
-  await notifySessionSynced(runtimeSessionId, branchName);
-  getRuntimeSessionRepository().finish({ runtimeSessionId, status: 'done' });
 }
 
 async function runCommandGuardrail(
@@ -294,7 +271,6 @@ export async function finishTaskLanding(worktreePath: string): Promise<LandingRe
     const remote = await git.upstreamRemote();
     await recordRuntimeStep(runtimeSessionId);
     await git.pushSetUpstream(remote, branch);
-    await finishRuntimeSession(cwd, branch);
 
     return { success: true, message: 'Landing completed successfully.', ...(commitHash ? { commitHash } : {}) };
   } catch (error) {

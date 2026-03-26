@@ -183,12 +183,21 @@ export function createDocumentTools(worktreePath?: string): Tool[] {
   const activeSpecsPrefix = path.join(activeRoot, 'docs', 'specs');
   const git = new GitService(activeRoot);
 
+  function requireMutableWorkspace() {
+    if (!worktreePath) {
+      throw new Error('worktreePath is required for document write tools');
+    }
+
+    return activeRoot;
+  }
+
   return [
     {
       name: 'write_spec_document',
       description:
         'Guarda un documento (PRD, idea, spec) en /docs/specs/. Solo rutas dentro de /docs/specs/ están permitidas por seguridad.',
       execute: async (params: Record<string, unknown>) => {
+        const writableRoot = requireMutableWorkspace();
         const relativePath = requireString(params.path, 'path');
         const content = requireString(params.content, 'content');
 
@@ -209,6 +218,7 @@ export function createDocumentTools(worktreePath?: string): Tool[] {
 
         return {
           filePath: fullPath,
+          workspaceRoot: writableRoot,
           bytesWritten: Buffer.byteLength(content),
           success: true,
         };
@@ -240,6 +250,7 @@ export function createDocumentTools(worktreePath?: string): Tool[] {
       description:
         'Guarda un archivo .md de Bead en docs/specs/projects/<project>/ y registra la Task en SQLite usando el lifecycle unificado.',
       execute: async (params: Record<string, unknown>) => {
+        requireMutableWorkspace();
         const beadPath = requireString(params.beadPath, 'beadPath');
         const projectKey = requireString(params.projectKey, 'projectKey');
         const title = requireString(params.title, 'title');
@@ -281,6 +292,7 @@ export function createDocumentTools(worktreePath?: string): Tool[] {
       description:
         'Lee un spec o PRD, propone beads markdown bajo docs/specs/projects/<projectId>/ y registra sus tasks en SQLite.',
       execute: async (params: Record<string, unknown>) => {
+        requireMutableWorkspace();
         const projectId = requireString(params.projectId, 'projectId');
         const specPath = requireString(params.specPath, 'specPath');
         const designMode = normalizeBeadDesignMode(optionalString(params.designMode));

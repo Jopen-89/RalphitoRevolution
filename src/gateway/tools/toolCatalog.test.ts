@@ -64,7 +64,7 @@ test('resolveAllowedToolDefinitions usa agent_registry para raymon', async () =>
     assert.deepEqual(unknownNames, []);
     assert.ok(names.includes('list_project_backlog'));
     assert.ok(names.includes('set_task_priority'));
-    assert.ok(names.includes('spawn_executor'));
+    assert.ok(names.includes('spawn_session'));
     assert.ok(names.includes('read_workspace_file'));
     assert.ok(names.includes('inspect_workspace_path'));
   });
@@ -115,7 +115,9 @@ test('inspect_workspace_path verifica disco real', async () => {
 
 test('write_bead_document crea task via lifecycle unificado', async () => {
   await withTempDb(async () => {
-    const tool = createDocumentTools().find((item) => item.name === 'write_bead_document');
+    const repoRoot = process.env.RALPHITO_REPO_ROOT;
+    assert.ok(repoRoot);
+    const tool = createDocumentTools(repoRoot).find((item) => item.name === 'write_bead_document');
     assert.ok(tool, 'write_bead_document tool missing');
 
     const result = await tool.execute({
@@ -157,6 +159,32 @@ test('write_bead_document crea task via lifecycle unificado', async () => {
   });
 });
 
+test('document write tools require worktreePath for mutations', async () => {
+  await withTempDb(async () => {
+    const tools = createDocumentTools();
+    const writeSpec = tools.find((item) => item.name === 'write_spec_document');
+    const writeBead = tools.find((item) => item.name === 'write_bead_document');
+    const designBeads = tools.find((item) => item.name === 'design_beads_from_spec');
+
+    assert.ok(writeSpec);
+    assert.ok(writeBead);
+    assert.ok(designBeads);
+
+    await assert.rejects(
+      () => writeSpec.execute({ path: 'projects/system/spec.md', content: '# Spec\n' }),
+      /worktreePath is required for document write tools/,
+    );
+    await assert.rejects(
+      () => writeBead.execute({ beadPath: 'projects/system/test.md', projectKey: 'system', title: 'Test', content: '# Test\n' }),
+      /worktreePath is required for document write tools/,
+    );
+    await assert.rejects(
+      () => designBeads.execute({ projectId: 'system', specPath: 'docs/specs/missing.md' }),
+      /worktreePath is required for document write tools/,
+    );
+  });
+});
+
 test('design_beads_from_spec crea beads markdown y tasks sin schema nueva', async () => {
   await withTempDb(async () => {
     const repoRoot = process.env.RALPHITO_REPO_ROOT;
@@ -186,7 +214,7 @@ test('design_beads_from_spec crea beads markdown y tasks sin schema nueva', asyn
       'utf8',
     );
 
-    const tool = createDocumentTools().find((item) => item.name === 'design_beads_from_spec');
+    const tool = createDocumentTools(repoRoot).find((item) => item.name === 'design_beads_from_spec');
     assert.ok(tool, 'design_beads_from_spec tool missing');
 
     const result = await tool.execute({
@@ -257,7 +285,7 @@ test('design_beads_from_spec replace mode supersedes previous beads from same sp
       'utf8',
     );
 
-    const tool = createDocumentTools().find((item) => item.name === 'design_beads_from_spec');
+    const tool = createDocumentTools(repoRoot).find((item) => item.name === 'design_beads_from_spec');
     assert.ok(tool, 'design_beads_from_spec tool missing');
 
     const firstRun = await tool.execute({

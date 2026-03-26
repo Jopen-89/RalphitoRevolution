@@ -43,15 +43,15 @@ function formatBacklogLine(index: number, item: ReturnType<typeof BeadLifecycleS
 }
 
 export const RAYMON_TOOL_NAMES = [
-  'spawn_executor',
+  'spawn_session',
   'list_project_backlog',
   'set_task_priority',
   'check_status',
-  'resume_executor',
+  'resume_session',
   'run_divergence_phase',
   'summon_agent_to_chat',
-  'cancel_executor',
-  'cleanup_zombies',
+  'cancel_session',
+  'reap_stale_sessions',
 ] as const;
 
 export type RaymonToolName = (typeof RAYMON_TOOL_NAMES)[number];
@@ -77,8 +77,8 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
 
   return [
     {
-      name: 'spawn_executor',
-      description: 'Lanza un Ralphito executor con una tarea de implementación.',
+      name: 'spawn_session',
+      description: 'Lanza una sesión de Ralphito con una tarea de implementación.',
       execute: async (params: Record<string, unknown>) => {
         const project = optionalString(params.project) || 'system';
         const prompt = requireString(params.prompt, 'prompt');
@@ -211,7 +211,7 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
       },
     },
     {
-      name: 'resume_executor',
+      name: 'resume_session',
       description: 'Resucita un Ralphito que murió por guardrail.',
       execute: async (params: Record<string, unknown>) => {
         const sessionId = requireString(params.sessionId, 'sessionId');
@@ -279,7 +279,7 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
       },
     },
     {
-      name: 'cancel_executor',
+      name: 'cancel_session',
       description:
         'Cancela y mata una sesión específica de Ralphito. Útil cuando una sesión se queda colgada o necesita detenerse manualmente.',
       execute: async (params: Record<string, unknown>) => {
@@ -295,7 +295,7 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
           sessionRepo.fail({
             runtimeSessionId: sessionId,
             failureKind: 'cancelled_by_user',
-            failureSummary: 'Sesión cancelada por Raymon via cancel_executor',
+            failureSummary: 'Sesión cancelada por Raymon via cancel_session',
           });
 
           const lockRepo = getRuntimeLockRepository();
@@ -313,7 +313,7 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
       },
     },
     {
-      name: 'cleanup_zombies',
+      name: 'reap_stale_sessions',
       description:
         'Audita sesiones en la base de datos y marca como stuck/failed cualquier sesión que figure como running pero no tenga proceso TMUX vivo. Limpia locks y worktrees asociados.',
       execute: async () => {
@@ -365,8 +365,8 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
 export function createRaymonToolDefinitions(): ToolDefinition[] {
   return [
     {
-      name: 'spawn_executor',
-      description: 'Lanza un Ralphito executor con una tarea de implementación.',
+      name: 'spawn_session',
+      description: 'Lanza una sesión de Ralphito con una tarea de implementación.',
       parameters: {
         type: 'object',
         properties: {
@@ -416,7 +416,7 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
       },
     },
     {
-      name: 'resume_executor',
+      name: 'resume_session',
       description: 'Resucita un Ralphito que murió por guardrail.',
       parameters: {
         type: 'object',
@@ -451,7 +451,7 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
       },
     },
     {
-      name: 'cancel_executor',
+      name: 'cancel_session',
       description: 'Cancela y mata una sesión específica de Ralphito.',
       parameters: {
         type: 'object',
@@ -462,7 +462,7 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
       },
     },
     {
-      name: 'cleanup_zombies',
+      name: 'reap_stale_sessions',
       description: 'Audita y limpia sesiones zombies (running sin TMUX vivo).',
       parameters: {
         type: 'object',

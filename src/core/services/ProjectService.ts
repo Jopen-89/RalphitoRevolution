@@ -71,13 +71,29 @@ function listAliasesFor(canonicalId: string) {
     .map(([alias]) => alias);
 }
 
+function safeResolveProjectRow(canonicalId: string) {
+  try {
+    return getRalphitoRepositories().projects.getById(canonicalId);
+  } catch {
+    return null;
+  }
+}
+
+function safeResolveAgentRow(agentConfigId: string) {
+  try {
+    return AgentRegistryService.getById(agentConfigId);
+  } catch {
+    return null;
+  }
+}
+
 export class ProjectService {
   static resolve(projectId: string): EngineProjectConfig {
     const normalizedId = normalizeProjectId(projectId);
     const canonicalId = PROJECT_ALIASES[normalizedId] || normalizedId;
     const agentConfigId = PROJECT_AGENT_ALIASES[normalizedId] || canonicalId;
-    const project = getRalphitoRepositories().projects.getById(canonicalId);
-    const agent = AgentRegistryService.getById(agentConfigId);
+    const project = safeResolveProjectRow(canonicalId);
+    const agent = safeResolveAgentRow(agentConfigId);
     const repoRoot = project?.repoPath || resolveRepoRoot();
     const worktreeRoot = project?.worktreeRoot || resolveBaseWorktreeRoot();
     const defaultBranch = project?.defaultBranch || DEFAULT_BRANCH;

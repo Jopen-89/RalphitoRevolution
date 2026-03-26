@@ -4,15 +4,15 @@ import type { AgentConfig, AgentFallbackRoute, Provider, ToolMode } from '../dom
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 
 const RAYMON_ONLY_TOOLS = new Set([
-  'spawn_executor',
+  'spawn_session',
   'list_project_backlog',
   'set_task_priority',
   'check_status',
-  'resume_executor',
+  'resume_session',
   'run_divergence_phase',
   'summon_agent_to_chat',
-  'cancel_executor',
-  'cleanup_zombies',
+  'cancel_session',
+  'reap_stale_sessions',
 ]);
 
 export interface AgentRegistryRecord {
@@ -90,18 +90,18 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
     model: DEFAULT_MODEL,
     toolMode: 'allowed',
     allowedTools: [
-      'spawn_executor',
-      'list_project_backlog',
-      'set_task_priority',
-      'check_status',
-      'resume_executor',
-      'run_divergence_phase',
-      'summon_agent_to_chat',
-      'cancel_executor',
-      'cleanup_zombies',
-      'read_workspace_file',
-      'inspect_workspace_path',
-    ],
+        'spawn_session',
+        'list_project_backlog',
+        'set_task_priority',
+        'check_status',
+        'resume_session',
+        'run_divergence_phase',
+        'summon_agent_to_chat',
+        'cancel_session',
+        'reap_stale_sessions',
+        'read_workspace_file',
+        'inspect_workspace_path',
+      ],
     fallbacks: [],
   },
   moncho: {

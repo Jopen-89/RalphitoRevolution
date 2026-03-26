@@ -44,6 +44,7 @@ interface AgentSessionRow {
   agentId: string;
   status: string;
   updatedAt: string;
+  worktreePath: string | null;
 }
 
 interface DashboardSessionMeta {
@@ -60,6 +61,7 @@ export interface UnifiedDashboardSession {
   status: string | null;
   activity: string | null;
   branch: string | null;
+  worktreePath: string | null;
   summary: string | null;
   issue: string | null;
   prUrl: string | null;
@@ -84,6 +86,7 @@ export interface UnifiedDashboardSession {
     agentId: string;
     status: string;
     updatedAt: string;
+    worktreePath: string | null;
   } | null;
   lastGuardrailError: string | null;
 }
@@ -181,7 +184,7 @@ function getSessionMeta(sessionId: string): DashboardSessionMeta {
   const agentSession = db
     .prepare(
       `
-        SELECT agent_id AS agentId, status, updated_at AS updatedAt
+        SELECT agent_id AS agentId, status, updated_at AS updatedAt, worktree_path AS worktreePath
         FROM agent_sessions
         WHERE runtime_session_id = ?
         LIMIT 1
@@ -200,6 +203,7 @@ function getSessionMeta(sessionId: string): DashboardSessionMeta {
 function toUnifiedSession(session: EngineStatusSession, meta: DashboardSessionMeta): UnifiedDashboardSession {
   return {
     ...session,
+    worktreePath: meta.agentSession?.worktreePath || null,
     thread: meta.thread
       ? {
           id: meta.thread.threadId,
@@ -217,7 +221,14 @@ function toUnifiedSession(session: EngineStatusSession, meta: DashboardSessionMe
           updatedAt: meta.task.updatedAt,
         }
       : null,
-    agentBinding: meta.agentSession,
+    agentBinding: meta.agentSession
+      ? {
+          agentId: meta.agentSession.agentId,
+          status: meta.agentSession.status,
+          updatedAt: meta.agentSession.updatedAt,
+          worktreePath: meta.agentSession.worktreePath,
+        }
+      : null,
     lastGuardrailError: meta.lastGuardrailError,
   };
 }

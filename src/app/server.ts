@@ -33,6 +33,7 @@ import {
   validateProviderModel,
   validateProviderProfile,
 } from './agentConfigValidation.js';
+import { validateManagedWorktreeHeader } from './worktreeHeaderValidation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,7 +47,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-ralphito-worktree-path');
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
     return;
@@ -313,7 +314,16 @@ app.post('/v1/chat/completions', async (req, res) => {
 
 app.post('/v1/chat', async (req, res) => {
   const { agentId = 'default', provider, model, providerProfile, messages, originChatId, originThreadId } = req.body as ChatRequest;
-  const worktreePath = req.headers['x-ralphito-worktree-path'] as string | undefined;
+  const rawWorktreePath = req.headers['x-ralphito-worktree-path'] as string | undefined;
+  const validatedWorktree = validateManagedWorktreeHeader(rawWorktreePath);
+  if (!validatedWorktree.ok) {
+    return res.status(400).json({
+      error: 'INVALID_WORKTREE_HEADER',
+      message: validatedWorktree.error,
+    });
+  }
+
+  const worktreePath = validatedWorktree.worktreePath;
   const waitingFilePath = worktreePath ? path.join(worktreePath, RUNTIME_LLM_WAITING_FILE_NAME) : null;
 
   const cleanupWaitingFile = () => {

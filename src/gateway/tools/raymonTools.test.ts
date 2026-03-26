@@ -68,6 +68,19 @@ test('summon_agent_to_chat allows Raymon caller to pass runtime guard', async ()
   );
 });
 
+test('Raymon exposes Stage 4 session-centric orchestration tools', () => {
+  const names = createRaymonTools().map((tool) => tool.name).sort();
+
+  assert.ok(names.includes('spawn_session'));
+  assert.ok(names.includes('resume_session'));
+  assert.ok(names.includes('cancel_session'));
+  assert.ok(names.includes('reap_stale_sessions'));
+  assert.equal(names.includes('spawn_executor'), false);
+  assert.equal(names.includes('resume_executor'), false);
+  assert.equal(names.includes('cancel_executor'), false);
+  assert.equal(names.includes('cleanup_zombies'), false);
+});
+
 test('list_project_backlog returns recommended order by priority and status', async () => {
   await withTempDb(async () => {
     BeadLifecycleService.createTask({
