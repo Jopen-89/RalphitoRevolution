@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import assert from 'node:assert/strict';
@@ -13,7 +13,7 @@ import {
   getEngineNotificationRepository,
   resetEngineNotificationRepository,
 } from '../services/EventBus.js';
-import { ExecutorLoop } from './executorLoop.js';
+import { SessionLoop } from './sessionLoop.js';
 import { getRuntimeLockRepository, resetRuntimeLockRepository } from './runtimeLockRepository.js';
 import { getRuntimeSessionRepository, resetRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { resumeRuntimeSession } from './resume.js';
@@ -127,63 +127,6 @@ function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string; wo
       rmSync(repoRoot, { force: true, recursive: true });
       rmSync(worktreeRoot, { force: true, recursive: true });
     });
-}
-
-function createResumeScriptSandbox() {
-  const repoRoot = createTempDirectory('rr-resume-script-');
-  const scriptsRoot = path.join(repoRoot, 'scripts');
-  const libRoot = path.join(scriptsRoot, 'lib');
-  const binRoot = path.join(repoRoot, 'bin');
-  const callLogPath = path.join(repoRoot, 'npx-calls.log');
-
-  const worktreeRoot = createTempDirectory('rr-resume-worktrees-');
-  mkdirSync(worktreeRoot, { recursive: true });
-  mkdirSync(libRoot, { recursive: true });
-  mkdirSync(binRoot, { recursive: true });
-
-  copyFileSync(path.join(SOURCE_REPO_ROOT, 'scripts', 'resume.sh'), path.join(scriptsRoot, 'resume.sh'));
-  copyFileSync(path.join(SOURCE_REPO_ROOT, 'scripts', 'lib', 'runtime-paths.sh'), path.join(libRoot, 'runtime-paths.sh'));
-
-  const fakeNpxPath = path.join(binRoot, 'npx');
-  writeFileSync(
-    fakeNpxPath,
-    [
-      '#!/bin/bash',
-      'set -euo pipefail',
-      `printf '%s|%s|%s|%s|%s|%s|%s\\n' "\${1-}" "\${2-}" "\${3-}" "\${4-}" "\${5-}" "\${6-}" "\${7-}" >> '${callLogPath}'`,
-      'exit 0',
-      '',
-    ].join('\n'),
-    'utf8',
-  );
-  chmodSync(fakeNpxPath, 0o755);
-
-  return { repoRoot, worktreeRoot, callLogPath, pathEnv: `${binRoot}:${process.env.PATH || ''}` };
-}
-
-function readScriptNpxCalls(callLogPath: string) {
-  if (!existsSync(callLogPath)) return [];
-  return readFileSync(callLogPath, 'utf8')
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => line.split('|'));
-}
-
-function runBashScript(scriptPath: string, args: string[], cwd: string, pathEnv: string, worktreeRoot?: string) {
-  try {
-    return execFileSync('/bin/bash', [scriptPath, ...args], {
-      cwd,
-      env: { ...process.env, PATH: pathEnv, ...(worktreeRoot ? { RALPHITO_WORKTREE_ROOT: worktreeRoot } : {}) },
-      encoding: 'utf8',
-    });
-  } catch (error) {
-    const shellError = error as Error & { status?: number; stdout?: string };
-    if (shellError.status === 0) {
-      return shellError.stdout || '';
-    }
-    throw error;
-  }
 }
 
 test('SessionSupervisor crea sesion runtime con thread sintetico y session file', async () => {
@@ -380,7 +323,7 @@ test('ExecutorLoop marca done cuando la sesion termina limpia', async () => {
       },
     };
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       tmuxRuntime as never,
       getRuntimeSessionRepository(),
       getRuntimeLockRepository(),
@@ -484,7 +427,7 @@ test('ExecutorLoop marca done si la sesion running sale con exit code 0', async 
       },
     };
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       tmuxRuntime as never,
       getRuntimeSessionRepository(),
       getRuntimeLockRepository(),
@@ -596,7 +539,7 @@ test('ExecutorLoop ignora artifacts runtime legitimos al validar landing', async
       },
     };
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       tmuxRuntime as never,
       getRuntimeSessionRepository(),
       getRuntimeLockRepository(),
@@ -701,7 +644,7 @@ test('ExecutorLoop falla si exit 0 pero falta landing real', async () => {
       },
     };
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       tmuxRuntime as never,
       getRuntimeSessionRepository(),
       getRuntimeLockRepository(),
@@ -814,7 +757,7 @@ test('ExecutorLoop falla si exit 0 pero la rama remota no existe', async () => {
       },
     };
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       tmuxRuntime as never,
       getRuntimeSessionRepository(),
       getRuntimeLockRepository(),
@@ -952,7 +895,7 @@ test('ExecutorLoop no repisa done si finish_task cierra la sesion con tmux vivo'
       },
     };
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       tmuxRuntime as never,
       heartbeatRaceRepository as never,
       getRuntimeLockRepository(),
@@ -966,6 +909,7 @@ test('ExecutorLoop no repisa done si finish_task cierra la sesion con tmux vivo'
     assert.equal(session?.status, 'done');
     assert.equal(killCalls, 1);
     assert.equal(getRuntimeLockRepository().listByRuntimeSessionId(runtimeSessionId).length, 0);
+    assert.equal(existsSync(worktreePath), false);
   });
 });
 
@@ -1047,7 +991,7 @@ test('ExecutorLoop marca failed si la sesion running sale con exit code != 0', a
       },
     };
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       tmuxRuntime as never,
       getRuntimeSessionRepository(),
       getRuntimeLockRepository(),
@@ -1141,7 +1085,7 @@ test('ExecutorLoop marca stuck si la sesion running muere sin exit file ni failu
       },
     };
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       tmuxRuntime as never,
       getRuntimeSessionRepository(),
       getRuntimeLockRepository(),
@@ -1243,7 +1187,7 @@ test('ExecutorLoop auto-responde prompts y falla tras 3 intentos', async () => {
       },
     };
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       tmuxRuntime as never,
       getRuntimeSessionRepository(),
       getRuntimeLockRepository(),
@@ -1339,7 +1283,7 @@ test('ExecutorLoop mata sesion cuando detecta daemon bloqueante', async () => {
       },
     };
 
-    const result = await new ExecutorLoop(
+    const result = await new SessionLoop(
       tmuxRuntime as never,
       getRuntimeSessionRepository(),
       getRuntimeLockRepository(),
@@ -1565,44 +1509,233 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
   });
 });
 
-test('scripts/resume.sh prioriza failure moderno', async () => {
-  const sandbox = createResumeScriptSandbox();
-  const worktreePath = runtimeWorktreePath(sandbox.worktreeRoot, 'be-modern-resume');
-  const legacyLogPath = path.join(worktreePath, '.guardrail_error.log');
+test('SessionLoop auto-resume guardrail failures within retry budget', async () => {
+  await withTempRuntime(async ({ headCommit, worktreeRoot }) => {
+    const runtimeSessionId = 'be-auto-resume';
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
+    mkdirSync(worktreePath, { recursive: true });
+    const now = new Date().toISOString();
 
-  mkdirSync(worktreePath, { recursive: true });
-  writeFileSync(
-    path.join(worktreePath, '.ralphito-runtime-failure.json'),
-    `${JSON.stringify({
-      runtimeSessionId: 'be-modern-resume',
-      kind: 'typescript_guardrail_failed',
-      summary: 'Fallo tsc',
+    writeRuntimeSessionFile(worktreePath, {
+      runtimeSessionId,
+      projectId: 'backend-team',
+      agentId: 'backend-team',
+      agent: 'opencode',
+      provider: 'opencode',
+      model: 'minimax-m2.7',
+      baseCommitHash: headCommit,
+      branchName: `jopen/${runtimeSessionId}`,
+      worktreePath,
+      tmuxSessionId: runtimeSessionId,
+      pid: 456,
+      prompt: 'hola',
+      beadPath: null,
+      workItemKey: null,
+      beadSpecHash: null,
+      beadSpecVersion: null,
+      qaConfig: null,
+      originThreadId: null,
+      notificationChatId: null,
+      autoResumeAttempts: {},
+      maxSteps: 10,
+      maxWallTimeMs: 60_000,
+      maxCommandTimeMs: 60_000,
+      createdAt: now,
+      updatedAt: now,
+    });
+    writeRuntimeFailureRecord(worktreePath, {
+      runtimeSessionId,
+      kind: 'test_guardrail_failed',
+      summary: 'npm test failed',
       reasonCode: null,
-      logTail: 'src/a.ts:1 error TS1005',
-      createdAt: '2026-03-21T10:01:00.000Z',
-      updatedAt: '2026-03-21T10:01:00.000Z',
-    }, null, 2)}\n`,
-    'utf8',
-  );
-  writeFileSync(legacyLogPath, 'Legacy guardrail failure\n', 'utf8');
+      logTail: '1 failing test',
+      createdAt: now,
+      updatedAt: now,
+    });
 
-  try {
-    const output = runBashScript(
-      path.join(sandbox.repoRoot, 'scripts', 'resume.sh'),
-      ['be-modern-resume'],
-      sandbox.repoRoot,
-      sandbox.pathEnv,
-      sandbox.worktreeRoot,
+    const db = getRalphitoDatabase();
+    const threadId = Number(
+      db
+        .prepare(
+          `
+            INSERT INTO threads (channel, external_chat_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+        )
+        .run('runtime', runtimeSessionId, runtimeSessionId, now, now).lastInsertRowid,
     );
 
-    const calls = readScriptNpxCalls(sandbox.callLogPath);
-    assert.match(output, /Failure moderno encontrado/);
-    assert.deepEqual(calls.map((call) => call[2]), ['resume-session']);
-    assert.equal(calls[0]?.[3], 'be-modern-resume');
-    assert.equal(existsSync(legacyLogPath), true);
-  } finally {
-    rmSync(sandbox.repoRoot, { force: true, recursive: true });
-  }
+    getRuntimeSessionRepository().create({
+      threadId,
+      agentId: 'backend-team',
+      runtimeSessionId,
+      status: 'running',
+      baseCommitHash: headCommit,
+      worktreePath,
+      pid: 456,
+      maxSteps: 10,
+      startedAt: now,
+      heartbeatAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    let resumed = false;
+    const tmuxRuntime = {
+      async isAlive() {
+        return resumed;
+      },
+      async captureOutput() {
+        return resumed ? 'done' : '';
+      },
+      async killSession() {
+        return true;
+      },
+      async createSession() {
+        resumed = true;
+        writeFileSync(getRuntimeExitCodeFilePath(worktreePath), '0\n', 'utf8');
+      },
+      async getPanePid() {
+        return 654;
+      },
+      async sendLiteral() {
+        return;
+      },
+    };
+    const commandRunner = {
+      async run(_command: string, args: string[]) {
+        if (args[0] === 'status') {
+          return { stdout: '', stderr: '' };
+        }
+        if (args[0] === 'rev-parse' && args.includes('HEAD')) {
+          return { stdout: 'new-commit\n', stderr: '' };
+        }
+        if (args.at(-1) === '@{u}') {
+          return { stdout: `origin/jopen/${runtimeSessionId}\n`, stderr: '' };
+        }
+        return { stdout: `feedcafe\trefs/heads/jopen/${runtimeSessionId}\n`, stderr: '' };
+      },
+    };
+
+    const result = await new SessionLoop(
+      tmuxRuntime as never,
+      getRuntimeSessionRepository(),
+      getRuntimeLockRepository(),
+      undefined,
+      commandRunner as never,
+    ).run({ runtimeSessionId, pollMs: 1 });
+
+    const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
+    assert.equal(result.terminalStatus, 'done');
+    assert.equal(session?.status, 'done');
+    assert.equal(session?.pid, 654);
+    assert.equal(resumed, true);
+    assert.equal(existsSync(worktreePath), false);
+  });
+});
+
+test('SessionLoop notifica cuando un guardrail agota el budget de auto-resume', async () => {
+  await withTempRuntime(async ({ headCommit, worktreeRoot }) => {
+    const runtimeSessionId = 'be-auto-resume-exhausted';
+    const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
+    mkdirSync(worktreePath, { recursive: true });
+    const now = new Date().toISOString();
+
+    writeRuntimeSessionFile(worktreePath, {
+      runtimeSessionId,
+      projectId: 'backend-team',
+      agentId: 'backend-team',
+      agent: 'opencode',
+      provider: 'opencode',
+      model: 'minimax-m2.7',
+      baseCommitHash: headCommit,
+      branchName: `jopen/${runtimeSessionId}`,
+      worktreePath,
+      tmuxSessionId: runtimeSessionId,
+      pid: 456,
+      prompt: 'hola',
+      beadPath: null,
+      workItemKey: null,
+      beadSpecHash: null,
+      beadSpecVersion: null,
+      qaConfig: null,
+      originThreadId: null,
+      notificationChatId: 'chat-123',
+      autoResumeAttempts: { test_guardrail_failed: 2 },
+      maxSteps: 10,
+      maxWallTimeMs: 60_000,
+      maxCommandTimeMs: 60_000,
+      createdAt: now,
+      updatedAt: now,
+    });
+    writeRuntimeFailureRecord(worktreePath, {
+      runtimeSessionId,
+      kind: 'test_guardrail_failed',
+      summary: 'npm test failed badly',
+      reasonCode: null,
+      logTail: '2 failing tests',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const db = getRalphitoDatabase();
+    const threadId = Number(
+      db
+        .prepare(
+          `
+            INSERT INTO threads (channel, external_chat_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+        )
+        .run('telegram', 'chat-123', runtimeSessionId, now, now).lastInsertRowid,
+    );
+
+    getRuntimeSessionRepository().create({
+      threadId,
+      agentId: 'backend-team',
+      runtimeSessionId,
+      status: 'running',
+      baseCommitHash: headCommit,
+      notificationChatId: 'chat-123',
+      worktreePath,
+      pid: 456,
+      maxSteps: 10,
+      startedAt: now,
+      heartbeatAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const tmuxRuntime = {
+      async isAlive() {
+        return false;
+      },
+      async captureOutput() {
+        return '';
+      },
+      async killSession() {
+        return true;
+      },
+    };
+
+    const result = await new SessionLoop(
+      tmuxRuntime as never,
+      getRuntimeSessionRepository(),
+      getRuntimeLockRepository(),
+    ).run({ runtimeSessionId, pollMs: 1 });
+
+    const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
+    const notifications = getEngineNotificationRepository().listAll();
+    const terminalNotification = notifications.at(-1);
+    const terminalPayload = terminalNotification?.payload as { summary?: string; snippet?: string } | undefined;
+
+    assert.equal(result.terminalStatus, 'failed');
+    assert.equal(result.reason, 'test_guardrail_failed');
+    assert.equal(session?.status, 'failed');
+    assert.equal(terminalNotification?.eventType, 'session.guardrail_failed');
+    assert.match(String(terminalPayload?.summary || ''), /Auto-resume agotado tras 2\/2 intentos/i);
+    assert.match(String(terminalPayload?.snippet || ''), /2 failing tests/);
+  });
 });
 
 test('cli record-failure persiste failure record en DB y archivo', async () => {

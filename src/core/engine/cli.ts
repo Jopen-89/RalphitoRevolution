@@ -10,7 +10,7 @@ import { RuntimeReaper } from './runtimeReaper.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
 import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
 import { SessionSupervisor } from '../services/SessionManager.js';
-import { ExecutorLoop } from './executorLoop.js';
+import { SessionLoop } from './sessionLoop.js';
 import { agentLoop } from './agentLoop.js';
 import { getEngineSessionsStatus, formatEngineSessionLine } from './status.js';
 import { resumeRuntimeSession } from './resume.js';
@@ -90,15 +90,15 @@ async function main() {
       const payload = JSON.parse(readFileSync(payloadFile, 'utf8')) as Parameters<SessionSupervisor['spawn']>[0];
       const result = await supervisor.spawn(payload);
 
-      printJson({
-        status: 'success',
-        session_id: result.runtimeSessionId,
-        base_commit_hash: result.baseCommitHash,
-        worktree_path: result.worktreePath,
-        branch_name: result.branchName,
-        message: 'Ralphito Engine inició la sesión y lanzó el executor loop.',
-      });
-      return;
+        printJson({
+          status: 'success',
+          session_id: result.runtimeSessionId,
+          base_commit_hash: result.baseCommitHash,
+          worktree_path: result.worktreePath,
+          branch_name: result.branchName,
+          message: 'Ralphito Engine inició la sesión y lanzó el session loop.',
+        });
+        return;
     }
 
     case 'run-loop': {
@@ -109,7 +109,7 @@ async function main() {
 
       printJson({
         status: 'ok',
-        ...(await new ExecutorLoop().run({ runtimeSessionId })),
+        ...(await new SessionLoop().run({ runtimeSessionId })),
       });
       return;
     }

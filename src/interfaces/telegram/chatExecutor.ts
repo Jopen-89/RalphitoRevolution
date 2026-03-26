@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import type { AgentInfo } from './agentRegistry.js';
-import { getConversationSessionId, getRecentChatHistory, getThreadId, setConversationSessionId } from './conversationStore.js';
+import { getConversationSessionContext, getRecentChatHistory, getThreadId, setConversationSessionId } from './conversationStore.js';
 import { loadDeterministicContext } from '../../core/services/contextLoader.js';
 import { formatMemoryContext, refreshMemoryContext } from '../../core/services/summaryService.js';
 import type { ChatResponse } from '../../core/domain/gateway.types.js';
@@ -170,7 +170,8 @@ export async function executeAgentTask(
   instruction: string,
 ): Promise<ChatResult> {
   const history = getRecentChatHistory(chatId);
-  const conversationSessionId = getConversationSessionId(chatId, agent.id);
+  const sessionContext = getConversationSessionContext(chatId, agent.id);
+  const conversationSessionId = sessionContext?.runtimeSessionId || null;
   const systemPrompt = buildSystemPrompt(agent);
   const deterministicContext = await loadDeterministicContext(instruction);
   const memoryContext = formatMemoryContext(refreshMemoryContext(chatId, conversationSessionId));
@@ -218,7 +219,9 @@ export async function executeAgentTask(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(process.env.RALPHITO_WORKTREE_PATH ? { 'x-ralphito-worktree-path': process.env.RALPHITO_WORKTREE_PATH } : {}),
+        ...((sessionContext?.worktreePath || process.env.RALPHITO_WORKTREE_PATH)
+          ? { 'x-ralphito-worktree-path': sessionContext?.worktreePath || process.env.RALPHITO_WORKTREE_PATH! }
+          : {}),
       },
       body: JSON.stringify(requestBody)
     });
@@ -249,7 +252,11 @@ export async function executeAgentTask(
     });
 
     if (data.sessionId) {
-      setConversationSessionId(chatId, agent.id, data.sessionId);
+      setConversationSessionId(chatId, agent.id, {
+        sessionId: data.sessionId,
+        ...(sessionContext?.baseCommitHash ? { baseCommitHash: sessionContext.baseCommitHash } : {}),
+        ...(sessionContext?.worktreePath ? { worktreePath: sessionContext.worktreePath } : {}),
+      });
     }
 
     return {

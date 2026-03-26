@@ -450,4 +450,49 @@ export const ralphitoMigrations: RalphitoMigration[] = [
       ALTER TABLE agent_registry ADD COLUMN provider_profile TEXT;
     `,
   },
+  {
+    id: 19,
+    name: 'projects_stage1_foundation',
+    sql: `
+      CREATE TABLE IF NOT EXISTS projects (
+        project_id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        repo_path TEXT NOT NULL,
+        worktree_root TEXT NOT NULL,
+        default_branch TEXT NOT NULL,
+        agent_rules_file TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_projects_is_active
+        ON projects(is_active);
+
+      ALTER TABLE tasks ADD COLUMN project_id TEXT;
+      ALTER TABLE tasks ADD COLUMN bead_path TEXT;
+
+      UPDATE tasks
+      SET project_id = CASE
+        WHEN project_id IS NOT NULL AND TRIM(project_id) <> '' THEN project_id
+        WHEN project_key IS NOT NULL AND TRIM(project_key) <> '' THEN LOWER(TRIM(project_key))
+        ELSE 'system'
+      END;
+
+      UPDATE tasks
+      SET bead_path = COALESCE(bead_path, source_spec_path)
+      WHERE source_spec_path IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_tasks_project_id_status
+        ON tasks(project_id, status);
+
+      CREATE INDEX IF NOT EXISTS idx_tasks_project_id_updated_at
+        ON tasks(project_id, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_tasks_bead_path
+        ON tasks(bead_path)
+        WHERE bead_path IS NOT NULL;
+    `,
+  },
 ];

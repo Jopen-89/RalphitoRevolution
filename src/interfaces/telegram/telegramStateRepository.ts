@@ -47,6 +47,21 @@ interface FingerprintRow {
 
 interface SessionBindingRow {
   runtimeSessionId: string;
+  baseCommitHash: string | null;
+  worktreePath: string | null;
+}
+
+export interface ConversationSessionContext {
+  runtimeSessionId: string;
+  baseCommitHash: string | null;
+  worktreePath: string | null;
+}
+
+export interface SetConversationSessionInput {
+  sessionId: string;
+  baseCommitHash?: string;
+  worktreePath?: string;
+  updatedAt?: string;
 }
 
 interface HistoryRow {
@@ -130,7 +145,10 @@ export class TelegramStateRepository {
 
         const chatId = conversationKey.slice(0, separatorIndex);
         const agentId = conversationKey.slice(separatorIndex + 1);
-        this.setConversationSessionId(chatId, agentId, entry.sessionId, entry.updatedAt);
+        this.setConversationSessionId(chatId, agentId, {
+          sessionId: entry.sessionId,
+          updatedAt: entry.updatedAt,
+        });
       }
 
       for (const [chatId, routes] of Object.entries(legacyState.messageRoutes || {})) {
@@ -156,7 +174,7 @@ export class TelegramStateRepository {
     importTransaction();
   }
 
-  getConversationSessionId(chatId: string, agentId: string) {
+  getConversationSessionContext(chatId: string, agentId: string): ConversationSessionContext | null {
     const threadId = this.getThreadId(chatId);
     if (!threadId) return null;
 
@@ -164,6 +182,8 @@ export class TelegramStateRepository {
       .prepare(
         `
           SELECT runtime_session_id AS runtimeSessionId
+               , base_commit_hash AS baseCommitHash
+               , worktree_path AS worktreePath
           FROM agent_sessions
           WHERE thread_id = ? AND agent_id = ?
           ORDER BY updated_at DESC, id DESC
@@ -172,12 +192,38 @@ export class TelegramStateRepository {
       )
       .get(threadId, agentId) as SessionBindingRow | undefined;
 
-    return row?.runtimeSessionId || null;
+    if (!row) return null;
+
+    return {
+      runtimeSessionId: row.runtimeSessionId,
+      baseCommitHash: row.baseCommitHash,
+      worktreePath: row.worktreePath,
+    };
   }
 
-  setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string, updatedAt?: string) {
+  getConversationSessionId(chatId: string, agentId: string) {
+    return this.getConversationSessionContext(chatId, agentId)?.runtimeSessionId || null;
+  }
+
+  private getRuntimeSessionMetadata(sessionId: string) {
+    return this.db
+      .prepare(
+        `
+          SELECT base_commit_hash AS baseCommitHash, worktree_path AS worktreePath
+          FROM agent_sessions
+          WHERE runtime_session_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(sessionId) as { baseCommitHash: string | null; worktreePath: string | null } | undefined;
+  }
+
+  setConversationSessionId(chatId: string, agentId: string, input: SetConversationSessionInput) {
     const threadId = this.ensureThread(chatId);
-    const timestamp = updatedAt || new Date().toISOString();
+    const timestamp = input.updatedAt || new Date().toISOString();
+    const runtimeMetadata = this.getRuntimeSessionMetadata(input.sessionId);
+    const baseCommitHash = input.baseCommitHash ?? runtimeMetadata?.baseCommitHash ?? null;
+    const worktreePath = input.worktreePath ?? runtimeMetadata?.worktreePath ?? null;
 
     this.db
       .prepare(
@@ -188,12 +234,13 @@ export class TelegramStateRepository {
             runtime_session_id,
             status,
             base_commit_hash,
+            worktree_path,
             started_at,
             heartbeat_at,
             created_at,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(runtime_session_id)
           DO UPDATE SET
             thread_id = excluded.thread_id,
@@ -201,12 +248,13 @@ export class TelegramStateRepository {
             runtime_session_id = excluded.runtime_session_id,
             status = agent_sessions.status,
             base_commit_hash = COALESCE(agent_sessions.base_commit_hash, excluded.base_commit_hash),
+            worktree_path = COALESCE(agent_sessions.worktree_path, excluded.worktree_path),
             started_at = COALESCE(agent_sessions.started_at, excluded.started_at),
             heartbeat_at = COALESCE(agent_sessions.heartbeat_at, excluded.heartbeat_at),
             updated_at = excluded.updated_at
         `,
       )
-      .run(threadId, agentId, sessionId, 'running', baseCommitHash || null, timestamp, timestamp, timestamp, timestamp);
+      .run(threadId, agentId, input.sessionId, 'running', baseCommitHash, worktreePath, timestamp, timestamp, timestamp, timestamp);
   }
 
   setMessageAgentRoute(chatId: string, messageId: number, agentId: string, updatedAt?: string) {
@@ -423,4 +471,9 @@ export function getTelegramStateRepository() {
   repository.importLegacyStateIfNeeded();
 
   return repository;
+}
+
+export function resetTelegramStateRepository() {
+  repository = null;
+  legacyStateImported = false;
 }

@@ -1,4 +1,8 @@
-import { getSessionRepository, type AddHistoryMessageInput } from './persistence/sessionRepository.js';
+import {
+  getSessionRepository,
+  type AddHistoryMessageInput,
+  type SetConversationSessionInput,
+} from './persistence/sessionRepository.js';
 
 function getRepository() {
   return getSessionRepository();
@@ -8,12 +12,16 @@ export function getConversationSessionId(chatId: string, agentId: string) {
   return getRepository().getConversationSessionId(chatId, agentId);
 }
 
+export function getConversationSessionContext(chatId: string, agentId: string) {
+  return getRepository().getConversationSessionContext(chatId, agentId);
+}
+
 export function getThreadId(chatId: string) {
   return getRepository().getThreadId(chatId);
 }
 
-export function setConversationSessionId(chatId: string, agentId: string, sessionId: string, baseCommitHash?: string) {
-  getRepository().setConversationSessionId(chatId, agentId, sessionId, baseCommitHash);
+export function setConversationSessionId(chatId: string, agentId: string, input: SetConversationSessionInput) {
+  getRepository().setConversationSessionId(chatId, agentId, input);
 }
 
 export function setMessageAgentRoute(chatId: string, messageId: number, agentId: string) {

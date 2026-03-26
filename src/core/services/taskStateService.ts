@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
-import { refreshRuntimeSessionSummary, refreshTaskSummary } from './summaryService.js';
+import { BeadLifecycleService } from './BeadLifecycleService.js';
 
 export type RalphitoTaskStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'failed' | 'cancelled';
 
@@ -87,110 +87,34 @@ function readTraceabilitySnapshot(sourceSpecPath: string): TraceabilitySnapshot 
 }
 
 export function syncTasksFromTraceability(sourceSpecPath: string) {
-  const db = getRalphitoDatabase();
   const resolvedSourceSpecPath = normalizeSourceSpecPath(sourceSpecPath);
   const snapshot = readTraceabilitySnapshot(resolvedSourceSpecPath);
   const projectKey = getProjectKeyFromTraceabilityPath(resolvedSourceSpecPath);
-  const now = new Date().toISOString();
 
-  const upsertTask = db.prepare(
-    `
-      INSERT INTO tasks (
-        id,
-        project_key,
-        title,
-        source_spec_path,
-        component_path,
-        status,
-        assigned_agent,
-        runtime_session_id,
-        priority,
-        created_at,
-        updated_at,
-        completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id)
-      DO UPDATE SET
-        project_key = excluded.project_key,
-        title = excluded.title,
-        source_spec_path = excluded.source_spec_path,
-        component_path = excluded.component_path,
-        status = COALESCE(tasks.status, excluded.status),
-        updated_at = excluded.updated_at
-    `,
-  );
-
-  const syncTransaction = db.transaction(() => {
-    for (const bead of snapshot.beads || []) {
-      const status = mapTraceabilityStatus(bead.status);
-      const completedAt = status === 'done' ? now : null;
-
-      upsertTask.run(
-        bead.id,
-        projectKey,
-        bead.id,
-        resolvedSourceSpecPath,
-        bead.component || null,
-        status,
-        null,
-        null,
-        'medium',
-        now,
-        now,
-        completedAt,
-      );
-    }
-  });
-
-  syncTransaction();
+  for (const bead of snapshot.beads || []) {
+    BeadLifecycleService.createOrUpdateTask({
+      taskId: bead.id,
+      projectId: projectKey,
+      projectKey,
+      title: bead.id,
+      sourceSpecPath: resolvedSourceSpecPath,
+      beadPath: resolvedSourceSpecPath,
+      ...(bead.component ? { componentPath: bead.component } : {}),
+      status: mapTraceabilityStatus(bead.status),
+    });
+  }
 }
 
 export function updateTaskStatus(input: UpdateTaskStatusInput) {
-  const db = getRalphitoDatabase();
-  const now = new Date().toISOString();
   const resolvedSourceSpecPath = normalizeSourceSpecPath(input.sourceSpecPath);
-  const completedAt = input.status === 'done' ? now : null;
-  const eventPayload = JSON.stringify({
-    sourceSpecPath: resolvedSourceSpecPath,
-    assignedAgent: input.assignedAgent || null,
-    runtimeSessionId: input.runtimeSessionId || null,
-    failureReason: input.failureReason || null,
+  BeadLifecycleService.transitionTask({
+    taskId: input.taskId,
     status: input.status,
+    sourceSpecPath: resolvedSourceSpecPath,
+    ...(input.assignedAgent ? { assignedAgent: input.assignedAgent } : {}),
+    ...(input.runtimeSessionId ? { runtimeSessionIdToSet: input.runtimeSessionId } : {}),
+    ...(input.failureReason ? { failureReason: input.failureReason } : {}),
   });
-
-  const updateTransaction = db.transaction(() => {
-    db.prepare(
-      `
-        UPDATE tasks
-        SET status = ?,
-            source_spec_path = ?,
-            assigned_agent = COALESCE(?, assigned_agent),
-            runtime_session_id = COALESCE(?, runtime_session_id),
-            updated_at = ?,
-            completed_at = ?
-        WHERE id = ?
-      `,
-    ).run(
-      input.status,
-      resolvedSourceSpecPath,
-      input.assignedAgent || null,
-      input.runtimeSessionId || null,
-      now,
-      completedAt,
-      input.taskId,
-    );
-
-    db.prepare(
-      'INSERT INTO task_events (task_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)',
-    ).run(input.taskId, 'status_changed', eventPayload, now);
-  });
-
-  updateTransaction();
-
-  refreshTaskSummary(input.taskId);
-  if (input.runtimeSessionId) {
-    refreshRuntimeSessionSummary(input.runtimeSessionId);
-  }
 }
 
 export function exportTraceabilitySnapshot(sourceSpecPath: string) {
@@ -202,7 +126,7 @@ export function exportTraceabilitySnapshot(sourceSpecPath: string) {
       `
         SELECT id, title, component_path AS componentPath, status
         FROM tasks
-        WHERE project_key = ? AND source_spec_path = ?
+        WHERE COALESCE(project_id, project_key) = ? AND COALESCE(bead_path, source_spec_path) = ?
         ORDER BY id ASC
       `,
     )
@@ -251,7 +175,7 @@ export function getTaskStatusSummary() {
   const openTasks = db
     .prepare(
       `
-        SELECT id, project_key AS projectKey, status, assigned_agent AS assignedAgent, runtime_session_id AS runtimeSessionId
+        SELECT id, COALESCE(project_id, project_key) AS projectKey, status, assigned_agent AS assignedAgent, runtime_session_id AS runtimeSessionId
         FROM tasks
         WHERE status NOT IN ('done', 'cancelled')
         ORDER BY updated_at ASC, id ASC

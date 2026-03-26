@@ -4,6 +4,31 @@ type RalphitoDatabase = ReturnType<typeof getRalphitoDatabase>;
 
 export type TaskStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'failed' | 'cancelled';
 export type TaskPriority = 'low' | 'medium' | 'high';
+export type ProjectKind = 'system' | 'repo' | 'sandbox';
+
+export interface ProjectRecord {
+  projectId: string;
+  name: string;
+  kind: string;
+  repoPath: string;
+  worktreeRoot: string;
+  defaultBranch: string;
+  agentRulesFile: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertProjectInput {
+  projectId: string;
+  name: string;
+  kind: ProjectKind | string;
+  repoPath: string;
+  worktreeRoot: string;
+  defaultBranch: string;
+  agentRulesFile?: string | null;
+  isActive?: boolean;
+}
 
 export interface UpsertThreadInput {
   channel: string;
@@ -35,8 +60,10 @@ export interface UpsertAgentSessionInput {
 export interface CreateTaskInput {
   id: string;
   projectKey: string;
+  projectId?: string;
   title: string;
   sourceSpecPath?: string;
+  beadPath?: string;
   componentPath?: string;
   status: TaskStatus;
   assignedAgent?: string;
@@ -171,6 +198,122 @@ class AgentSessionsRepository {
   }
 }
 
+class ProjectsRepository {
+  constructor(private readonly db: RalphitoDatabase) {}
+
+  getById(projectId: string) {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            project_id AS projectId,
+            name,
+            kind,
+            repo_path AS repoPath,
+            worktree_root AS worktreeRoot,
+            default_branch AS defaultBranch,
+            agent_rules_file AS agentRulesFile,
+            is_active AS isActive,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM projects
+          WHERE project_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(projectId) as Omit<ProjectRecord, 'isActive'> & { isActive: number } | undefined;
+
+    if (!row) return null;
+
+    return {
+      ...row,
+      isActive: Boolean(row.isActive),
+    } satisfies ProjectRecord;
+  }
+
+  listActive() {
+    const rows = this.db
+      .prepare(
+        `
+          SELECT
+            project_id AS projectId,
+            name,
+            kind,
+            repo_path AS repoPath,
+            worktree_root AS worktreeRoot,
+            default_branch AS defaultBranch,
+            agent_rules_file AS agentRulesFile,
+            is_active AS isActive,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM projects
+          WHERE is_active = 1
+          ORDER BY project_id ASC
+        `,
+      )
+      .all() as Array<Omit<ProjectRecord, 'isActive'> & { isActive: number }>;
+
+    return rows.map((row) => ({
+      ...row,
+      isActive: Boolean(row.isActive),
+    })) satisfies ProjectRecord[];
+  }
+
+  upsert(input: UpsertProjectInput) {
+    const now = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `
+          INSERT INTO projects (
+            project_id,
+            name,
+            kind,
+            repo_path,
+            worktree_root,
+            default_branch,
+            agent_rules_file,
+            is_active,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(project_id)
+          DO UPDATE SET
+            name = excluded.name,
+            kind = excluded.kind,
+            repo_path = excluded.repo_path,
+            worktree_root = excluded.worktree_root,
+            default_branch = excluded.default_branch,
+            agent_rules_file = excluded.agent_rules_file,
+            is_active = excluded.is_active,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        input.projectId,
+        input.name,
+        input.kind,
+        input.repoPath,
+        input.worktreeRoot,
+        input.defaultBranch,
+        input.agentRulesFile || null,
+        input.isActive === false ? 0 : 1,
+        now,
+        now,
+      );
+
+    return this.getById(input.projectId);
+  }
+
+  ensureSystemProject(input: Omit<UpsertProjectInput, 'projectId' | 'kind'>) {
+    return this.upsert({
+      projectId: 'system',
+      kind: 'system',
+      ...input,
+    });
+  }
+}
+
 class TasksRepository {
   constructor(private readonly db: RalphitoDatabase) {}
 
@@ -184,8 +327,10 @@ class TasksRepository {
           INSERT INTO tasks (
             id,
             project_key,
+            project_id,
             title,
             source_spec_path,
+            bead_path,
             component_path,
             status,
             assigned_agent,
@@ -194,14 +339,16 @@ class TasksRepository {
             created_at,
             updated_at,
             completed_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
       .run(
         input.id,
         input.projectKey,
+        input.projectId || input.projectKey,
         input.title,
         input.sourceSpecPath || null,
+        input.beadPath || input.sourceSpecPath || null,
         input.componentPath || null,
         input.status,
         input.assignedAgent || null,
@@ -293,6 +440,7 @@ class SessionSummariesRepository {
 }
 
 export interface RalphitoRepositories {
+  projects: ProjectsRepository;
   threads: ThreadsRepository;
   messages: MessagesRepository;
   agentSessions: AgentSessionsRepository;
@@ -310,6 +458,7 @@ export function getRalphitoRepositories() {
   const db = getRalphitoDatabase();
 
   repositories = {
+    projects: new ProjectsRepository(db),
     threads: new ThreadsRepository(db),
     messages: new MessagesRepository(db),
     agentSessions: new AgentSessionsRepository(db),
@@ -320,4 +469,8 @@ export function getRalphitoRepositories() {
   };
 
   return repositories;
+}
+
+export function resetRalphitoRepositories() {
+  repositories = null;
 }

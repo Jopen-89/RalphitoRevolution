@@ -59,7 +59,7 @@ Si `historical.debt.stuckTaskCount` es mayor que 0:
 2. Abrir el dashboard en `/dashboard`
 3. Pausar (`blocked`) o cancelar (`cancelled`) si la task no puede continuar
 4. Si aplica, reinyectar el error al ejecutor:
-   - **Via Raymon**: pidele a Raymon que haga `resume_executor` con el session-id
+   - **Via Raymon**: pidele a Raymon que haga `resume_session` con el session-id
    - **Directo (ops)**: `node --import tsx src/core/engine/cli.ts resume-session <session-id>`
 
 ## Fallos de retrieval o search

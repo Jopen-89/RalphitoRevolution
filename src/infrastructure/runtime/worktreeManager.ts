@@ -23,7 +23,7 @@ export class WorktreeManager {
 
   constructor(repoRoot = process.cwd(), worktreeRootPath?: string) {
     this.repoRoot = resolveRepoRoot(repoRoot);
-    this.worktreeRootPath = resolveRepoRoot(worktreeRootPath || ProjectService.resolve('default').worktreeRoot);
+    this.worktreeRootPath = resolveRepoRoot(worktreeRootPath || ProjectService.resolve('system').worktreeRoot);
   }
 
   getWorktreeRootPath() {

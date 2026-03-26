@@ -25,7 +25,7 @@ El proceso arranca cuando el usuario o sistema ejecuta `spawn-session` pasándol
 
 ---
 
-## Fase 2: Ejecución, Monitorización y Guardrails (Executor Loop)
+## Fase 2: Ejecución, Monitorización y Guardrails (Session Loop)
 El run-loop es un proceso invisible en background que no bloquea la máquina principal y audita al agente continuamente.
 
 1.  **Heartbeat y Estado**: Se sincroniza constantemente con la base de datos (SQLite) actualizando pasos (`stepCount`) y renovando los "locks".

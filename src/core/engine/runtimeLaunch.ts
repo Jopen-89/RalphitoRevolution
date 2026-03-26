@@ -88,7 +88,7 @@ export function spawnRuntimeLoop(
   commandRunner = new CommandRunner(),
   env: NodeJS.ProcessEnv = process.env,
 ) {
-  const logPath = path.join(projectPath, 'ops', 'runtime', 'ralphito', `executor-${runtimeSessionId}.log`);
+  const logPath = path.join(projectPath, 'ops', 'runtime', 'ralphito', `session-loop-${runtimeSessionId}.log`);
   const out = fs.openSync(logPath, 'a');
   const err = fs.openSync(logPath, 'a');
 

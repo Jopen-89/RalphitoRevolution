@@ -59,6 +59,11 @@ export {
   type SpawnRuntimeSessionResult,
 } from '../services/SessionManager.js';
 export {
+  SessionLoop,
+  type SessionLoopContext,
+  type SessionLoopResult,
+} from './sessionLoop.js';
+export {
   ExecutorLoop,
   type ExecutorLoopContext,
   type ExecutorLoopResult,

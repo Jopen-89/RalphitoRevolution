@@ -52,6 +52,7 @@ export async function resumeRuntimeSession(
   runtimeSessionId: string,
   tmuxRuntime = new TmuxRuntime(),
   commandRunner = new CommandRunner(),
+  options: { spawnLoop?: boolean } = {},
 ) {
   const sessionRepository = getRuntimeSessionRepository();
   const session = sessionRepository.getByRuntimeSessionId(runtimeSessionId);
@@ -129,7 +130,9 @@ export async function resumeRuntimeSession(
       clearRuntimeFailureRecord(session.worktreePath);
     }
 
-    spawnRuntimeLoop(project.path, runtimeSessionId, commandRunner);
+    if (options.spawnLoop !== false) {
+      spawnRuntimeLoop(project.path, runtimeSessionId, commandRunner);
+    }
     return;
   }
 
