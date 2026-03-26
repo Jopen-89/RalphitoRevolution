@@ -2,11 +2,12 @@ import { Telegraf, Context } from 'telegraf';
 import * as dotenv from 'dotenv';
 import { loadAgentRegistry, getAgentById, type AgentInfo } from './agentRegistry.js';
 import * as convStore from './conversationStore.js';
-import { executeAgentTask } from './chatExecutor.js';
-import { publishAgentReply } from './agentMessenger.js';
 import { initializeRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 import { EngineNotificationDispatcher } from './engineNotificationDispatcher.js';
 import { AgentRegistryService } from '../../core/services/AgentRegistry.js';
+import { ACTIVE_AGENT_WINDOW_MS, resolveTelegramRouting } from './routing.js';
+import { invokeAgentInChatThread } from './agentInvocationService.js';
+import { editTelegramMessage, sendTelegramMessage } from './telegramSender.js';
 
 // Capturar errores no manejados para ver el error real y no "[Object: null prototype]"
 process.on('uncaughtException', (err) => {
@@ -29,7 +30,6 @@ if (!token || token === 'pega_tu_token_aqui_sin_comillas') {
 }
 
 const bot = new Telegraf(token);
-const ACTIVE_AGENT_WINDOW_MS = 15 * 60 * 1000;
 const DUPLICATE_MESSAGE_WINDOW_MS = 8 * 1000;
 const processingChats = new Set<string>();
 const notificationDispatcher = new EngineNotificationDispatcher();
@@ -84,9 +84,7 @@ function resolveAgentFromReply(ctx: Context) {
 
 function resolveRecentActiveAgent(chatId: string) {
     const activeAgentId = convStore.getRecentActiveAgent(chatId, ACTIVE_AGENT_WINDOW_MS);
-    if (!activeAgentId) return null;
-
-    return getAgentById(getAgents(), activeAgentId) || null;
+    return activeAgentId || null;
 }
 
 async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: string) {
@@ -94,37 +92,48 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
 
     const chatId = ctx.chat.id;
     const chatKey = String(chatId);
-    convStore.setActiveAgent(String(chatId), agent.id);
-    
+
     if (!instruction) {
-        await ctx.reply(`¡Hola! Soy ${agent.name} (${agent.role}). ¿En qué te puedo ayudar hoy?`);
+        await sendTelegramMessage(chatKey, `¡Hola! Soy ${agent.name} (${agent.role}). ¿En qué te puedo ayudar hoy?`, {
+            senderPath: 'telegram.bot.processAgentRequest.emptyInstruction',
+            agentId: agent.id,
+        });
         return;
     }
 
     const statusLabel = 'analizando tu petición';
 
     if (processingChats.has(chatKey)) {
-        await ctx.reply(`⏳ ${agent.name} sigue con la petición anterior. Dame unos segundos y vuelve a escribir.`);
+        await sendTelegramMessage(chatKey, `⏳ ${agent.name} sigue con la petición anterior. Dame unos segundos y vuelve a escribir.`, {
+            senderPath: 'telegram.bot.processAgentRequest.busy',
+            agentId: agent.id,
+        });
         return;
     }
 
     processingChats.add(chatKey);
 
-    const statusMessage = await ctx.reply(`⏳ ${agent.name} (${agent.role}) ${statusLabel}...`);
+    const statusMessage = await sendTelegramMessage(chatKey, `⏳ ${agent.name} (${agent.role}) ${statusLabel}...`, {
+        senderPath: 'telegram.bot.processAgentRequest.status',
+        agentId: agent.id,
+    });
+    if (!statusMessage.messageId) {
+        processingChats.delete(chatKey);
+        throw new Error(`No pude publicar el mensaje de estado para ${agent.name}.`);
+    }
 
     try {
-        const result = await executeAgentTask(String(chatId), agent, instruction);
-        if (result.sessionId) {
-            convStore.setConversationSessionId(chatKey, agent.id, result.sessionId);
-        }
-        await publishAgentReply(chatKey, statusMessage.message_id, agent, result.response);
+        await invokeAgentInChatThread({
+            chatId: chatKey,
+            agent,
+            instruction,
+            statusMessageId: statusMessage.messageId,
+        });
     } catch (error: any) {
-        await bot.telegram.editMessageText(
-            chatId,
-            statusMessage.message_id,
-            undefined,
-            `❌ ${agent.name}: ${normalizeErrorMessage(error)}`
-        );
+        await editTelegramMessage(chatKey, statusMessage.messageId, `❌ ${agent.name}: ${normalizeErrorMessage(error)}`, {
+            senderPath: 'telegram.bot.processAgentRequest.error',
+            agentId: agent.id,
+        });
     } finally {
         processingChats.delete(chatKey);
     }
@@ -143,7 +152,10 @@ for (const agent of getAgents()) {
         const instruction = text.replace(new RegExp(`^/${agent.id}\\s*`, 'i'), '').trim();
 
         if (agent.id !== 'raymon') {
-            await ctx.reply(`Raymon es la puerta de entrada. Pídeselo a Raymon y él traerá a ${agent.name} cuando toque.`);
+            await sendTelegramMessage(chatId, `Raymon es la puerta de entrada. Pídeselo a Raymon y él traerá a ${agent.name} cuando toque.`, {
+                senderPath: 'telegram.bot.command.nonRaymonRejected',
+                agentId: agent.id,
+            });
             return;
         }
 
@@ -157,7 +169,9 @@ bot.start((ctx) => {
         console.log(`⚠️ Acceso denegado en /start: El Chat ID ${chatId} no coincide con el permitido (${allowedChatId})`);
         return;
     }
-    ctx.reply(`¡Hola! Soy el sistema Autopilot.\n\n🤖 Raymon es el planner y la puerta de entrada del equipo. Escríbele a Raymon para arrancar cualquier conversación y él irá trayendo a los demás agentes cuando haga falta.\n\nUna vez un agente esté en el hilo, puedes seguir hablándole por reply o por contexto reciente.\n\nAgentes disponibles: ${listAgentNames()}`);
+    void sendTelegramMessage(chatId, `¡Hola! Soy el sistema Autopilot.\n\n🤖 Raymon es el planner y la puerta de entrada del equipo. Escríbele a Raymon para arrancar cualquier conversación y él irá trayendo a los demás agentes cuando haga falta.\n\nUna vez un agente esté en el hilo, puedes seguir hablándole por reply o por contexto reciente.\n\nAgentes disponibles: ${listAgentNames()}`, {
+        senderPath: 'telegram.bot.start',
+    });
 });
 
 // Texto natural
@@ -207,24 +221,24 @@ bot.on('text', async (ctx) => {
     });
 
     const replyAgent = resolveAgentFromReply(ctx);
-    if (replyAgent) {
-        await processAgentRequest(ctx, replyAgent, text.trim());
-        return;
-    }
+    const routingDecision = resolveTelegramRouting({
+        agents: getAgents(),
+        text,
+        replyAgentId: replyAgent?.id,
+        activeAgentId: resolveRecentActiveAgent(chatId),
+    });
 
-    const activeAgent = resolveRecentActiveAgent(chatId);
-    if (activeAgent) {
-        await processAgentRequest(ctx, activeAgent, text.trim());
-        return;
-    }
-
-    if (!text.startsWith('/')) {
-        const defaultAgent = getAgentById(getAgents(), 'raymon');
-        if (defaultAgent) {
+    if (routingDecision) {
+        if (routingDecision.reason === 'raymon-entry') {
             console.log(`👉 Enrutando mensaje a Raymon como puerta de entrada: "${text}"`);
-            await processAgentRequest(ctx, defaultAgent, text.trim());
-            return;
+        } else if (routingDecision.reason === 'active-agent') {
+            console.log(`↪️ Enrutando por agente activo reciente: ${routingDecision.agent.id}`);
+        } else {
+            console.log(`💬 Enrutando por reply al agente: ${routingDecision.agent.id}`);
         }
+
+        await processAgentRequest(ctx, routingDecision.agent, text.trim());
+        return;
     }
 
     // Si llegamos aquí y es un comando desconocido, simplemente no hacemos nada o respondemos start

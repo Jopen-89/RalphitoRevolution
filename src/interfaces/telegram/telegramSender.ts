@@ -1,4 +1,12 @@
 import fetch from 'node-fetch';
+import { traceOutput } from '../../core/services/outputTrace.js';
+
+export function sanitizeTelegramVisibleText(text: string) {
+  return text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '')
+    .replace(/\r\n/g, '\n')
+    .trim();
+}
 
 function getToken(): string {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -13,6 +21,11 @@ export interface SendTelegramMessageResult {
   messageId?: number;
   chatId: string;
   text: string;
+}
+
+export interface TelegramSendMeta {
+  senderPath?: string;
+  agentId?: string;
 }
 
 async function callTelegram(method: string, body: Record<string, unknown>) {
@@ -33,10 +46,22 @@ async function callTelegram(method: string, body: Record<string, unknown>) {
   return data.result;
 }
 
-export async function sendTelegramMessage(chatId: string, text: string): Promise<SendTelegramMessageResult> {
+export async function sendTelegramMessage(
+  chatId: string,
+  text: string,
+  meta: TelegramSendMeta = {},
+): Promise<SendTelegramMessageResult> {
+  const sanitizedText = sanitizeTelegramVisibleText(text);
+  traceOutput({
+    stage: 'telegram.send',
+    text,
+    sanitizedText,
+    ...(meta.senderPath ? { senderPath: meta.senderPath } : {}),
+    ...(meta.agentId ? { agentId: meta.agentId } : {}),
+  });
   const result = await callTelegram('sendMessage', {
     chat_id: chatId,
-    text,
+    text: sanitizedText,
     parse_mode: 'HTML',
   }) as { message_id: number; chat: { id: number } };
 
@@ -44,15 +69,28 @@ export async function sendTelegramMessage(chatId: string, text: string): Promise
     success: true,
     messageId: result.message_id,
     chatId: String(result.chat.id),
-    text,
+    text: sanitizedText,
   };
 }
 
-export async function editTelegramMessage(chatId: string, messageId: number, text: string) {
+export async function editTelegramMessage(
+  chatId: string,
+  messageId: number,
+  text: string,
+  meta: TelegramSendMeta = {},
+) {
+  const sanitizedText = sanitizeTelegramVisibleText(text);
+  traceOutput({
+    stage: 'telegram.edit',
+    text,
+    sanitizedText,
+    ...(meta.senderPath ? { senderPath: meta.senderPath } : {}),
+    ...(meta.agentId ? { agentId: meta.agentId } : {}),
+  });
   await callTelegram('editMessageText', {
     chat_id: chatId,
     message_id: messageId,
-    text,
+    text: sanitizedText,
     parse_mode: 'HTML',
   });
 }

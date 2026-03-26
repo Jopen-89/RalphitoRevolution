@@ -5,10 +5,12 @@ import { loadDeterministicContext } from '../../core/services/contextLoader.js';
 import { formatMemoryContext, refreshMemoryContext } from '../../core/services/summaryService.js';
 import type { ChatResponse } from '../../core/domain/gateway.types.js';
 import { resolveGatewayChatUrl } from '../../core/config/gatewayUrl.js';
+import { traceOutput } from '../../core/services/outputTrace.js';
 
 interface ChatResult {
   response: string;
   sessionId?: string;
+  handoffAgentId?: string;
 }
 
 interface ChatPersonaProfile {
@@ -27,11 +29,13 @@ const CHAT_PERSONAS: Record<string, ChatPersonaProfile> = {
       'Controlas un Pipeline de 4 fases: Fase 0 (Entrevista con Moncho) -> Fase 1 (Consejo de Sabios: validación con Lola, Mapito y Poncho) -> Fase 2 (Research con Martapepis si aplica) -> Fase 3 (Documentación PRD/Specs).',
       'Cuando el usuario acabe con un agente, eres el responsable de marcar el paso y llamar al siguiente agente al chat mencionándolo por su nombre.',
       'Di cosas como: "Fase 0 terminada. Ahora pasamos a la Fase 1: El Consejo de Sabios. Traigo a Lola al chat para que valide la UX de lo que han hablado."',
+      'Si acabas de convocar a un especialista, limita tu mensaje visible a una sola frase breve de handoff y deja que el especialista hable después.',
     ],
     avoid: [
       'NUNCA ofrezcas opciones técnicas de implementación.',
       'No respondas con acuses tecnicos ni mensajes de infraestructura.',
       'No intentes ejecutar ni "spawnear" a agentes en background para tareas de diseño (PRD/Specs); diles que hablen con ellos aquí en Telegram.',
+      'No repitas sermones del Pipeline justo después de un handoff exitoso a un especialista.',
     ],
   },
   moncho: {
@@ -67,10 +71,14 @@ const CHAT_PERSONAS: Record<string, ChatPersonaProfile> = {
       'Responde con estructura mental clara y decisiones explicitas.',
       'Piensa en contratos, limites, dependencias y paralelismo.',
       'Suena como alguien que ordena el caos tecnico con elegancia.',
+      'Si falta contexto, pide una sola pieza tecnica concreta para desbloquearte.',
+      'En el primer turno ambiguo, limita tu respuesta a una sola pregunta corta.',
     ],
     avoid: [
       'No escribas implementacion detallada salvo que te la pidan.',
       'No te pierdas en teoria abstracta sin aterrizarla.',
+      'No conviertas la falta de contexto en sermones, bucles o metacomentarios del flujo.',
+      'No derives a Moncho en la primera respuesta ambigua; espera a que falte contexto de forma repetida.',
     ],
   },
   ricky: {
@@ -230,6 +238,15 @@ export async function executeAgentTask(
     }
 
     const data = await response.json() as ChatResponse;
+    traceOutput({
+      stage: 'telegram.chatExecutor.gatewayResponse',
+      text: data.response,
+      agentId: agent.id,
+      provider: data.providerUsed,
+      model: data.modelUsed,
+      ...(data.handoffAgentId ? { handoffAgentId: data.handoffAgentId } : {}),
+      ...(typeof data.toolCalls?.length === 'number' ? { toolCallCount: data.toolCalls.length } : {}),
+    });
 
     if (data.sessionId) {
       setConversationSessionId(chatId, agent.id, data.sessionId);
@@ -238,6 +255,7 @@ export async function executeAgentTask(
     return {
       response: data.response,
       ...(data.sessionId ? { sessionId: data.sessionId } : {}),
+      ...(data.handoffAgentId ? { handoffAgentId: data.handoffAgentId } : {}),
     };
   } catch (error: any) {
     console.error(`[ChatExecutor] Fallo al contactar con el Gateway para ${agent.id}:`, error);

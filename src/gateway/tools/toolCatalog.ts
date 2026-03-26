@@ -10,6 +10,7 @@ interface ToolCatalogContext {
   originThreadId?: number;
   notificationChatId?: string;
   worktreePath?: string;
+  currentAgentId?: string;
 }
 
 export function createAllToolDefinitions(): ToolDefinition[] {

@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import type { Message, ToolDefinition, ToolCall, ToolResult, ToolResultPayload } from '../../core/domain/gateway.types.js';
 import type { IToolCallingProvider } from '../../core/domain/gateway.types.js';
 import type { Tool } from './toolRegistry.js';
+import { traceOutput } from '../../core/services/outputTrace.js';
 
 export interface ToolCallingLoopResult {
   text: string;
@@ -10,6 +11,10 @@ export interface ToolCallingLoopResult {
 }
 
 export const MAX_CONSECUTIVE_IDENTICAL_TOOL_ITERATIONS = 2;
+
+function isBlankText(value: string | undefined) {
+  return !value || !value.trim();
+}
 
 function normalizeToolArgument(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -64,6 +69,15 @@ export async function executeToolCallLoop(
     console.log(`[executeToolCallLoop] Iteration ${i + 1}: LLM returned ${calls?.length || 0} calls`);
 
     if (!calls || calls.length === 0) {
+      if (isBlankText(text)) {
+        throw new Error(`Provider ${provider.name} returned empty response without tool calls.`);
+      }
+      traceOutput({
+        stage: 'gateway.toolCalling.final',
+        text,
+        provider: provider.name,
+        toolCallCount: allToolCalls.length,
+      });
       return { text, toolCalls: allToolCalls, toolResults: allToolResults };
     }
 

@@ -69,6 +69,7 @@ export interface ChatResponse {
   providerUsed: Provider;
   modelUsed: string;
   sessionId?: string;
+  handoffAgentId?: string;
   toolCalls?: ToolCall[];
   toolResults?: ToolResult[];
 }

@@ -327,7 +327,9 @@ export class EngineNotificationDispatcher {
 
     try {
       const message = formatEngineNotificationMessage(notification);
-      await this.send(targetChatId, message);
+      await this.send(targetChatId, message, {
+        senderPath: 'engineNotificationDispatcher.deliver',
+      });
       this.repository.markDelivered(notification.eventId, new Date().toISOString());
       return 'delivered' as const;
     } catch (error) {
@@ -351,4 +353,5 @@ export class EngineNotificationDispatcher {
 export type EngineNotificationSendFn = (
   chatId: string,
   text: string,
+  meta?: { senderPath?: string; agentId?: string },
 ) => Promise<SendTelegramMessageResult>;

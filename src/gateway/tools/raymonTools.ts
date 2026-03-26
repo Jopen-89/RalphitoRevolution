@@ -2,10 +2,8 @@ import type { Tool, ToolCall } from './toolRegistry.js';
 import type { Provider, ToolDefinition } from '../../core/domain/gateway.types.js';
 import { getOrchestrator } from '../../core/engine/orchestrator.js';
 import { sendTelegramMessage, getAllowedChatId } from '../../interfaces/telegram/telegramSender.js';
-import * as convStore from '../../interfaces/telegram/conversationStore.js';
 import { loadAgentRegistry, resolveAgentReference } from '../../interfaces/telegram/agentRegistry.js';
-import { executeAgentTask } from '../../interfaces/telegram/chatExecutor.js';
-import { publishAgentReply } from '../../interfaces/telegram/agentMessenger.js';
+import { invokeAgentInChatThread } from '../../interfaces/telegram/agentInvocationService.js';
 import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 import { getRuntimeSessionRepository } from '../../core/engine/runtimeSessionRepository.js';
 import { getRuntimeLockRepository } from '../../core/engine/runtimeLockRepository.js';
@@ -49,6 +47,13 @@ export function isRaymonToolName(name: string): name is RaymonToolName {
 interface RaymonToolContext {
   originThreadId?: number;
   notificationChatId?: string;
+  currentAgentId?: string;
+}
+
+function assertRaymonCaller(context: RaymonToolContext, toolName: string) {
+  if (context.currentAgentId && context.currentAgentId !== 'raymon') {
+    throw new Error(`Tool '${toolName}' solo puede ser usada por Raymon. Caller actual: '${context.currentAgentId}'.`);
+  }
 }
 
 export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
@@ -137,6 +142,7 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
       description:
         'Invoca a otro agente al chat de Telegram de forma programática, mencionándolo por su nombre. Útil para que Raymon llame a Moncho, Poncho, Lola, etc. cuando necesite su input.',
       execute: async (params: Record<string, unknown>) => {
+        assertRaymonCaller(context, 'summon_agent_to_chat');
         const agentName = requireString(params.agentName, 'agentName');
         const agents = loadAgentRegistry();
         const agent = resolveAgentReference(agents, agentName);
@@ -148,25 +154,25 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
 
         const chatId = context.notificationChatId || getAllowedChatId();
         const statusText = `⏳ ${agent.name} (${agent.role}) se está incorporando al hilo...`;
-        const result = await sendTelegramMessage(chatId, statusText);
+        const result = await sendTelegramMessage(chatId, statusText, {
+          senderPath: 'gateway.raymonTools.summon.status',
+          agentId: agent.id,
+        });
 
         if (!result.messageId) {
           throw new Error(`No pude publicar el mensaje inicial para ${agent.name}.`);
         }
 
-        convStore.addMessageToHistory(chatId, 'Raymon', instruction, {
-          senderType: 'agent',
-          senderId: 'raymon',
-          senderName: 'Raymon',
-          role: 'assistant',
+        const agentResult = await invokeAgentInChatThread({
+          chatId,
+          agent,
+          instruction,
+          statusMessageId: result.messageId,
+          initiator: {
+            id: 'raymon',
+            name: 'Raymon',
+          },
         });
-
-        const agentResult = await executeAgentTask(chatId, agent, instruction);
-        if (agentResult.sessionId) {
-          convStore.setConversationSessionId(chatId, agent.id, agentResult.sessionId);
-        }
-
-        await publishAgentReply(chatId, result.messageId, agent, agentResult.response);
 
         return {
           success: result.success,

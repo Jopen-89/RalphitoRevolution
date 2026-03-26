@@ -116,3 +116,18 @@ test('executeToolCallLoop aborts repeated identical tool iterations before re-ex
 
   assert.equal(executionCount, 1);
 });
+
+test('executeToolCallLoop rejects blank final text when no tool calls are returned', async () => {
+  const messages: Message[] = [{ role: 'user', content: 'di algo' }];
+  const provider = createProvider([
+    {
+      text: '   ',
+      toolCalls: [],
+    },
+  ]);
+
+  await assert.rejects(
+    () => executeToolCallLoop(messages, TEST_TOOLS, [], provider, 2),
+    /returned empty response without tool calls/i,
+  );
+});

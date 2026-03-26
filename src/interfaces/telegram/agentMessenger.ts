@@ -1,6 +1,6 @@
 import type { AgentInfo } from './agentRegistry.js';
 import * as convStore from './conversationStore.js';
-import { editTelegramMessage, sendTelegramMessage } from './telegramSender.js';
+import { editTelegramMessage, sanitizeTelegramVisibleText, sendTelegramMessage } from './telegramSender.js';
 
 function getAgentEmoji(agentId: string): string {
   const emojis: Record<string, string> = {
@@ -18,10 +18,6 @@ function getAgentEmoji(agentId: string): string {
   };
 
   return emojis[agentId] || '👤';
-}
-
-function normalizeTelegramText(text: string) {
-  return text.replace(/\r\n/g, '\n').trim();
 }
 
 function splitTelegramMessage(text: string, maxLength = 3800) {
@@ -46,7 +42,7 @@ function splitTelegramMessage(text: string, maxLength = 3800) {
 export async function publishAgentReply(chatId: string, messageId: number, agent: AgentInfo, response: string) {
   const emoji = getAgentEmoji(agent.id);
   const header = `${emoji} ${agent.name.toUpperCase()} (${agent.role}):\n\n`;
-  const outgoingText = normalizeTelegramText(response);
+  const outgoingText = sanitizeTelegramVisibleText(response);
   const chunks = splitTelegramMessage(outgoingText ? `${header}${outgoingText}` : header, 3800);
   const firstChunk = chunks[0] || header;
 
@@ -58,12 +54,18 @@ export async function publishAgentReply(chatId: string, messageId: number, agent
     role: 'assistant',
   });
 
-  await editTelegramMessage(chatId, messageId, firstChunk);
+  await editTelegramMessage(chatId, messageId, firstChunk, {
+    senderPath: 'agentMessenger.publishAgentReply.edit',
+    agentId: agent.id,
+  });
   convStore.setMessageAgentRoute(chatId, messageId, agent.id);
   convStore.setActiveAgent(chatId, agent.id);
 
   for (const chunk of chunks.slice(1)) {
-    const sent = await sendTelegramMessage(chatId, chunk);
+    const sent = await sendTelegramMessage(chatId, chunk, {
+      senderPath: 'agentMessenger.publishAgentReply.chunk',
+      agentId: agent.id,
+    });
     if (!sent.messageId) continue;
     convStore.setMessageAgentRoute(chatId, sent.messageId, agent.id);
     convStore.setActiveAgent(chatId, agent.id);

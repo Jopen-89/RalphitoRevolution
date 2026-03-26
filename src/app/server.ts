@@ -25,6 +25,7 @@ import { buildProviderCapabilityHealth, getProviderCatalogStatus, PROVIDER_MATRI
 import { createAttemptDiagnostic, formatAttemptSummary, toDiagnosticErrorMessage } from '../gateway/providers/providerDiagnostics.js';
 import { listConfiguredCodexProfiles } from '../gateway/providers/providerProfiles.js';
 import { buildToolCallingUnsupportedMessage, splitToolCallingAttempts } from '../gateway/providers/providerRouting.js';
+import { traceOutput } from '../core/services/outputTrace.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -133,6 +134,23 @@ function parseProviderProfile(value: unknown) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+function extractHandoffAgentId(toolCalls: ChatResponse['toolCalls'], toolResults: ChatResponse['toolResults']) {
+  if (!toolCalls || !toolResults) return undefined;
+
+  for (let index = toolCalls.length - 1; index >= 0; index -= 1) {
+    const call = toolCalls[index];
+    const result = toolResults[index];
+    if (call?.name !== 'summon_agent_to_chat' || !result?.ok) continue;
+
+    const output = result.payload?.output as { agentId?: unknown } | undefined;
+    if (typeof output?.agentId === 'string' && output.agentId.trim()) {
+      return output.agentId;
+    }
+  }
+
+  return undefined;
 }
 
 function parseProvider(value: unknown): Provider | null {
@@ -365,6 +383,7 @@ app.post('/v1/chat', async (req, res) => {
       ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
       ...(typeof originChatId === 'string' && originChatId.trim() ? { notificationChatId: originChatId } : {}),
       ...(worktreePath ? { worktreePath } : {}),
+      ...(resolvedAgentId ? { currentAgentId: resolvedAgentId } : {}),
     });
     let lastToolCallingError: unknown = null;
 
@@ -386,10 +405,21 @@ app.post('/v1/chat', async (req, res) => {
           llmProvider,
         );
 
+        const handoffAgentId = extractHandoffAgentId(toolCalls, toolResults);
+        traceOutput({
+          stage: 'gateway.response.toolCalling',
+          text,
+          provider: attempt.provider,
+          model: attempt.model,
+          ...(resolvedAgentId ? { agentId: resolvedAgentId } : {}),
+          ...(handoffAgentId ? { handoffAgentId } : {}),
+          toolCallCount: toolCalls.length,
+        });
         const successResponse: ChatResponse = {
           response: text,
           providerUsed: attempt.provider,
           modelUsed: attempt.model,
+          ...(handoffAgentId ? { handoffAgentId } : {}),
           toolCalls,
           toolResults,
         };
@@ -421,6 +451,16 @@ app.post('/v1/chat', async (req, res) => {
 
       const llmProvider = ProviderFactory.create(attempt.provider, attempt.model, buildProviderAuth(), attempt.providerProfile);
       const responseText = await llmProvider.generateResponse(messages);
+      if (!responseText.trim()) {
+        throw new Error(`Provider ${attempt.provider} (${attempt.model}) devolvió una respuesta vacía.`);
+      }
+      traceOutput({
+        stage: 'gateway.response.chat',
+        text: responseText,
+        provider: attempt.provider,
+        model: attempt.model,
+        ...(resolvedAgentId ? { agentId: resolvedAgentId } : {}),
+      });
 
       const successResponse: ChatResponse = {
         response: responseText,
