@@ -3,6 +3,8 @@ import * as path from 'path';
 import type { AgentConfig, AgentFallbackRoute, Provider, ToolMode } from '../domain/gateway.types.js';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 
+const RAYMON_ONLY_TOOLS = new Set(['spawn_executor', 'check_status', 'resume_executor', 'run_divergence_phase', 'summon_agent_to_chat', 'cancel_executor', 'cleanup_zombies']);
+
 export interface AgentRegistryRecord {
   agent_id: string;
   name: string;
@@ -321,6 +323,26 @@ export class AgentRegistryService {
         db.prepare('UPDATE agent_registry SET is_active = 0, updated_at = ? WHERE agent_id = ?').run(now, agent.agent_id);
         console.log(`[AgentRegistryService] Deactivated agent (file missing): ${agent.agent_id}`);
       }
+    }
+
+    this.sanitizeOperationalConfig(now);
+  }
+
+  private static sanitizeOperationalConfig(now: string) {
+    const db = getRalphitoDatabase();
+    const records = db.prepare('SELECT agent_id, allowed_tools_json FROM agent_registry WHERE is_active = 1').all() as Pick<AgentRegistryRecord, 'agent_id' | 'allowed_tools_json'>[];
+
+    for (const record of records) {
+      if (record.agent_id === 'raymon') continue;
+      const allowedTools = safeJsonParse(record.allowed_tools_json, [] as string[]);
+      const sanitizedTools = allowedTools.filter((tool) => !RAYMON_ONLY_TOOLS.has(tool));
+      if (sanitizedTools.length === allowedTools.length) continue;
+
+      db.prepare('UPDATE agent_registry SET allowed_tools_json = ?, updated_at = ? WHERE agent_id = ?').run(
+        JSON.stringify(sanitizedTools),
+        now,
+        record.agent_id,
+      );
     }
   }
 

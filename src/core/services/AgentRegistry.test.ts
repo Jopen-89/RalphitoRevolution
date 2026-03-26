@@ -58,3 +58,18 @@ test('getAgentConfig exposes provider profile and fallback profiles', async () =
     ]);
   });
 });
+
+test('sync removes Raymon-only tools from specialist persisted config', async () => {
+  await withTempDb(() => {
+    AgentRegistryService.updateAgentConfig('poncho', {
+      tool_mode: 'allowed',
+      allowed_tools_json: JSON.stringify(['write_spec_document', 'summon_agent_to_chat']),
+    });
+
+    AgentRegistryService.sync();
+
+    const config = AgentRegistryService.getAgentConfig('poncho');
+    assert.ok(config);
+    assert.deepEqual(config.allowedTools, ['write_spec_document']);
+  });
+});

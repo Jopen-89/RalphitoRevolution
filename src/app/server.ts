@@ -26,6 +26,13 @@ import { createAttemptDiagnostic, formatAttemptSummary, toDiagnosticErrorMessage
 import { listConfiguredCodexProfiles } from '../gateway/providers/providerProfiles.js';
 import { buildToolCallingUnsupportedMessage, splitToolCallingAttempts } from '../gateway/providers/providerRouting.js';
 import { traceOutput } from '../core/services/outputTrace.js';
+import {
+  buildAgentConfigApiMetadata,
+  validateAllowedTools,
+  validateFallbacks as validateFallbackRoutes,
+  validateProviderModel,
+  validateProviderProfile,
+} from './agentConfigValidation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -665,7 +672,7 @@ app.get('/api/agents', (_req, res) => {
     .sort((a, b) => a.agent_id.localeCompare(b.agent_id))
     .map(serializeAgentRecord);
 
-  res.json({ agents, defaults: DEFAULT_MODEL_BY_PROVIDER });
+  res.json({ agents, defaults: DEFAULT_MODEL_BY_PROVIDER, meta: buildAgentConfigApiMetadata() });
 });
 
 app.get('/api/agents/:id', (req, res) => {
@@ -726,16 +733,27 @@ app.patch('/api/agents/:id', (req, res) => {
 
   if ('allowedTools' in body) {
     if (!Array.isArray(body.allowedTools) || body.allowedTools.some((tool) => typeof tool !== 'string')) {
-      res.status(400).json({ error: 'Invalid allowedTools' });
+      res.status(400).json({ field: 'allowedTools', error: 'Invalid allowedTools' });
       return;
     }
-    updates.allowed_tools_json = JSON.stringify(body.allowedTools);
+    const allowedTools = body.allowedTools.map((tool) => String(tool));
+    const toolError = validateAllowedTools(req.params.id, allowedTools);
+    if (toolError) {
+      res.status(400).json(toolError);
+      return;
+    }
+    updates.allowed_tools_json = JSON.stringify(allowedTools);
   }
 
   if ('fallbacks' in body) {
     const fallbacks = parseFallbacks(body.fallbacks);
     if (!fallbacks) {
-      res.status(400).json({ error: 'Invalid fallbacks' });
+      res.status(400).json({ field: 'fallbacks', error: 'Invalid fallbacks' });
+      return;
+    }
+    const fallbackError = validateFallbackRoutes(fallbacks);
+    if (fallbackError) {
+      res.status(400).json(fallbackError);
       return;
     }
     updates.fallbacks_json = JSON.stringify(fallbacks);
@@ -751,6 +769,24 @@ app.patch('/api/agents/:id', (req, res) => {
 
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: 'No valid agent fields provided' });
+    return;
+  }
+
+  const effectiveProvider = (updates.primary_provider || existing.primary_provider || existing.provider || DEFAULT_MODEL_BY_PROVIDER.gemini) as Provider;
+  const effectiveModel = updates.model || existing.model || DEFAULT_MODEL_BY_PROVIDER[effectiveProvider];
+  const effectiveProviderProfile = 'provider_profile' in updates
+    ? updates.provider_profile || null
+    : existing.provider_profile || null;
+
+  const modelError = validateProviderModel(effectiveProvider, effectiveModel);
+  if (modelError) {
+    res.status(400).json(modelError);
+    return;
+  }
+
+  const profileError = validateProviderProfile(effectiveProvider, effectiveProviderProfile);
+  if (profileError) {
+    res.status(400).json(profileError);
     return;
   }
 

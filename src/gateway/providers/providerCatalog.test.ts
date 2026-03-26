@@ -3,7 +3,7 @@ import test from 'node:test';
 import { PROVIDER_MATRIX, buildProviderCapabilityHealth, getProviderCatalogStatus } from './providerCatalog.js';
 
 test('provider catalog defines official support matrix', () => {
-  assert.deepEqual(PROVIDER_MATRIX.gemini.officialModels, ['gemini-3.1-pro-preview', 'gemini-3']);
+  assert.deepEqual(PROVIDER_MATRIX.gemini.officialModels, ['gemini-3.1-pro-preview']);
   assert.deepEqual(PROVIDER_MATRIX.openai.officialModels, ['gpt-5.4']);
   assert.deepEqual(PROVIDER_MATRIX.opencode.officialModels, ['minimax-m2.7']);
   assert.deepEqual(PROVIDER_MATRIX.codex.officialModels, ['gpt-5.4']);

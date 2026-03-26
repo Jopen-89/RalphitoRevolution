@@ -53,7 +53,7 @@ export const PROVIDER_MATRIX: Record<Provider, ProviderMatrixEntry> = {
     chat: true,
     toolCalling: true,
     vision: true,
-    officialModels: ['gemini-3.1-pro-preview', 'gemini-3'],
+    officialModels: ['gemini-3.1-pro-preview'],
     notes: 'Usa Google OAuth con token persistido en .tokens/google.json.',
     routingRecommendation: 'Usa gemini para chat, tool-calling y vision cuando Google OAuth este autenticado.',
   },

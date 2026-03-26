@@ -219,6 +219,82 @@ export function renderDashboardPage() {
       margin-top: 14px;
     }
 
+    .agent-form {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    .field label {
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      font: inherit;
+      color: var(--ink);
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.72);
+    }
+
+    textarea {
+      min-height: 84px;
+      resize: vertical;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+    }
+
+    .field small {
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .agent-message {
+      border-radius: 14px;
+      padding: 10px 12px;
+      font-size: 0.88rem;
+    }
+
+    .agent-message.ok {
+      background: rgba(46, 107, 51, 0.08);
+      border: 1px solid rgba(46, 107, 51, 0.18);
+      color: var(--ok);
+    }
+
+    .agent-message.error {
+      background: rgba(153, 60, 47, 0.08);
+      border: 1px solid rgba(153, 60, 47, 0.16);
+      color: var(--danger);
+    }
+
+    .agent-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
     button {
       border: none;
       border-radius: 999px;
@@ -245,6 +321,7 @@ export function renderDashboardPage() {
       .shell { grid-template-columns: 1fr; }
       .workspace { padding: 0 18px 18px; }
       .detail-grid { grid-template-columns: 1fr; }
+      .form-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -296,7 +373,25 @@ export function renderDashboardPage() {
   </div>
 
   <script>
-    const state = { sessions: [], agents: [], selectedId: null, detail: null, busy: false };
+    const state = {
+      sessions: [],
+      agents: [],
+      selectedId: null,
+      selectedAgentId: null,
+      detail: null,
+      busy: false,
+      agentSavingId: null,
+      agentDrafts: {},
+      agentMessages: {},
+      agentMeta: {
+        defaults: {},
+        providers: [],
+        toolModes: [],
+        toolNames: [],
+        providerModels: {},
+        providerProfiles: {},
+      },
+    };
 
     const el = {
       stats: document.getElementById('stats'),
@@ -318,6 +413,87 @@ export function renderDashboardPage() {
       return '<span class="chip">' + text + '</span>';
     }
 
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatAllowedToolsValue(tools) {
+      return Array.isArray(tools) ? tools.join('\n') : '';
+    }
+
+    function formatFallbackDraftValue(fallbacks) {
+      if (!Array.isArray(fallbacks) || fallbacks.length === 0) return '';
+      return fallbacks.map((fallback) => {
+        return fallback.provider + ':' + fallback.model + (fallback.providerProfile ? ('@' + fallback.providerProfile) : '');
+      }).join('\n');
+    }
+
+    function buildAgentDraft(agent) {
+      return {
+        primaryProvider: agent.primaryProvider || 'gemini',
+        model: agent.model || '',
+        providerProfile: agent.providerProfile || '',
+        toolMode: agent.toolMode || 'none',
+        allowedTools: formatAllowedToolsValue(agent.allowedTools),
+        fallbacks: formatFallbackDraftValue(agent.fallbacks),
+      };
+    }
+
+    function ensureAgentDraft(agent) {
+      if (!state.agentDrafts[agent.agentId]) {
+        state.agentDrafts[agent.agentId] = buildAgentDraft(agent);
+      }
+      return state.agentDrafts[agent.agentId];
+    }
+
+    function parseMultilineList(value) {
+      return String(value || '')
+        .split(/[,\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    function parseFallbackDraft(value) {
+      const lines = String(value || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      const fallbacks = [];
+      for (const line of lines) {
+        const colonIndex = line.indexOf(':');
+        if (colonIndex <= 0 || colonIndex === line.length - 1) {
+          return { error: 'Usa una linea por fallback con formato provider:model o provider:model@profile.' };
+        }
+
+        const provider = line.slice(0, colonIndex).trim();
+        const modelAndProfile = line.slice(colonIndex + 1).trim();
+        const atIndex = modelAndProfile.indexOf('@');
+        const model = (atIndex >= 0 ? modelAndProfile.slice(0, atIndex) : modelAndProfile).trim();
+        const providerProfile = (atIndex >= 0 ? modelAndProfile.slice(atIndex + 1) : '').trim();
+        if (!provider || !model) {
+          return { error: 'Cada fallback necesita provider y model.' };
+        }
+        fallbacks.push({
+          provider,
+          model,
+          ...(providerProfile ? { providerProfile } : {}),
+        });
+      }
+
+      return { fallbacks };
+    }
+
+    function providerHint(provider) {
+      const models = state.agentMeta.providerModels[provider] || [];
+      return models.length ? models.join(', ') : 'sin modelos catalogados';
+    }
+
     function formatFallbacks(fallbacks) {
       if (!Array.isArray(fallbacks) || fallbacks.length === 0) return 'sin fallbacks';
       return fallbacks
@@ -332,6 +508,18 @@ export function renderDashboardPage() {
       const response = await fetch('/api/agents');
       const body = await response.json();
       state.agents = body.agents || [];
+      state.agentMeta = {
+        defaults: body.defaults || {},
+        providers: body.meta && Array.isArray(body.meta.providers) ? body.meta.providers : [],
+        toolModes: body.meta && Array.isArray(body.meta.toolModes) ? body.meta.toolModes : ['none', 'allowed'],
+        toolNames: body.meta && Array.isArray(body.meta.toolNames) ? body.meta.toolNames : [],
+        providerModels: body.meta && body.meta.providerModels ? body.meta.providerModels : {},
+        providerProfiles: body.meta && body.meta.providerProfiles ? body.meta.providerProfiles : {},
+      };
+      if (!state.selectedAgentId && state.agents.length > 0) {
+        state.selectedAgentId = state.agents[0].agentId;
+      }
+      state.agents.forEach((agent) => ensureAgentDraft(agent));
       renderAgentList();
     }
 
@@ -357,8 +545,61 @@ export function renderDashboardPage() {
     function renderAgentList() {
       el.agentList.innerHTML = state.agents.length
         ? state.agents.map((agent) => {
+            const draft = ensureAgentDraft(agent);
             const providerProfile = agent.providerProfile || 'default';
-            return '<div class="session-card">' +
+            const message = state.agentMessages[agent.agentId];
+            const isSelected = state.selectedAgentId === agent.agentId;
+            const providerOptions = state.agentMeta.providers.map((provider) => {
+              return '<option value="' + escapeHtml(provider) + '"' + (draft.primaryProvider === provider ? ' selected' : '') + '>' + escapeHtml(provider) + '</option>';
+            }).join('');
+            const toolModeOptions = state.agentMeta.toolModes.map((toolMode) => {
+              return '<option value="' + escapeHtml(toolMode) + '"' + (draft.toolMode === toolMode ? ' selected' : '') + '>' + escapeHtml(toolMode) + '</option>';
+            }).join('');
+            const codexProfiles = (state.agentMeta.providerProfiles.codex || []).map((profile) => '<code>' + escapeHtml(profile) + '</code>').join(', ');
+            const form = isSelected
+              ? '<div class="agent-form">' +
+                  '<div class="form-grid">' +
+                    '<div class="field">' +
+                      '<label>Provider</label>' +
+                      '<select data-agent-field="primaryProvider" data-agent-id="' + agent.agentId + '">' + providerOptions + '</select>' +
+                      '<small>Modelo oficial: ' + escapeHtml(providerHint(draft.primaryProvider)) + '</small>' +
+                    '</div>' +
+                    '<div class="field">' +
+                      '<label>Model</label>' +
+                      '<input data-agent-field="model" data-agent-id="' + agent.agentId + '" value="' + escapeHtml(draft.model) + '" placeholder="' + escapeHtml((state.agentMeta.defaults[draft.primaryProvider] || 'modelo')) + '" />' +
+                      '<small>Defaults API: ' + escapeHtml(state.agentMeta.defaults[draft.primaryProvider] || 'sin default') + '</small>' +
+                    '</div>' +
+                    '<div class="field">' +
+                      '<label>Provider Profile</label>' +
+                      '<input data-agent-field="providerProfile" data-agent-id="' + agent.agentId + '" value="' + escapeHtml(draft.providerProfile) + '" placeholder="solo codex" />' +
+                      '<small>' + (draft.primaryProvider === 'codex'
+                        ? ('Perfiles codex: ' + (codexProfiles || 'sin perfiles configurados'))
+                        : 'Deja vacio para providers sin profile.') + '</small>' +
+                    '</div>' +
+                    '<div class="field">' +
+                      '<label>Tool Mode</label>' +
+                      '<select data-agent-field="toolMode" data-agent-id="' + agent.agentId + '">' + toolModeOptions + '</select>' +
+                      '<small><code>allowed</code> usa la lista de tools declarada abajo.</small>' +
+                    '</div>' +
+                    '<div class="field full">' +
+                      '<label>Allowed Tools</label>' +
+                      '<textarea data-agent-field="allowedTools" data-agent-id="' + agent.agentId + '" placeholder="una tool por linea">' + escapeHtml(draft.allowedTools) + '</textarea>' +
+                      '<small>Disponibles: ' + escapeHtml(state.agentMeta.toolNames.join(', ')) + '</small>' +
+                    '</div>' +
+                    '<div class="field full">' +
+                      '<label>Fallbacks</label>' +
+                      '<textarea data-agent-field="fallbacks" data-agent-id="' + agent.agentId + '" placeholder="provider:model o provider:model@profile">' + escapeHtml(draft.fallbacks) + '</textarea>' +
+                      '<small>Formato por linea: <code>provider:model</code> o <code>provider:model@profile</code>.</small>' +
+                    '</div>' +
+                  '</div>' +
+                  (message ? '<div class="agent-message ' + escapeHtml(message.type) + '">' + escapeHtml(message.text) + '</div>' : '') +
+                  '<div class="agent-actions">' +
+                    '<button class="secondary" data-agent-action="save" data-agent-id="' + agent.agentId + '" ' + (state.agentSavingId === agent.agentId ? 'disabled' : '') + '>Guardar agente</button>' +
+                    '<button class="ghost" data-agent-action="reset" data-agent-id="' + agent.agentId + '" ' + (state.agentSavingId === agent.agentId ? 'disabled' : '') + '>Resetear</button>' +
+                  '</div>' +
+                '</div>'
+              : '';
+            return '<div class="session-card ' + (isSelected ? 'active' : '') + '" data-agent-card="' + agent.agentId + '">' +
               '<h3>' + agent.agentId + '</h3>' +
               '<div class="chips">' +
                 chip((agent.primaryProvider || 'gemini') + '/' + providerProfile) +
@@ -366,9 +607,104 @@ export function renderDashboardPage() {
                 chip(agent.toolMode || 'none') +
               '</div>' +
               '<p class="muted">fallbacks: ' + formatFallbacks(agent.fallbacks) + '</p>' +
+              form +
             '</div>';
           }).join('')
         : '<div class="muted">Sin agentes cargados.</div>';
+
+      el.agentList.querySelectorAll('[data-agent-card]').forEach((node) => {
+        node.addEventListener('click', (event) => {
+          if (event.target.closest('input, textarea, select, button')) return;
+          state.selectedAgentId = node.getAttribute('data-agent-card');
+          renderAgentList();
+        });
+      });
+
+      el.agentList.querySelectorAll('[data-agent-field]').forEach((node) => {
+        node.addEventListener('input', (event) => {
+          const target = event.target;
+          const agentId = target.getAttribute('data-agent-id');
+          const field = target.getAttribute('data-agent-field');
+          if (!agentId || !field) return;
+          if (!state.agentDrafts[agentId]) return;
+          state.agentDrafts[agentId][field] = target.value;
+          if (field === 'primaryProvider') {
+            const profileDraft = state.agentDrafts[agentId].providerProfile;
+            if (target.value !== 'codex' && profileDraft) {
+              state.agentDrafts[agentId].providerProfile = '';
+            }
+            renderAgentList();
+          }
+        });
+      });
+
+      el.agentList.querySelectorAll('[data-agent-action]').forEach((node) => {
+        node.addEventListener('click', async (event) => {
+          event.stopPropagation();
+          const agentId = node.getAttribute('data-agent-id');
+          const action = node.getAttribute('data-agent-action');
+          if (!agentId) return;
+          if (action === 'save') {
+            await saveAgent(agentId);
+            return;
+          }
+          if (action === 'reset') {
+            const agent = state.agents.find((entry) => entry.agentId === agentId);
+            if (!agent) return;
+            state.agentDrafts[agentId] = buildAgentDraft(agent);
+            delete state.agentMessages[agentId];
+            renderAgentList();
+          }
+        });
+      });
+    }
+
+    async function saveAgent(agentId) {
+      const draft = state.agentDrafts[agentId];
+      const agent = state.agents.find((entry) => entry.agentId === agentId);
+      if (!draft || !agent) return;
+
+      const fallbackParse = parseFallbackDraft(draft.fallbacks);
+      if (fallbackParse.error) {
+        state.agentMessages[agentId] = { type: 'error', text: fallbackParse.error };
+        renderAgentList();
+        return;
+      }
+
+      const payload = {
+        primaryProvider: draft.primaryProvider,
+        model: draft.model,
+        providerProfile: draft.providerProfile.trim() || null,
+        toolMode: draft.toolMode,
+        allowedTools: parseMultilineList(draft.allowedTools),
+        fallbacks: fallbackParse.fallbacks,
+      };
+
+      state.agentSavingId = agentId;
+      state.agentMessages[agentId] = { type: 'ok', text: 'Guardando configuracion...' };
+      renderAgentList();
+
+      try {
+        const response = await fetch('/api/agents/' + encodeURIComponent(agentId), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const body = await response.json();
+        if (!response.ok) {
+          const suffix = body.field ? (' [' + body.field + ']') : '';
+          throw new Error((body.error || 'No pude guardar la configuracion') + suffix + (body.details ? (': ' + body.details) : ''));
+        }
+
+        state.agents = state.agents.map((entry) => entry.agentId === agentId ? body.agent : entry);
+        state.agentDrafts[agentId] = buildAgentDraft(body.agent);
+        state.agentMessages[agentId] = { type: 'ok', text: 'Configuracion guardada y persistida en agent_registry.' };
+      } catch (error) {
+        state.agentMessages[agentId] = { type: 'error', text: error.message || String(error) };
+      } finally {
+        state.agentSavingId = null;
+        renderAgentList();
+      }
     }
 
     async function loadDetail(sessionId) {

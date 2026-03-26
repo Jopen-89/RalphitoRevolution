@@ -10,4 +10,7 @@ test('renderDashboardPage includes agents operational panel', () => {
   assert.match(html, /fetch\('\/api\/agents'\)/);
   assert.match(html, /providerProfile/);
   assert.match(html, /fallbacks:/);
+  assert.match(html, /data-agent-action="save"/);
+  assert.match(html, /fetch\('\/api\/agents\/' \+ encodeURIComponent\(agentId\)/);
+  assert.match(html, /Allowed Tools/);
 });
