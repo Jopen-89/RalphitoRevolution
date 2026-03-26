@@ -21,12 +21,12 @@ Este esquema representa la arquitectura del sistema post-refactor (Issue 56) uti
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
 │                          CAPA 2: ORQUESTACIÓN (Sala de Diseño)                           │
 │                                                                                          │
-│ ┌──────────────────────┐    Hablan entre ellos    ┌──────────────────────────────────┐   │
-│ │ Raymon (Orchestrator)│ <----------------------> │ Sabios (Moncho, Poncho, Lola)    │   │
-│ │ (Toma decisiones)    │                          │ (Escriben PRDs y Beads en docs/) │   │
+│ ┌──────────────────────┐    Handoff canónico      ┌──────────────────────────────────┐   │
+│ │   Raymon (Planner)   │ -----------------------> │ Sabios (Moncho, Poncho, Lola)    │   │
+│ │ (Puerta de entrada)  │                          │ (Responden por reply/contexto)   │   │
 │ └─────────┬────────────┘                          └──────────────────────────────────┘   │
 │           │                                                                              │
-│           │  Si Raymon decide que hay que "picar código", usa sus Bash Tools:            │
+│           │  Si Raymon decide que hay que "picar código", usa tools de runtime:          │
 │           v                                                                              │
 │ ┌───────────────────────────────┐ ┌──────────────────────────────────────────────────┐   │
 │ │ spawn-session <payload>       │ │ status / resume-session                           │   │

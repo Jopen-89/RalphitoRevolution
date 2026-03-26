@@ -22,11 +22,12 @@ graph TD
     subgraph ORCH ["🧠 CAPA DE ORQUESTACIÓN Y DISEÑO (En Memoria)"]
         ROUTER["Enrutador de Intenciones<br/>(chatExecutor.ts)"]
         
-        RAYMON["Raymon (Orchestrator)<br/>src/core/prompt/roles/AgentOrchestrator.md"]
+        RAYMON["Raymon (Planner)<br/>src/core/prompt/roles/ProjectPlanner(Raymon).md"]
         SABIOS["Moncho, Poncho, Lola...<br/>src/core/prompt/roles/*.md"]
         
-        ROUTER -- "Si es charla" --> RAYMON
-        ROUTER -- "Menciones" --> SABIOS
+        ROUTER -- "Entrada por defecto" --> RAYMON
+        ROUTER -- "Reply / active agent" --> SABIOS
+        RAYMON -- "Invoca especialistas" --> TOOL_SUMMON["summon_agent_to_chat<br/>handoff canonico"]
         RAYMON -- "Decide lanzar Sabios" --> TOOL_DIV["Runtime nativo:<br/>divergence via engine"]
         RAYMON -- "Decide lanzar Ejecutor" --> TOOL_SPAWN["Runtime nativo:<br/>spawn-session"]
         RAYMON -- "Supervisa/Resucita" --> TOOL_MGMT["Runtime nativo:<br/>status / resume-session"]
