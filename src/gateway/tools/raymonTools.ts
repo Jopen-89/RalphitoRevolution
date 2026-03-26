@@ -8,6 +8,8 @@ import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 import { getRuntimeSessionRepository } from '../../core/engine/runtimeSessionRepository.js';
 import { getRuntimeLockRepository } from '../../core/engine/runtimeLockRepository.js';
 import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
+import { BeadLifecycleService } from '../../core/services/BeadLifecycleService.js';
+import { normalizeBeadPriority } from '../../core/domain/bead.types.js';
 
 const VALID_PROVIDERS = new Set<Provider>(['gemini', 'openai', 'opencode', 'codex']);
 
@@ -28,8 +30,22 @@ function optionalProvider(value: unknown): Provider | undefined {
   return VALID_PROVIDERS.has(value as Provider) ? (value as Provider) : undefined;
 }
 
+function optionalPositiveNumber(value: unknown): number | undefined {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
+  return Math.floor(numeric);
+}
+
+function formatBacklogLine(index: number, item: ReturnType<typeof BeadLifecycleService.listBacklog>[number]) {
+  const beadLabel = item.beadPath ? ` bead=${item.beadPath}` : '';
+  const agentLabel = item.assignedAgent ? ` agent=${item.assignedAgent}` : '';
+  return `${index + 1}. [${item.priority}/${item.status}] ${item.id} - ${item.title}${agentLabel}${beadLabel}`;
+}
+
 export const RAYMON_TOOL_NAMES = [
   'spawn_executor',
+  'list_project_backlog',
+  'set_task_priority',
   'check_status',
   'resume_executor',
   'run_divergence_phase',
@@ -85,6 +101,83 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
           baseCommitHash: result.baseCommitHash,
           worktreePath: result.worktreePath,
           branchName: result.branchName,
+        };
+      },
+    },
+    {
+      name: 'list_project_backlog',
+      description: 'Lista el backlog de tasks por proyecto y devuelve un orden recomendado para Raymon.',
+      execute: async (params: Record<string, unknown>) => {
+        const projectId = optionalString(params.projectId);
+        const rawStatus = optionalString(params.status);
+        const rawPriority = optionalString(params.priority);
+        const assignedAgent = optionalString(params.assignedAgent);
+        const limit = optionalPositiveNumber(params.limit) || 20;
+
+        const normalizedStatus = rawStatus === 'all' || rawStatus === 'open' || rawStatus === 'pending' || rawStatus === 'in_progress' || rawStatus === 'blocked' || rawStatus === 'done' || rawStatus === 'failed' || rawStatus === 'cancelled'
+          ? rawStatus
+          : 'open';
+
+        const tasks = BeadLifecycleService.listBacklog({
+          ...(projectId ? { projectId } : {}),
+          status: normalizedStatus,
+          ...(rawPriority ? { priority: normalizeBeadPriority(rawPriority) } : {}),
+          ...(assignedAgent ? { assignedAgent } : {}),
+          limit,
+        });
+
+        return {
+          projectId: projectId || null,
+          status: normalizedStatus,
+          priority: rawPriority ? normalizeBeadPriority(rawPriority) : null,
+          assignedAgent: assignedAgent || null,
+          total: tasks.length,
+          recommendedOrder: tasks.map((task, index) => ({
+            rank: index + 1,
+            taskId: task.id,
+            title: task.title,
+            priority: task.priority,
+            status: task.status,
+            beadPath: task.beadPath,
+          })),
+          summary:
+            tasks.length === 0
+              ? 'No backlog tasks matched the current filters.'
+              : tasks.map((task, index) => formatBacklogLine(index, task)).join('\n'),
+        };
+      },
+    },
+    {
+      name: 'set_task_priority',
+      description: 'Actualiza la prioridad de una task del backlog para reflejar la decision de Raymon.',
+      execute: async (params: Record<string, unknown>) => {
+        const taskId = optionalString(params.taskId);
+        const beadPath = optionalString(params.beadPath);
+        const projectId = optionalString(params.projectId);
+
+        if (!taskId && !beadPath) {
+          throw new Error("Parameter 'taskId' or 'beadPath' is required.");
+        }
+
+        const priority = normalizeBeadPriority(requireString(params.priority, 'priority'));
+        const updated = BeadLifecycleService.setTaskPriority({
+          ...(taskId ? { taskId } : {}),
+          ...(beadPath ? { beadPath } : {}),
+          ...(projectId ? { projectId } : {}),
+          priority,
+        });
+
+        if (!updated) {
+          throw new Error('Task not found for reprioritization.');
+        }
+
+        return {
+          taskId: updated.id,
+          projectId: updated.projectId,
+          priority: updated.priority,
+          status: updated.status,
+          beadPath: updated.beadPath,
+          success: true,
         };
       },
     },
@@ -284,6 +377,34 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
           model: { type: 'string', description: 'Modelo LLM real opcional para el loop del engine' },
         },
         required: ['prompt'],
+      },
+    },
+    {
+      name: 'list_project_backlog',
+      description: 'Lista backlog por proyecto con el orden recomendado para Raymon.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Project id canonico a consultar' },
+          status: { type: 'string', description: 'Filtro de estado: open, all, pending, in_progress, blocked, done, failed o cancelled' },
+          priority: { type: 'string', description: 'Filtro opcional de prioridad: low, medium o high' },
+          assignedAgent: { type: 'string', description: 'Filtro opcional por agente asignado' },
+          limit: { type: 'number', description: 'Cantidad maxima de tasks a devolver' },
+        },
+      },
+    },
+    {
+      name: 'set_task_priority',
+      description: 'Actualiza prioridad de una task del backlog.',
+      parameters: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'ID canonico de la task' },
+          beadPath: { type: 'string', description: 'Ruta del bead si no se conoce taskId' },
+          projectId: { type: 'string', description: 'Project id canonico para resolver beadPath relativo' },
+          priority: { type: 'string', description: 'Nueva prioridad: low, medium o high' },
+        },
+        required: ['priority'],
       },
     },
     {

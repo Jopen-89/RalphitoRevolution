@@ -50,6 +50,19 @@ export interface LifecycleTaskRecord {
   completedAt: string | null;
 }
 
+export interface ListBacklogInput {
+  projectId?: string | null;
+  status?: TaskStatus | 'open' | 'all';
+  priority?: TaskPriority;
+  assignedAgent?: string | null;
+  limit?: number;
+}
+
+export interface ListTasksBySourceSpecInput {
+  projectId?: string | null;
+  sourceSpecPath: string;
+}
+
 function mapLifecycleTask(row: Record<string, unknown> | undefined): LifecycleTaskRecord | null {
   if (!row) return null;
 
@@ -83,6 +96,111 @@ function resolveAbsoluteBeadPath(projectId?: string | null, beadPath?: string | 
 }
 
 export class BeadLifecycleService {
+  static listTasksBySourceSpec(input: ListTasksBySourceSpecInput) {
+    const db = getRalphitoDatabase();
+    const rows = db
+      .prepare(
+        `
+          SELECT
+            id,
+            project_id AS projectId,
+            project_key AS projectKey,
+            title,
+            source_spec_path AS sourceSpecPath,
+            bead_path AS beadPath,
+            component_path AS componentPath,
+            status,
+            assigned_agent AS assignedAgent,
+            runtime_session_id AS runtimeSessionId,
+            priority,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            completed_at AS completedAt
+          FROM tasks
+          WHERE source_spec_path = ?
+            AND (? IS NULL OR project_id = ?)
+          ORDER BY updated_at ASC, id ASC
+        `,
+      )
+      .all(input.sourceSpecPath, input.projectId || null, input.projectId || null) as Record<string, unknown>[];
+
+    return rows.map((row) => mapLifecycleTask(row)).filter(Boolean) as LifecycleTaskRecord[];
+  }
+
+  static listBacklog(input: ListBacklogInput = {}) {
+    const db = getRalphitoDatabase();
+    const whereClauses: string[] = [];
+    const params: Array<string | number> = [];
+
+    if (input.projectId) {
+      whereClauses.push('project_id = ?');
+      params.push(input.projectId);
+    }
+
+    if (input.status && input.status !== 'all') {
+      if (input.status === 'open') {
+        whereClauses.push("status IN ('pending', 'in_progress', 'blocked')");
+      } else {
+        whereClauses.push('status = ?');
+        params.push(input.status);
+      }
+    }
+
+    if (input.priority) {
+      whereClauses.push('priority = ?');
+      params.push(input.priority);
+    }
+
+    if (input.assignedAgent) {
+      whereClauses.push('assigned_agent = ?');
+      params.push(input.assignedAgent);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const limit = Number.isFinite(input.limit) && (input.limit as number) > 0 ? Math.floor(input.limit as number) : 20;
+
+    const rows = db
+      .prepare(
+        `
+          SELECT
+            id,
+            project_id AS projectId,
+            project_key AS projectKey,
+            title,
+            source_spec_path AS sourceSpecPath,
+            bead_path AS beadPath,
+            component_path AS componentPath,
+            status,
+            assigned_agent AS assignedAgent,
+            runtime_session_id AS runtimeSessionId,
+            priority,
+            created_at AS createdAt,
+            updated_at AS updatedAt,
+            completed_at AS completedAt
+          FROM tasks
+          ${whereSql}
+          ORDER BY
+            CASE priority
+              WHEN 'high' THEN 0
+              WHEN 'medium' THEN 1
+              ELSE 2
+            END ASC,
+            CASE status
+              WHEN 'blocked' THEN 0
+              WHEN 'in_progress' THEN 1
+              WHEN 'pending' THEN 2
+              ELSE 3
+            END ASC,
+            updated_at ASC,
+            id ASC
+          LIMIT ?
+        `,
+      )
+      .all(...params, limit) as Record<string, unknown>[];
+
+    return rows.map((row) => mapLifecycleTask(row)).filter(Boolean) as LifecycleTaskRecord[];
+  }
+
   static createOrUpdateTask(input: CreateLifecycleTaskInput) {
     const existing = this.getTaskById(input.taskId);
     if (!existing) {
@@ -339,6 +457,44 @@ export class BeadLifecycleService {
       refreshRuntimeSessionSummary(runtimeSessionId);
     }
 
+    return this.getTaskById(task.id);
+  }
+
+  static setTaskPriority(input: {
+    taskId?: string;
+    beadPath?: string | null;
+    projectId?: string | null;
+    priority: TaskPriority;
+  }) {
+    const db = getRalphitoDatabase();
+    const task = this.resolveTask({
+      ...(input.taskId ? { taskId: input.taskId } : {}),
+      ...(input.beadPath ? { beadPath: input.beadPath } : {}),
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+    });
+    if (!task) return null;
+
+    const now = new Date().toISOString();
+    db.transaction(() => {
+      db.prepare(
+        `
+          UPDATE tasks
+          SET priority = ?, updated_at = ?
+          WHERE id = ?
+        `,
+      ).run(input.priority, now, task.id);
+
+      db.prepare(
+        'INSERT INTO task_events (task_id, event_type, payload_json, created_at) VALUES (?, ?, ?, ?)',
+      ).run(
+        task.id,
+        'task_reprioritized',
+        JSON.stringify({ priority: input.priority, projectId: input.projectId || task.projectId || null }),
+        now,
+      );
+    })();
+
+    refreshTaskSummary(task.id);
     return this.getTaskById(task.id);
   }
 
