@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult } from '../../core/domain/gateway.types.js';
+import type { CodexProfileConfig } from './providerProfiles.js';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_MODEL = 'gpt-5.4';
@@ -9,13 +10,21 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 export class CodexProvider implements IVisionProvider {
   name: Provider = 'codex';
   model: string;
+  providerProfile: string | undefined;
+  private env: NodeJS.ProcessEnv;
 
-  constructor(model: string = DEFAULT_MODEL) {
+  constructor(model: string = DEFAULT_MODEL, profileConfig?: CodexProfileConfig | null) {
     this.model = model;
+    this.providerProfile = profileConfig?.profile;
+    this.env = {
+      ...process.env,
+      ...(profileConfig?.env || {}),
+    };
   }
 
   async generateResponse(messages: Message[]): Promise<string> {
-    console.log(`[CodexProvider] Enrutando petición a openai/${this.model} mediante OAuth de opencode...`);
+    const profileLabel = this.providerProfile ? ` profile=${this.providerProfile}` : '';
+    console.log(`[CodexProvider] Enrutando petición a openai/${this.model} mediante OAuth de opencode${profileLabel}...`);
 
     const prompt = this.buildPrompt(messages);
     const model = this.model.includes('/') ? this.model : `openai/${this.model}`;
@@ -27,6 +36,7 @@ export class CodexProvider implements IVisionProvider {
         ['-q', '-c', command, '/dev/null'],
         {
           cwd: process.cwd(),
+          env: this.env,
           timeout: Number(process.env.OPENCODE_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
           maxBuffer: 10 * 1024 * 1024,
         },

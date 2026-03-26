@@ -3,13 +3,15 @@ import { GeminiProvider } from './gemini.js';
 import { OpenAIProvider } from './openai.js';
 import { OpencodeProvider } from './opencode.js';
 import { CodexProvider } from './codex.js';
+import { resolveCodexProfileConfig } from './providerProfiles.js';
 import type { Provider, ILLMProvider, IVisionProvider } from '../../core/domain/gateway.types.js';
 
 export class ProviderFactory {
   static create(
     provider: Provider,
     model: string,
-    auth: { googleAuthClient?: any; openAiKey?: string; minimaxKey?: string }
+    auth: { googleAuthClient?: any; openAiKey?: string; minimaxKey?: string },
+    providerProfile?: string,
   ): ILLMProvider {
     switch (provider) {
       case 'gemini':
@@ -22,7 +24,7 @@ export class ProviderFactory {
         if (!auth.minimaxKey) throw new Error('Falta MINIMAX_API_KEY en el entorno.');
         return new OpencodeProvider(auth.minimaxKey, model);
       case 'codex':
-        return new CodexProvider(model);
+        return new CodexProvider(model, resolveCodexProfileConfig(providerProfile));
       default:
         throw new Error(`Proveedor ${provider} no soportado por la factoría.`);
     }
@@ -31,7 +33,8 @@ export class ProviderFactory {
   static async createVisionProvider(
     provider: Provider,
     model: string,
-    auth: { googleAuthClient?: any; openAiKey?: string; minimaxKey?: string }
+    auth: { googleAuthClient?: any; openAiKey?: string; minimaxKey?: string },
+    providerProfile?: string,
   ): Promise<IVisionProvider | null> {
     switch (provider) {
       case 'gemini': {
@@ -46,7 +49,7 @@ export class ProviderFactory {
         if (!auth.minimaxKey) return null;
         return new OpencodeProvider(auth.minimaxKey, model);
       case 'codex':
-        return new CodexProvider(model);
+        return new CodexProvider(model, resolveCodexProfileConfig(providerProfile));
       default:
         return null;
     }

@@ -3,12 +3,11 @@ import os from 'os';
 import path from 'path';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AgentRegistryService } from '../../core/services/AgentRegistry.js';
+import { AgentRegistryService } from './AgentRegistry.js';
 import {
   closeRalphitoDatabase,
   initializeRalphitoDatabase,
 } from '../../infrastructure/persistence/db/index.js';
-import { loadAgentRegistry } from './agentRegistry.js';
 
 function createTempDirectory(prefix: string) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -16,7 +15,7 @@ function createTempDirectory(prefix: string) {
 
 function withTempDb<T>(fn: () => Promise<T> | T) {
   const previousDbPath = process.env.RALPHITO_DB_PATH;
-  const tmpDir = createTempDirectory('rr-telegram-agent-registry-');
+  const tmpDir = createTempDirectory('rr-agent-registry-');
   process.env.RALPHITO_DB_PATH = path.join(tmpDir, 'ralphito.sqlite');
   closeRalphitoDatabase();
   initializeRalphitoDatabase();
@@ -35,26 +34,27 @@ function withTempDb<T>(fn: () => Promise<T> | T) {
     });
 }
 
-test('loadAgentRegistry usa agent_registry y refleja provider/model persistidos', async () => {
+test('getAgentConfig exposes provider profile and fallback profiles', async () => {
   await withTempDb(() => {
-    AgentRegistryService.updateAgentConfig('poncho', {
+    AgentRegistryService.updateAgentConfig('raymon', {
       primary_provider: 'codex',
       provider: 'codex',
+      provider_profile: 'jopen',
       model: 'gpt-5.4',
-      provider_profile: 'martapa',
-      tool_mode: 'allowed',
-      allowed_tools_json: JSON.stringify(['write_spec_document']),
+      fallbacks_json: JSON.stringify([
+        { provider: 'codex', model: 'gpt-5.4', providerProfile: 'martapa' },
+        { provider: 'gemini', model: 'gemini-3.1-pro-preview' },
+      ]),
     });
 
-    const agents = loadAgentRegistry();
-    const poncho = agents.find((agent) => agent.id === 'poncho');
-    const defaultAgent = agents.find((agent) => agent.id === 'default');
+    const config = AgentRegistryService.getAgentConfig('raymon');
 
-    assert.ok(poncho);
-    assert.equal(poncho.provider, 'codex');
-    assert.equal(poncho.model, 'gpt-5.4');
-    assert.equal(poncho.providerProfile, 'martapa');
-    assert.deepEqual(poncho.allowedTools, ['write_spec_document']);
-    assert.equal(defaultAgent, undefined);
+    assert.ok(config);
+    assert.equal(config.primaryProvider, 'codex');
+    assert.equal(config.providerProfile, 'jopen');
+    assert.deepEqual(config.fallbacks, [
+      { provider: 'codex', model: 'gpt-5.4', providerProfile: 'martapa' },
+      { provider: 'gemini', model: 'gemini-3.1-pro-preview' },
+    ]);
   });
 });

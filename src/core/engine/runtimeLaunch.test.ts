@@ -52,3 +52,18 @@ test('buildRuntimeEnvironment includes Ralphito vars', () => {
   assert.equal(result.RALPHITO_LLM_MODEL, 'minimax-m2.7');
   assert.equal(result.CI, '1');
 });
+
+test('buildRuntimeEnvironment includes provider profile when configured', () => {
+  const result = buildRuntimeEnvironment({
+    runtimeSessionId: 'test-session',
+    worktreePath: '/tmp/worktree',
+    projectId: 'backend-team',
+    systemPrompt: 'test system prompt',
+    instruction: 'test instruction',
+    provider: 'codex',
+    model: 'gpt-5.4',
+    providerProfile: 'jopen',
+  }, {});
+
+  assert.equal(result.RALPHITO_LLM_PROVIDER_PROFILE, 'jopen');
+});

@@ -161,6 +161,7 @@ export class SessionSupervisor {
         agent: project.agent,
         provider,
         model,
+        providerProfile: project.providerProfile || null,
         baseCommitHash,
         branchName,
         worktreePath,
@@ -227,6 +228,7 @@ export class SessionSupervisor {
           instruction: enginePrompt.userTask,
           provider,
           model,
+          providerProfile: project.providerProfile || null,
         }),
       );
       tmuxCreated = true;

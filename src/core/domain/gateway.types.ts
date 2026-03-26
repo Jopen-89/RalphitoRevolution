@@ -57,6 +57,7 @@ export interface ChatRequest {
   agentId?: string;
   provider?: Provider;
   model?: string;
+  providerProfile?: string;
   sessionId?: string;
   originChatId?: string;
   originThreadId?: number;
@@ -74,14 +75,18 @@ export interface ChatResponse {
 
 export type ToolMode = 'none' | 'allowed';
 
+export interface AgentFallbackRoute {
+  provider: Provider;
+  model: string;
+  providerProfile?: string;
+}
+
 export interface AgentConfig {
   agentId: string;
   primaryProvider: Provider;
   model: string;
-  fallbacks: {
-    provider: Provider;
-    model: string;
-  }[];
+  providerProfile?: string;
+  fallbacks: AgentFallbackRoute[];
   toolMode?: ToolMode;
   allowedTools?: string[];
 }

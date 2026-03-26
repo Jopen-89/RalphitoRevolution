@@ -261,6 +261,10 @@ export function renderDashboardPage() {
         <div class="muted" style="margin-bottom:10px">Sesiones</div>
         <div class="session-list" id="session-list"></div>
       </div>
+      <div>
+        <div class="muted" style="margin-bottom:10px">Agentes</div>
+        <div class="session-list" id="agent-list"></div>
+      </div>
     </aside>
 
     <main class="workspace">
@@ -292,11 +296,12 @@ export function renderDashboardPage() {
   </div>
 
   <script>
-    const state = { sessions: [], selectedId: null, detail: null, busy: false };
+    const state = { sessions: [], agents: [], selectedId: null, detail: null, busy: false };
 
     const el = {
       stats: document.getElementById('stats'),
       sessionList: document.getElementById('session-list'),
+      agentList: document.getElementById('agent-list'),
       hero: document.getElementById('hero'),
       controlCard: document.getElementById('control-card'),
       chatLog: document.getElementById('chat-log'),
@@ -311,6 +316,23 @@ export function renderDashboardPage() {
 
     function chip(text) {
       return '<span class="chip">' + text + '</span>';
+    }
+
+    function formatFallbacks(fallbacks) {
+      if (!Array.isArray(fallbacks) || fallbacks.length === 0) return 'sin fallbacks';
+      return fallbacks
+        .map((fallback) => {
+          const profile = fallback.providerProfile ? ('/' + fallback.providerProfile) : '';
+          return fallback.provider + profile + ' (' + fallback.model + ')';
+        })
+        .join(' -> ');
+    }
+
+    async function loadAgents() {
+      const response = await fetch('/api/agents');
+      const body = await response.json();
+      state.agents = body.agents || [];
+      renderAgentList();
     }
 
     async function loadSessions() {
@@ -330,6 +352,23 @@ export function renderDashboardPage() {
       } else {
         renderEmpty();
       }
+    }
+
+    function renderAgentList() {
+      el.agentList.innerHTML = state.agents.length
+        ? state.agents.map((agent) => {
+            const providerProfile = agent.providerProfile || 'default';
+            return '<div class="session-card">' +
+              '<h3>' + agent.agentId + '</h3>' +
+              '<div class="chips">' +
+                chip((agent.primaryProvider || 'gemini') + '/' + providerProfile) +
+                chip(agent.model || 'sin modelo') +
+                chip(agent.toolMode || 'none') +
+              '</div>' +
+              '<p class="muted">fallbacks: ' + formatFallbacks(agent.fallbacks) + '</p>' +
+            '</div>';
+          }).join('')
+        : '<div class="muted">Sin agentes cargados.</div>';
     }
 
     async function loadDetail(sessionId) {
@@ -487,8 +526,10 @@ export function renderDashboardPage() {
         : '<div class="muted">Sin errores guardrail recientes.</div>';
     }
 
+    loadAgents();
     loadSessions();
     setInterval(loadSessions, 15000);
+    setInterval(loadAgents, 30000);
   </script>
 </body>
 </html>`;

@@ -9,6 +9,7 @@
     "start:office": "node --import tsx src/app/office.ts",
     "start:bot": "node --import tsx src/interfaces/telegram/bot.ts",
     "start:gateway": "tsx src/app/server.ts",
+    "smoke:providers": "node --import tsx src/app/provider-smoke.ts",
     "db:migrate": "tsx src/app/ralphito-db.ts migrate",
     "backup:db": "tsx src/app/ralphito-backup.ts backup",
     "ops:status": "tsx src/app/ralphito-backup.ts status",

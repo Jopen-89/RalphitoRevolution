@@ -133,6 +133,7 @@ async function main() {
       const sessionFile = readRuntimeSessionFile(worktreePath);
       const provider = readProvider(process.env.RALPHITO_LLM_PROVIDER) || sessionFile?.provider || null;
       const model = process.env.RALPHITO_LLM_MODEL?.trim() || sessionFile?.model || null;
+      const providerProfile = process.env.RALPHITO_LLM_PROVIDER_PROFILE?.trim() || sessionFile?.providerProfile || null;
 
       const result = await agentLoop({
         runtimeSessionId,
@@ -142,6 +143,7 @@ async function main() {
         instruction: process.env.RALPHITO_INSTRUCTION || '',
         provider,
         model,
+        providerProfile,
       });
 
       process.exitCode = result.exitCode;

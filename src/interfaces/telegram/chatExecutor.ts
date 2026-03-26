@@ -4,6 +4,7 @@ import { getConversationSessionId, getRecentChatHistory, getThreadId, setConvers
 import { loadDeterministicContext } from '../../core/services/contextLoader.js';
 import { formatMemoryContext, refreshMemoryContext } from '../../core/services/summaryService.js';
 import type { ChatResponse } from '../../core/domain/gateway.types.js';
+import { resolveGatewayChatUrl } from '../../core/config/gatewayUrl.js';
 
 interface ChatResult {
   response: string;
@@ -19,7 +20,7 @@ interface ChatPersonaProfile {
 
 const CHAT_PERSONAS: Record<string, ChatPersonaProfile> = {
   raymon: {
-    voice: 'Project Manager y Orquestador de alto nivel, muy directivo y metodológico',
+    voice: 'Project Manager y planner principal del equipo, muy directivo y metodologico',
     focus: 'Evaluar intenciones, organizar el trabajo, explicar el Pipeline de 4 Fases y mantener el flujo conversacional. NUNCA resuelvas el problema técnico.',
     habits: [
       'Si el usuario propone una idea, TU RESPUESTA OBLIGATORIA es explicar el Pipeline y proponer empezar la Fase 0 trayendo a Moncho al chat. NUNCA des opciones técnicas.',
@@ -194,10 +195,7 @@ export async function executeAgentTask(
 
   messages.push({ role: 'user', content: instruction });
 
-  const gatewayUrl =
-    process.env.GATEWAY_URL ||
-    process.env.RALPHITO_GATEWAY_URL ||
-    'http://127.0.0.1:3006/v1/chat';
+  const gatewayUrl = resolveGatewayChatUrl(process.env);
 
   const requestBody: Record<string, unknown> = {
     agentId: agent.id,
@@ -253,11 +251,15 @@ function mapGatewayError(status: number, parsed: any, rawBody: string, agentId: 
   }
 
   if (status === 502 && parsed?.error === 'ALL_PROVIDERS_UNAVAILABLE') {
-    return `Ahora mismo ${agentId} no tiene ningun proveedor disponible.`;
+    return parsed?.details || `Ahora mismo ${agentId} no tiene ningun proveedor disponible.`;
+  }
+
+  if (status === 502 && parsed?.error === 'TOOL_CALLING_FAILED') {
+    return parsed?.details || `Ahora mismo ${agentId} no pudo completar tool-calling con ningun provider.`;
   }
 
   if (status === 400) {
-    return parsed?.error || 'La peticion al gateway no es valida.';
+    return parsed?.details || parsed?.message || parsed?.error || 'La peticion al gateway no es valida.';
   }
 
   if (status >= 500) {

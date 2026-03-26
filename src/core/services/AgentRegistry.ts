@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { AgentConfig, Provider, ToolMode } from '../domain/gateway.types.js';
+import type { AgentConfig, AgentFallbackRoute, Provider, ToolMode } from '../domain/gateway.types.js';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 
 export interface AgentRegistryRecord {
@@ -13,6 +13,7 @@ export interface AgentRegistryRecord {
   tool_mode: string;
   allowed_tools_json: string | null;
   primary_provider: string | null;
+  provider_profile: string | null;
   fallbacks_json: string | null;
   capabilities_json: string | null;
   is_active: number;
@@ -26,9 +27,10 @@ interface AgentSeedProfile {
   sessionPrefix: string;
   primaryProvider: Provider;
   model: string;
+  providerProfile?: string;
   toolMode: ToolMode;
   allowedTools: string[];
-  fallbacks: AgentConfig['fallbacks'];
+  fallbacks: AgentFallbackRoute[];
 }
 
 const DEFAULT_PROVIDER: Provider = 'gemini';
@@ -202,7 +204,8 @@ function recordToAgentConfig(record: AgentRegistryRecord): AgentConfig {
     agentId: record.agent_id,
     primaryProvider,
     model: record.model || DEFAULT_MODEL,
-    fallbacks: safeJsonParse(record.fallbacks_json, [] as AgentConfig['fallbacks']),
+    ...(record.provider_profile ? { providerProfile: record.provider_profile } : {}),
+    fallbacks: safeJsonParse(record.fallbacks_json, [] as AgentFallbackRoute[]),
     toolMode: (record.tool_mode as ToolMode) || 'none',
     allowedTools: safeJsonParse(record.allowed_tools_json, [] as string[]),
   };
@@ -238,12 +241,13 @@ export class AgentRegistryService {
         tool_mode,
         allowed_tools_json,
         primary_provider,
+        provider_profile,
         fallbacks_json,
         is_active,
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       ON CONFLICT(agent_id) DO UPDATE SET
         name = excluded.name,
         role_file_path = excluded.role_file_path,
@@ -261,6 +265,7 @@ export class AgentRegistryService {
           ELSE agent_registry.allowed_tools_json
         END,
         primary_provider = COALESCE(agent_registry.primary_provider, excluded.primary_provider),
+        provider_profile = COALESCE(agent_registry.provider_profile, excluded.provider_profile),
         fallbacks_json = COALESCE(agent_registry.fallbacks_json, excluded.fallbacks_json),
         is_active = 1,
         updated_at = excluded.updated_at
@@ -283,13 +288,14 @@ export class AgentRegistryService {
         seed.toolMode,
         JSON.stringify(seed.allowedTools),
         seed.primaryProvider,
+        seed.providerProfile || null,
         JSON.stringify(seed.fallbacks),
         now,
         now,
       );
     }
 
-    const defaultRolePath = path.join('src', 'core', 'prompt', 'roles', 'AgentOrchestrator(Raymon).md');
+    const defaultRolePath = path.join('src', 'core', 'prompt', 'roles', 'ProjectPlanner(Raymon).md');
     const defaultSeed = buildSeedProfile('default', 'default', defaultRolePath);
     upsert.run(
       'default',
@@ -301,6 +307,7 @@ export class AgentRegistryService {
       defaultSeed.toolMode,
       JSON.stringify(defaultSeed.allowedTools),
       defaultSeed.primaryProvider,
+      defaultSeed.providerProfile || null,
       JSON.stringify(defaultSeed.fallbacks),
       now,
       now,

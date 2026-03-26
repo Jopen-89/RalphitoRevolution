@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ProviderFactory } from '../gateway/providers/provider.factory.js';
-import type { Provider, Message, AgentConfig, GatewayConfig, ChatRequest, ChatResponse } from '../core/domain/gateway.types.js';
+import type { Provider, Message, AgentConfig, AgentFallbackRoute, GatewayConfig, ChatRequest, ChatResponse } from '../core/domain/gateway.types.js';
 import { initializeRalphitoDatabase } from '../infrastructure/persistence/db/index.js';
 import { renderDashboardPage } from '../interfaces/dashboard/dashboardPage.js';
 import {
@@ -21,7 +21,10 @@ import { RUNTIME_LLM_WAITING_FILE_NAME } from '../core/domain/constants.js';
 
 import { AgentRegistryService } from '../core/services/AgentRegistry.js';
 import type { AgentRegistryRecord } from '../core/services/AgentRegistry.js';
-import { getProviderCatalogStatus, PROVIDER_MATRIX } from '../gateway/providers/providerCatalog.js';
+import { buildProviderCapabilityHealth, getProviderCatalogStatus, PROVIDER_MATRIX } from '../gateway/providers/providerCatalog.js';
+import { createAttemptDiagnostic, formatAttemptSummary, toDiagnosticErrorMessage } from '../gateway/providers/providerDiagnostics.js';
+import { listConfiguredCodexProfiles } from '../gateway/providers/providerProfiles.js';
+import { buildToolCallingUnsupportedMessage, splitToolCallingAttempts } from '../gateway/providers/providerRouting.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -116,12 +119,20 @@ function serializeAgentRecord(record: AgentRegistryRecord) {
     isActive: Boolean(record.is_active),
     primaryProvider,
     model: record.model || DEFAULT_MODEL_BY_PROVIDER[primaryProvider],
+    providerProfile: record.provider_profile,
     toolMode: record.tool_mode || 'none',
     allowedTools: parseJsonArray<string>(record.allowed_tools_json, []),
-    fallbacks: parseJsonArray<{ provider: Provider; model: string }>(record.fallbacks_json, []),
+    fallbacks: parseJsonArray<AgentFallbackRoute>(record.fallbacks_json, []),
     createdAt: record.created_at,
     updatedAt: record.updated_at,
   };
+}
+
+function parseProviderProfile(value: unknown) {
+  if (value === null) return null;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
 function parseProvider(value: unknown): Provider | null {
@@ -135,15 +146,16 @@ function parseToolMode(value: unknown): 'none' | 'allowed' | null {
 function parseFallbacks(value: unknown) {
   if (!Array.isArray(value)) return null;
 
-  const fallbacks: { provider: Provider; model: string }[] = [];
+  const fallbacks: AgentFallbackRoute[] = [];
   for (const item of value) {
     if (!item || typeof item !== 'object') return null;
     const entry = item as Record<string, unknown>;
     const provider = parseProvider(entry.provider);
     const modelValue = entry.model;
     const model = typeof modelValue === 'string' ? modelValue.trim() : '';
+    const providerProfile = 'providerProfile' in entry ? parseProviderProfile(entry.providerProfile) : undefined;
     if (!provider || !model) return null;
-    fallbacks.push({ provider, model });
+    fallbacks.push({ provider, model, ...(providerProfile ? { providerProfile } : {}) });
   }
 
   return fallbacks;
@@ -254,16 +266,18 @@ app.post('/v1/chat/completions', async (req, res) => {
       res.json(openAIResponse);
     }
   } catch (error) {
-    console.error(`[Gateway] Error en /v1/chat/completions:`, error instanceof Error ? error.message : String(error));
+    const details = toDiagnosticErrorMessage(error);
+    console.error(`[Gateway] Error en /v1/chat/completions:`, details);
     res.status(502).json({
       error: 'PROVIDER_ERROR',
-      message: error instanceof Error ? error.message : String(error),
+      message: details,
+      details,
     });
   }
 });
 
 app.post('/v1/chat', async (req, res) => {
-  const { agentId = 'default', provider, model, messages, originChatId, originThreadId } = req.body as ChatRequest;
+  const { agentId = 'default', provider, model, providerProfile, messages, originChatId, originThreadId } = req.body as ChatRequest;
   const worktreePath = req.headers['x-ralphito-worktree-path'] as string | undefined;
   const waitingFilePath = worktreePath ? path.join(worktreePath, RUNTIME_LLM_WAITING_FILE_NAME) : null;
 
@@ -303,33 +317,49 @@ app.post('/v1/chat', async (req, res) => {
   }
 
   const attempts = provider
-    ? [{ provider, model: model || DEFAULT_MODEL_BY_PROVIDER[provider] }]
+    ? [{ provider, model: model || DEFAULT_MODEL_BY_PROVIDER[provider], ...(providerProfile ? { providerProfile } : {}) }]
     : [
         {
           provider: agentConfig!.primaryProvider,
           model: agentConfig!.model || DEFAULT_MODEL_BY_PROVIDER[agentConfig!.primaryProvider],
+          ...(agentConfig!.providerProfile ? { providerProfile: agentConfig!.providerProfile } : {}),
         },
         ...agentConfig!.fallbacks.map((fallback) => ({
           provider: fallback.provider,
           model: fallback.model || DEFAULT_MODEL_BY_PROVIDER[fallback.provider],
+          ...(fallback.providerProfile ? { providerProfile: fallback.providerProfile } : {}),
         })),
       ];
 
   const { allowed: allowedToolDefinitions, unknownNames } = resolveAllowedToolDefinitions(agentConfig);
   console.log(`[Gateway] Tools permitidas para "${resolvedAgentId}":`, allowedToolDefinitions.map(d => d.name));
   const useToolCalling = allowedToolDefinitions.length > 0;
-  const toolProviders = new Set(['openai', 'gemini', 'opencode']);
-
-  if (useToolCalling && attempts.length > 0 && !toolProviders.has(attempts[0]!.provider)) {
-    return res.status(400).json({
-      error: 'TOOL_CALLING_UNSUPPORTED',
-      message: `Provider ${attempts[0]!.provider} no soporta tool-calling. Usa OpenAI, Gemini o Opencode.`,
-    });
-  }
-
   if (useToolCalling) {
+    const { supported: toolCallingAttempts, unsupported: unsupportedToolCallingAttempts } = splitToolCallingAttempts(attempts);
+    const failedAttempts = unsupportedToolCallingAttempts.map((attempt) => ({
+      provider: attempt.provider,
+      model: attempt.model,
+      capability: 'tool-calling' as const,
+      success: false,
+      reason: 'tool-calling unsupported for configured provider',
+    })) as Array<ReturnType<typeof createAttemptDiagnostic>>;
+
+    if (toolCallingAttempts.length === 0) {
+      return res.status(400).json({
+        error: 'TOOL_CALLING_UNSUPPORTED',
+        message: buildToolCallingUnsupportedMessage(unsupportedToolCallingAttempts),
+        attempts: failedAttempts,
+        details: formatAttemptSummary(failedAttempts),
+      });
+    }
+
     if (unknownNames.length > 0) {
       console.warn(`[Gateway] Tools desconocidas para '${resolvedAgentId}': ${unknownNames.join(', ')}`);
+    }
+    if (unsupportedToolCallingAttempts.length > 0) {
+      console.warn(
+        `[Gateway] Omitiendo providers sin tool-calling para '${resolvedAgentId}': ${unsupportedToolCallingAttempts.map((attempt) => `${attempt.provider} (${attempt.model})`).join(', ')}`,
+      );
     }
     const allTools = createAllToolImplementations({
       ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
@@ -338,9 +368,7 @@ app.post('/v1/chat', async (req, res) => {
     });
     let lastToolCallingError: unknown = null;
 
-    for (const attempt of attempts) {
-      if (!toolProviders.has(attempt.provider)) continue;
-
+    for (const attempt of toolCallingAttempts) {
       try {
         console.log(`[Gateway] Tool-calling con ${attempt.provider} (${attempt.model})...`);
 
@@ -348,6 +376,7 @@ app.post('/v1/chat', async (req, res) => {
           attempt.provider,
           attempt.model,
           buildProviderAuth(),
+          attempt.providerProfile,
         ) as IToolCallingProvider;
 
         const { text, toolCalls, toolResults } = await executeToolCallLoop(
@@ -367,7 +396,9 @@ app.post('/v1/chat', async (req, res) => {
 
         return res.json(successResponse);
       } catch (error) {
-        console.warn(`⚠️ Falló tool-calling con ${attempt.provider}:`, error instanceof Error ? error.message : String(error));
+        const details = toDiagnosticErrorMessage(error);
+        console.warn(`⚠️ Falló tool-calling con ${attempt.provider}:`, details);
+        failedAttempts.push(createAttemptDiagnostic(attempt.provider, attempt.model, 'tool-calling', error));
         lastToolCallingError = error;
         continue;
       }
@@ -376,17 +407,19 @@ app.post('/v1/chat', async (req, res) => {
     return res.status(502).json({
       error: 'TOOL_CALLING_FAILED',
       message: 'Todos los providers con soporte de tool-calling fallaron.',
-      ...(lastToolCallingError ? { details: lastToolCallingError instanceof Error ? lastToolCallingError.message : String(lastToolCallingError) } : {}),
+      ...(lastToolCallingError ? { details: formatAttemptSummary(failedAttempts) } : {}),
+      attempts: failedAttempts,
     });
   }
 
   let lastError: unknown = null;
+  const failedAttempts = [] as Array<ReturnType<typeof createAttemptDiagnostic>>;
 
   for (const attempt of attempts) {
     try {
       console.log(`[Gateway] Intentando con ${attempt.provider} (${attempt.model})...`);
 
-      const llmProvider = ProviderFactory.create(attempt.provider, attempt.model, buildProviderAuth());
+      const llmProvider = ProviderFactory.create(attempt.provider, attempt.model, buildProviderAuth(), attempt.providerProfile);
       const responseText = await llmProvider.generateResponse(messages);
 
       const successResponse: ChatResponse = {
@@ -397,7 +430,9 @@ app.post('/v1/chat', async (req, res) => {
 
       return res.json(successResponse);
     } catch (error) {
-      console.warn(`⚠️ Falló ${attempt.provider} (${attempt.model}):`, error instanceof Error ? error.message : String(error));
+      const details = toDiagnosticErrorMessage(error);
+      console.warn(`⚠️ Falló ${attempt.provider} (${attempt.model}):`, details);
+      failedAttempts.push(createAttemptDiagnostic(attempt.provider, attempt.model, 'chat', error));
       lastError = error;
     }
   }
@@ -405,7 +440,9 @@ app.post('/v1/chat', async (req, res) => {
   console.error('❌ Todos los proveedores fallaron:', lastError);
   res.status(502).json({
     error: 'ALL_PROVIDERS_UNAVAILABLE',
-    details: lastError instanceof Error ? lastError.message : String(lastError),
+    message: 'Todos los providers configurados fallaron para chat.',
+    details: formatAttemptSummary(failedAttempts),
+    attempts: failedAttempts,
   });
   } finally {
     cleanupWaitingFile();
@@ -487,8 +524,12 @@ app.get('/api/search', (req, res) => {
 
 app.get('/health', async (_req, res) => {
   const status = await getOperationalStatus();
-  const ok = status.health.db.ok && status.health.engine.ok && status.health.searchIndex.ok;
-  res.status(ok ? 200 : 503).json({ ok, health: status.health });
+  const providerHealth = buildProviderCapabilityHealth(buildProviderAuth());
+  const ok = status.health.db.ok
+    && status.health.engine.ok
+    && status.health.searchIndex.ok
+    && providerHealth.chat.ok;
+  res.status(ok ? 200 : 503).json({ ok, health: status.health, providers: providerHealth });
 });
 
 app.get('/api/ops/status', async (_req, res) => {
@@ -503,10 +544,13 @@ app.get('/api/ops/status', async (_req, res) => {
 app.get('/api/providers/status', async (_req, res) => {
   const auth = buildProviderAuth();
   const providers = getProviderCatalogStatus(auth);
+  const capabilityHealth = buildProviderCapabilityHealth(auth);
 
   res.json({
     defaults: DEFAULT_MODEL_BY_PROVIDER,
     providers,
+    capabilityHealth,
+    codexProfiles: listConfiguredCodexProfiles(process.env),
     routing: {
       gpt54: {
         directApiProvider: 'openai',
@@ -539,7 +583,8 @@ app.post('/api/providers/smoke', async (req, res) => {
   }
 
   try {
-    const provider = ProviderFactory.create(requestedProvider, model, buildProviderAuth());
+    const requestedProviderProfile = parseProviderProfile(req.body?.providerProfile);
+    const provider = ProviderFactory.create(requestedProvider, model, buildProviderAuth(), requestedProviderProfile || undefined);
     const messages = buildSmokePrompt(requestedProvider, model);
 
     if (requireToolCalling && 'generateResponseWithTools' in provider) {
@@ -611,6 +656,14 @@ app.patch('/api/agents/:id', (req, res) => {
     }
     updates.primary_provider = provider;
     updates.provider = provider;
+  }
+
+  if ('providerProfile' in body) {
+    if (body.providerProfile !== null && typeof body.providerProfile !== 'string') {
+      res.status(400).json({ error: 'Invalid providerProfile' });
+      return;
+    }
+    updates.provider_profile = parseProviderProfile(body.providerProfile);
   }
 
   if ('model' in body) {

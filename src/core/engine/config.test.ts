@@ -72,3 +72,20 @@ test('resolveEngineProjectConfig reads direct role config from agent_registry', 
     assert.equal(config.agentRulesFile, 'AGENTS.md');
   });
 });
+
+test('resolveEngineProjectConfig includes provider profile from agent_registry', async () => {
+  await withTempDb(() => {
+    AgentRegistryService.updateAgentConfig('poncho', {
+      primary_provider: 'codex',
+      provider: 'codex',
+      model: 'gpt-5.4',
+      provider_profile: 'jopen',
+    });
+
+    const config = resolveEngineProjectConfig('poncho');
+
+    assert.equal(config.provider, 'codex');
+    assert.equal(config.model, 'gpt-5.4');
+    assert.equal(config.providerProfile, 'jopen');
+  });
+});

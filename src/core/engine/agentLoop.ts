@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { ChatRequest, Message, Provider, ToolCall, ToolResult } from '../domain/gateway.types.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
+import { resolveGatewayChatUrl } from '../config/gatewayUrl.js';
 
 export interface AgentLoopInput {
   runtimeSessionId: string;
@@ -11,6 +12,7 @@ export interface AgentLoopInput {
   instruction: string;
   provider?: Provider | null;
   model?: string | null;
+  providerProfile?: string | null;
 }
 
 export interface AgentLoopResult {
@@ -21,7 +23,7 @@ export interface AgentLoopResult {
 
 export const MAX_ITERATIONS = 120;
 export const MAX_COMMAND_TIME_MS = 600000;
-export const GATEWAY_URL = process.env.RALPHITO_GATEWAY_URL || 'http://127.0.0.1:3006/v1/chat';
+export const GATEWAY_URL = resolveGatewayChatUrl(process.env);
 export const MAX_FINISH_REPROMPTS = 3;
 export const MAX_TOOL_LEAK_REPROMPTS = 2;
 
@@ -67,12 +69,13 @@ export function hasToolInvocationLeak(text: string): boolean {
   return TOOL_MARKDOWN_BLOCK_PATTERN.test(text) || TEXTUAL_TOOL_INVOCATION_PATTERN.test(text);
 }
 
-export function buildGatewayChatRequest(input: Pick<AgentLoopInput, 'provider' | 'model'> & { projectId?: string }, messages: Message[]): ChatRequest {
+export function buildGatewayChatRequest(input: Pick<AgentLoopInput, 'provider' | 'model' | 'providerProfile'> & { projectId?: string }, messages: Message[]): ChatRequest {
   return {
     agentId: input.projectId || 'ralphito',
     messages,
     ...(input.provider ? { provider: input.provider } : {}),
     ...(input.provider && input.model ? { model: input.model } : {}),
+    ...(input.providerProfile ? { providerProfile: input.providerProfile } : {}),
   };
 }
 

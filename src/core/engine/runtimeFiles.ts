@@ -17,6 +17,7 @@ export interface RuntimeSessionFileRecord {
   agent: string;
   provider: Provider | null;
   model: string | null;
+  providerProfile?: string | null;
   baseCommitHash: string;
   branchName: string;
   worktreePath: string;

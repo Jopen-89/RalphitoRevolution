@@ -3,6 +3,7 @@
 import dotenv from 'dotenv';
 import { spawn, type ChildProcess } from 'child_process';
 import { waitForReady } from './dev-server.js';
+import { resolveGatewayChatUrl, resolveGatewayHealthUrl, validateGatewayRuntimeConfig } from '../core/config/gatewayUrl.js';
 
 dotenv.config();
 
@@ -13,8 +14,10 @@ type OfficeService = {
   child?: ChildProcess;
 };
 
-const gatewayPort = process.env.PORT || '3006';
-const gatewayHealthUrl = process.env.RALPHITO_GATEWAY_HEALTH_URL || `http://127.0.0.1:${gatewayPort}/health`;
+validateGatewayRuntimeConfig(process.env);
+
+const gatewayChatUrl = resolveGatewayChatUrl(process.env);
+const gatewayHealthUrl = resolveGatewayHealthUrl(process.env);
 
 const services: OfficeService[] = [
   {
@@ -47,6 +50,8 @@ function startService(service: OfficeService) {
     env: {
       ...process.env,
       CI: process.env.CI || '1',
+      RALPHITO_GATEWAY_URL: gatewayChatUrl,
+      RALPHITO_GATEWAY_HEALTH_URL: gatewayHealthUrl,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -98,6 +103,7 @@ async function main() {
   startService(services[0]!);
   await waitForReady({ url: gatewayHealthUrl, timeoutMs: 60000, intervalMs: 1000 });
   console.log(`[office] Gateway ready at ${gatewayHealthUrl}`);
+  console.log(`[office] Gateway chat endpoint ${gatewayChatUrl}`);
 
   startService(services[1]!);
   console.log('[office] Telegram bot started.');

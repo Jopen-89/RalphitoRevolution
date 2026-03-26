@@ -9,6 +9,7 @@ export interface AgentInfo {
   aliases: string[];
   provider?: string;
   model?: string;
+  providerProfile?: string;
   toolMode?: string;
   allowedTools?: string[];
 }
@@ -52,7 +53,7 @@ function humanizeRole(rawRole: string) {
     .trim();
 }
 
-function parseRoleStem(stem: string, rolePath: string, provider?: string | null, model?: string | null, toolMode?: string | null, allowedTools?: string[] | null): AgentInfo | null {
+function parseRoleStem(stem: string, rolePath: string, provider?: string | null, model?: string | null, providerProfile?: string | null, toolMode?: string | null, allowedTools?: string[] | null): AgentInfo | null {
   const match = stem.match(/^(.*?)\(([^)]+)\)$/);
   if (!match) return null;
 
@@ -71,6 +72,7 @@ function parseRoleStem(stem: string, rolePath: string, provider?: string | null,
     aliases,
     ...(provider ? { provider } : {}),
     ...(model ? { model } : {}),
+    ...(providerProfile ? { providerProfile } : {}),
     ...(toolMode ? { toolMode } : {}),
     ...(allowedTools ? { allowedTools } : {}),
   };
@@ -91,6 +93,7 @@ export function loadAgentRegistry(): AgentInfo[] {
         rolePath,
         record.primary_provider || record.provider,
         record.model,
+        record.provider_profile,
         record.tool_mode,
         allowedTools,
       );

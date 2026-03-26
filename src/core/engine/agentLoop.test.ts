@@ -117,6 +117,17 @@ test('buildGatewayChatRequest forwards explicit provider and model', () => {
   assert.equal(request.messages[0]?.content, 'Implement the fix');
 });
 
+test('buildGatewayChatRequest forwards provider profile when present', () => {
+  const request = buildGatewayChatRequest(
+    { provider: 'codex', model: 'gpt-5.4', providerProfile: 'martapa' },
+    [{ role: 'user', content: 'Implement the fix' }],
+  );
+
+  assert.equal(request.provider, 'codex');
+  assert.equal(request.model, 'gpt-5.4');
+  assert.equal(request.providerProfile, 'martapa');
+});
+
 test('MAX_ITERATIONS is 120', () => {
   assert.equal(MAX_ITERATIONS, 120);
 });

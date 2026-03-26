@@ -29,6 +29,7 @@ export interface EngineProjectConfig {
   agent: string;
   provider: Provider | null;
   model: string | null;
+  providerProfile?: string;
 }
 
 function normalizeProjectId(projectId: string) {
@@ -100,6 +101,7 @@ export class ProjectService {
       agent: DEFAULT_EXECUTION_AGENT,
       provider: (agent.primary_provider as Provider) || (agent.provider as Provider) || FALLBACK_PROVIDER,
       model: agent.model || FALLBACK_MODEL,
+      ...(agent.provider_profile ? { providerProfile: agent.provider_profile } : {}),
     };
   }
 

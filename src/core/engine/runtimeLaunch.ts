@@ -46,6 +46,7 @@ export interface BuildRuntimeEnvironmentInput {
   instruction: string;
   provider?: Provider | null;
   model?: string | null;
+  providerProfile?: string | null;
 }
 
 export function buildRuntimeLaunchCommand(agent: string, model: string | null) {
@@ -77,6 +78,7 @@ export function buildRuntimeEnvironment(
     RALPHITO_INSTRUCTION: input.instruction,
     RALPHITO_LLM_PROVIDER: input.provider || '',
     RALPHITO_LLM_MODEL: input.model || '',
+    RALPHITO_LLM_PROVIDER_PROFILE: input.providerProfile || '',
   });
 }
 

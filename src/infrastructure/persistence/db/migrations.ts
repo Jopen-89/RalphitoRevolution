@@ -443,4 +443,11 @@ export const ralphitoMigrations: RalphitoMigration[] = [
       ALTER TABLE agent_registry ADD COLUMN fallbacks_json TEXT;
     `,
   },
+  {
+    id: 18,
+    name: 'agent_registry_provider_profiles',
+    sql: `
+      ALTER TABLE agent_registry ADD COLUMN provider_profile TEXT;
+    `,
+  },
 ];

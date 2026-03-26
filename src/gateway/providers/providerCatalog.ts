@@ -18,7 +18,26 @@ export interface ProviderReadiness {
   configured: boolean;
   authenticated: boolean;
   available: boolean;
+  bootstrappable: boolean;
   checks: string[];
+}
+
+export interface ProviderCapabilityHealth {
+  chat: {
+    ok: boolean;
+    availableProviders: Provider[];
+    degradedProviders: Provider[];
+  };
+  toolCalling: {
+    ok: boolean;
+    availableProviders: Provider[];
+    degradedProviders: Provider[];
+  };
+  vision: {
+    ok: boolean;
+    availableProviders: Provider[];
+    degradedProviders: Provider[];
+  };
 }
 
 export interface ProviderAuthSnapshot {
@@ -82,34 +101,42 @@ function hasGoogleToken() {
 export function buildProviderReadiness(auth: ProviderAuthSnapshot) {
   const opencodeReady = hasOpencodeCli();
   const googleTokenReady = hasGoogleToken();
+  const googleCredentialsConfigured = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  const geminiRuntimeReady = Boolean(auth.googleAuthClient);
+  const geminiBootstrappable = googleCredentialsConfigured && googleTokenReady;
 
   const readiness: Record<Provider, ProviderReadiness> = {
     gemini: {
-      configured: googleTokenReady || Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
-      authenticated: Boolean(auth.googleAuthClient) || googleTokenReady,
-      available: Boolean(auth.googleAuthClient) || googleTokenReady,
+      configured: googleCredentialsConfigured,
+      authenticated: geminiRuntimeReady,
+      available: geminiRuntimeReady,
+      bootstrappable: geminiBootstrappable,
       checks: [
         process.env.GOOGLE_CLIENT_ID ? 'GOOGLE_CLIENT_ID:set' : 'GOOGLE_CLIENT_ID:missing',
         process.env.GOOGLE_CLIENT_SECRET ? 'GOOGLE_CLIENT_SECRET:set' : 'GOOGLE_CLIENT_SECRET:missing',
         googleTokenReady ? 'google_token:present' : 'google_token:missing',
+        geminiRuntimeReady ? 'google_auth_client:ready' : 'google_auth_client:missing',
       ],
     },
     openai: {
       configured: Boolean(auth.openAiKey),
       authenticated: Boolean(auth.openAiKey),
       available: Boolean(auth.openAiKey),
+      bootstrappable: Boolean(auth.openAiKey),
       checks: [auth.openAiKey ? 'OPENAI_API_KEY:set' : 'OPENAI_API_KEY:missing'],
     },
     opencode: {
       configured: Boolean(auth.minimaxKey),
       authenticated: Boolean(auth.minimaxKey),
       available: Boolean(auth.minimaxKey),
+      bootstrappable: Boolean(auth.minimaxKey),
       checks: [auth.minimaxKey ? 'MINIMAX_API_KEY:set' : 'MINIMAX_API_KEY:missing'],
     },
     codex: {
       configured: opencodeReady,
       authenticated: opencodeReady,
       available: opencodeReady,
+      bootstrappable: opencodeReady,
       checks: [opencodeReady ? 'opencode_cli:present' : 'opencode_cli:missing'],
     },
   };
@@ -124,4 +151,29 @@ export function getProviderCatalogStatus(auth: ProviderAuthSnapshot) {
     ...entry,
     readiness: readiness[entry.provider],
   }));
+}
+
+export function buildProviderCapabilityHealth(auth: ProviderAuthSnapshot): ProviderCapabilityHealth {
+  const providers = getProviderCatalogStatus(auth);
+
+  const collect = (capability: 'chat' | 'toolCalling' | 'vision') => {
+    const availableProviders = providers
+      .filter((provider) => provider[capability] && provider.readiness.available)
+      .map((provider) => provider.provider);
+    const degradedProviders = providers
+      .filter((provider) => provider[capability] && !provider.readiness.available)
+      .map((provider) => provider.provider);
+
+    return {
+      ok: availableProviders.length > 0,
+      availableProviders,
+      degradedProviders,
+    };
+  };
+
+  return {
+    chat: collect('chat'),
+    toolCalling: collect('toolCalling'),
+    vision: collect('vision'),
+  };
 }
