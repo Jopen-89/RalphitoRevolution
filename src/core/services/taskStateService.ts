@@ -126,7 +126,7 @@ export function exportTraceabilitySnapshot(sourceSpecPath: string) {
       `
         SELECT id, title, component_path AS componentPath, status
         FROM tasks
-        WHERE project_key = ? AND source_spec_path = ?
+        WHERE COALESCE(project_id, project_key) = ? AND COALESCE(bead_path, source_spec_path) = ?
         ORDER BY id ASC
       `,
     )
@@ -175,7 +175,7 @@ export function getTaskStatusSummary() {
   const openTasks = db
     .prepare(
       `
-        SELECT id, project_key AS projectKey, status, assigned_agent AS assignedAgent, runtime_session_id AS runtimeSessionId
+        SELECT id, COALESCE(project_id, project_key) AS projectKey, status, assigned_agent AS assignedAgent, runtime_session_id AS runtimeSessionId
         FROM tasks
         WHERE status NOT IN ('done', 'cancelled')
         ORDER BY updated_at ASC, id ASC

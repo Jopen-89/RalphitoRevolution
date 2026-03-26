@@ -64,7 +64,7 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
       name: 'spawn_executor',
       description: 'Lanza un Ralphito executor con una tarea de implementación.',
       execute: async (params: Record<string, unknown>) => {
-        const project = optionalString(params.project) || 'backend-team';
+        const project = optionalString(params.project) || 'system';
         const prompt = requireString(params.prompt, 'prompt');
         const beadPath = optionalString(params.beadPath);
         const provider = optionalProvider(params.provider);
@@ -277,7 +277,7 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
       parameters: {
         type: 'object',
         properties: {
-          project: { type: 'string', description: 'Nombre del proyecto (opcional, por defecto: backend-team)' },
+          project: { type: 'string', description: 'Nombre del proyecto (opcional, por defecto: system)' },
           prompt: { type: 'string', description: 'Prompt de la tarea a ejecutar' },
           beadPath: { type: 'string', description: 'Ruta opcional del bead' },
           provider: { type: 'string', description: 'Provider LLM real opcional: gemini, openai, opencode o codex' },
