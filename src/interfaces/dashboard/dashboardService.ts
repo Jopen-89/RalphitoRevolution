@@ -1,7 +1,9 @@
 import { readFileSync } from 'fs';
 import { getEngineSessionsStatus, type EngineStatusSession } from '../../core/engine/status.js';
-import { getGuardrailLogPath } from '../../core/engine/runtimeFiles.js';
+import type { AgentFallbackRoute } from '../../core/domain/gateway.types.js';
+import { getGuardrailLogPath, readRuntimeSessionFile } from '../../core/engine/runtimeFiles.js';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
+import { ProjectService } from '../../core/services/ProjectService.js';
 import { updateTaskStatus, type RalphitoTaskStatus } from '../../core/services/taskStateService.js';
 
 interface ThreadRow {
@@ -93,6 +95,31 @@ export interface UnifiedDashboardSession {
 
 export interface UnifiedDashboardSessionDetail {
   session: UnifiedDashboardSession;
+  agentConfig: {
+    appliesTo: 'new_sessions_only';
+    current: {
+      agentId: string;
+      primaryProvider: string | null;
+      model: string | null;
+      providerProfile: string | null;
+      executionHarness: string;
+      toolMode: string;
+      allowedTools: string[];
+      fallbacks: AgentFallbackRoute[];
+      resolvedAt: string | null;
+    } | null;
+    snapshot: {
+      agentId: string;
+      primaryProvider: string | null;
+      model: string | null;
+      providerProfile: string | null;
+      executionHarness: string;
+      toolMode: string;
+      allowedTools: string[];
+      fallbacks: AgentFallbackRoute[];
+      resolvedAt: string | null;
+    } | null;
+  };
   messages: Array<{
     id: number;
     senderName: string | null;
@@ -233,6 +260,44 @@ function toUnifiedSession(session: EngineStatusSession, meta: DashboardSessionMe
   };
 }
 
+function buildDetailAgentConfig(session: UnifiedDashboardSession) {
+  const sessionFile = session.worktreePath ? readRuntimeSessionFile(session.worktreePath) : null;
+  const projectId = sessionFile?.projectId || session.projectId;
+  const project = projectId ? ProjectService.resolve(projectId) : null;
+  const current = project
+    ? {
+        agentId: project.agentConfigId,
+        primaryProvider: project.provider,
+        model: project.model,
+        providerProfile: project.providerProfile || null,
+        executionHarness: project.agent,
+        toolMode: project.toolMode,
+        allowedTools: [...project.allowedTools],
+        fallbacks: [...project.fallbacks],
+        resolvedAt: null,
+      }
+    : null;
+  const snapshot = sessionFile?.agentConfigSnapshot
+    ? {
+        agentId: sessionFile.agentConfigSnapshot.agentId || sessionFile.agentConfigId || project?.agentConfigId || sessionFile.agentId,
+        primaryProvider: sessionFile.agentConfigSnapshot.primaryProvider,
+        model: sessionFile.agentConfigSnapshot.model,
+        providerProfile: sessionFile.agentConfigSnapshot.providerProfile || null,
+        executionHarness: sessionFile.agentConfigSnapshot.executionHarness,
+        toolMode: sessionFile.agentConfigSnapshot.toolMode,
+        allowedTools: [...sessionFile.agentConfigSnapshot.allowedTools],
+        fallbacks: [...sessionFile.agentConfigSnapshot.fallbacks],
+        resolvedAt: sessionFile.agentConfigSnapshot.resolvedAt || null,
+      }
+    : null;
+
+  return {
+    appliesTo: 'new_sessions_only' as const,
+    current,
+    snapshot,
+  };
+}
+
 export async function getUnifiedDashboardSessions() {
   const sessions = await getEngineSessionsStatus();
 
@@ -291,6 +356,7 @@ export async function getUnifiedDashboardSessionDetail(sessionId: string): Promi
 
   return {
     session,
+    agentConfig: buildDetailAgentConfig(session),
     messages,
     timeline,
   };

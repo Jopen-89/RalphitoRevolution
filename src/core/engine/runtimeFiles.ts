@@ -13,6 +13,7 @@ import {
 import { ProjectService } from '../services/ProjectService.js';
 
 export interface RuntimeAgentConfigSnapshot {
+  agentId?: string;
   primaryProvider: Provider | null;
   model: string | null;
   providerProfile?: string | null;
@@ -27,6 +28,7 @@ export interface RuntimeSessionFileRecord {
   runtimeSessionId: string;
   projectId: string;
   agentId: string;
+  agentConfigId?: string | null;
   agent: string;
   provider: Provider | null;
   model: string | null;

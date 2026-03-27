@@ -244,6 +244,8 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"pid": 987/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"notificationChatId": "chat-999"/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"agentConfigSnapshot":/);
+    assert.match(readFileSync(sessionFilePath, 'utf8'), /"agentConfigId": "default"/);
+    assert.match(readFileSync(sessionFilePath, 'utf8'), /"agentId": "default"/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"executionHarness": "opencode"/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"toolMode": "allowed"/);
     assert.deepEqual(

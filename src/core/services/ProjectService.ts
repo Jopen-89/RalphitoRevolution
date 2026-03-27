@@ -27,6 +27,7 @@ export interface EngineProjectConfig {
   id: string;
   name: string;
   canonicalId: string;
+  agentConfigId: string;
   aliases: string[];
   sessionPrefix: string;
   path: string;
@@ -116,6 +117,7 @@ export class ProjectService {
         id: normalizedId,
         name: project?.name || projectId,
         canonicalId,
+        agentConfigId,
         aliases: listAliasesFor(canonicalId),
         sessionPrefix: deriveSessionPrefix(normalizedId),
         path: repoRoot,
@@ -135,6 +137,7 @@ export class ProjectService {
       id: normalizedId,
       name: normalizedId === canonicalId ? (project?.name || agentRecord.name) : projectId,
       canonicalId,
+      agentConfigId,
       aliases: listAliasesFor(canonicalId),
       sessionPrefix: agentRecord.session_prefix || deriveSessionPrefix(canonicalId),
       path: repoRoot,

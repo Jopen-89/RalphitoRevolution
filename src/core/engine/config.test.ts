@@ -74,6 +74,7 @@ test('resolveEngineProjectConfig reads provider and model from agent_registry', 
 
     assert.equal(config.id, 'backend-team');
     assert.equal(config.canonicalId, 'system');
+    assert.equal(config.agentConfigId, 'default');
     assert.equal(config.agent, 'codex');
     assert.equal(config.provider, 'opencode');
     assert.equal(config.model, 'minimax-m2.7');
@@ -98,6 +99,7 @@ test('resolveEngineProjectConfig reads direct role config from agent_registry', 
 
     assert.equal(config.id, 'poncho');
     assert.equal(config.name, 'Poncho');
+    assert.equal(config.agentConfigId, 'poncho');
     assert.equal(config.provider, 'openai');
     assert.equal(config.model, 'gpt-5.4');
     assert.equal(config.agentRulesFile, 'AGENTS.md');

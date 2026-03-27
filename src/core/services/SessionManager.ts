@@ -163,6 +163,7 @@ export class SessionSupervisor {
         runtimeSessionId,
         projectId: project.id,
         agentId: project.id,
+        agentConfigId: project.agentConfigId,
         agent: project.agent,
         provider,
         model,
@@ -182,6 +183,7 @@ export class SessionSupervisor {
         originThreadId: input.originThreadId ?? null,
         notificationChatId: input.notificationChatId || null,
         agentConfigSnapshot: {
+          agentId: project.agentConfigId,
           primaryProvider: project.provider,
           model: project.model,
           providerProfile: project.providerProfile || null,

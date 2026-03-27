@@ -40,6 +40,7 @@ function createProject(repoRoot: string, worktreeRoot: string): EngineProjectCon
     id: 'system',
     name: 'System',
     canonicalId: 'system',
+    agentConfigId: 'default',
     aliases: [],
     sessionPrefix: 'sy',
     path: repoRoot,

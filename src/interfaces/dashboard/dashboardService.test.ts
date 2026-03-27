@@ -98,6 +98,8 @@ test('getUnifiedDashboardSessionDetail exposes persisted worktree path', async (
     assert.ok(detail);
     assert.equal(detail.session.worktreePath, worktreePath);
     assert.equal(detail.session.agentBinding?.worktreePath, worktreePath);
+    assert.equal(detail.agentConfig.appliesTo, 'new_sessions_only');
+    assert.equal(detail.agentConfig.current?.agentId, 'default');
 
     rmSync(worktreePath, { force: true, recursive: true });
   });
