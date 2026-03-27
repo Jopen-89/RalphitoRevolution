@@ -171,6 +171,8 @@ export class SessionLoop {
     private readonly commandRunner = new CommandRunner(),
   ) {}
 
+  private submissionAttempts = 0;
+
   private async verifyLanding(worktreePath: string | null, baseCommitHash: string | null, branchName: string | null) {
     if (!worktreePath) {
       return {
@@ -288,6 +290,28 @@ export class SessionLoop {
     );
 
     if (!landing.ok) {
+      this.submissionAttempts++;
+
+      if (this.submissionAttempts >= 3 && session.worktreePath) {
+        console.log(`[SessionLoop:${input.runtimeSessionId}] Circuit breaker triggered after ${this.submissionAttempts} failed landing attempts`);
+        await this.commandRunner.run('git', ['reset', '--hard', 'HEAD'], { cwd: session.worktreePath });
+        this.syncTaskStatus(session, 'BLOCKED_BY_FAILURE', `Circuit breaker: ${landing.summary || 'landing_not_completed'}`);
+        this.sessionRepository.fail({
+          runtimeSessionId: input.runtimeSessionId,
+          failureKind: 'circuit_breaker_triggered',
+          failureSummary: landing.summary || 'Landing falló 3 veces, sesión bloqueada.',
+          failureReasonCode: landing.reasonCode,
+          ...(failureLogTail ? { failureLogTail } : {}),
+          heartbeatAt: nowIso,
+          finishedAt: nowIso,
+        });
+        if (alive) {
+          await this.tmuxRuntime.killSession(input.runtimeSessionId);
+        }
+        await this.cleanupTerminalSession(input.runtimeSessionId, session.worktreePath, false);
+        return { terminalStatus: 'failed', reason: 'circuit_breaker_triggered' } satisfies SessionLoopResult;
+      }
+
       if (session.worktreePath) {
         writeRuntimeFailureRecord(session.worktreePath, {
           runtimeSessionId: input.runtimeSessionId,
@@ -349,6 +373,8 @@ export class SessionLoop {
       ...(sessionChat.externalChatId ? { targetChatId: sessionChat.externalChatId } : {}),
     });
     await this.cleanupTerminalSession(input.runtimeSessionId, session.worktreePath, true);
+
+    this.submissionAttempts = 0;
 
     return {
       terminalStatus: 'done',

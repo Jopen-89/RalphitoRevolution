@@ -149,6 +149,7 @@ function buildSystemPrompt(agent: AgentInfo): string {
     '- No hables de session IDs, worktrees, comandos internos ni del runtime.',
     '- Si la petición es puramente conversacional (preguntas, consejos, debate), responde de forma natural sin usar herramientas.',
     '- Si la petición implica CREAR, GUARDAR o EJECUTAR algo, ESTÁS OBLIGADO a usar la herramienta correspondiente (Tool Calling).',
+    '- Si una tool falla, reporta el error real en una frase corta. No inventes causas de permisos, workspace o inicializacion.',
     '- NUNCA imprimas en el chat el contenido de documentos, código o tablas largas. Si creas un documento, guárdalo con la herramienta y devuelve solo un breve mensaje de confirmación.',
     '- No repitas tu nombre en cada respuesta; el bot ya te presenta visualmente.',
     '- Evita sonar como un asistente neutro o intercambiable con otro agente.',

@@ -3,7 +3,7 @@ import path from 'path';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 import { BeadLifecycleService } from './BeadLifecycleService.js';
 
-export type RalphitoTaskStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'failed' | 'cancelled';
+export type RalphitoTaskStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'failed' | 'cancelled' | 'BLOCKED_BY_FAILURE';
 
 interface TraceabilityBead {
   id: string;
@@ -64,6 +64,7 @@ const DB_TO_TRACEABILITY_STATUS: Record<RalphitoTaskStatus, string> = {
   done: 'DONE',
   failed: 'FAILED',
   cancelled: 'CANCELLED',
+  BLOCKED_BY_FAILURE: 'BLOCKED',
 };
 
 function normalizeSourceSpecPath(sourceSpecPath: string) {

@@ -95,6 +95,45 @@ export async function editTelegramMessage(
   });
 }
 
+function isIgnorableTelegramEditError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /message is not modified/i.test(message);
+}
+
+export async function replaceTelegramMessage(
+  chatId: string,
+  messageId: number,
+  text: string,
+  meta: TelegramSendMeta = {},
+): Promise<SendTelegramMessageResult> {
+  const sanitizedText = sanitizeTelegramVisibleText(text);
+
+  try {
+    await editTelegramMessage(chatId, messageId, sanitizedText, meta);
+    return {
+      success: true,
+      messageId,
+      chatId,
+      text: sanitizedText,
+    };
+  } catch (error) {
+    if (isIgnorableTelegramEditError(error)) {
+      return {
+        success: true,
+        messageId,
+        chatId,
+        text: sanitizedText,
+      };
+    }
+
+    console.warn(`[Telegram] editMessageText fallo para chat=${chatId} message=${messageId}. Reintento con sendMessage.`, error);
+    return sendTelegramMessage(chatId, sanitizedText, {
+      ...meta,
+      ...(meta.senderPath ? { senderPath: `${meta.senderPath}.fallback` } : {}),
+    });
+  }
+}
+
 export function getAllowedChatId(): string {
   const allowedChatId = process.env.TELEGRAM_ALLOWED_CHAT_ID;
   if (!allowedChatId) {

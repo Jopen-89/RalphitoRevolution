@@ -159,8 +159,10 @@ test('write_bead_document crea task via lifecycle unificado', async () => {
   });
 });
 
-test('document write tools require worktreePath for mutations', async () => {
+test('document write tools mutate docs/specs desde repo root sin runtime worktree', async () => {
   await withTempDb(async () => {
+    const repoRoot = process.env.RALPHITO_REPO_ROOT;
+    assert.ok(repoRoot);
     const tools = createDocumentTools();
     const writeSpec = tools.find((item) => item.name === 'write_spec_document');
     const writeBead = tools.find((item) => item.name === 'write_bead_document');
@@ -170,18 +172,38 @@ test('document write tools require worktreePath for mutations', async () => {
     assert.ok(writeBead);
     assert.ok(designBeads);
 
-    await assert.rejects(
-      () => writeSpec.execute({ path: 'projects/system/spec.md', content: '# Spec\n' }),
-      /worktreePath is required for document write tools/,
+    const specWrite = await writeSpec.execute({
+      path: 'projects/system/spec.md',
+      content: '# Spec\n',
+    }) as { success: boolean; filePath: string; workspaceRoot: string };
+    const beadWrite = await writeBead.execute({
+      beadPath: 'projects/system/test.md',
+      projectKey: 'system',
+      title: 'Test',
+      content: '# Test\n',
+    }) as { success: boolean; filePath: string };
+
+    const specDir = path.join(repoRoot, 'docs', 'specs', 'product');
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(
+      path.join(specDir, 'simple.md'),
+      ['# Simple', '', '## First Slice', 'Ship it.'].join('\n'),
+      'utf8',
     );
-    await assert.rejects(
-      () => writeBead.execute({ beadPath: 'projects/system/test.md', projectKey: 'system', title: 'Test', content: '# Test\n' }),
-      /worktreePath is required for document write tools/,
-    );
-    await assert.rejects(
-      () => designBeads.execute({ projectId: 'system', specPath: 'docs/specs/missing.md' }),
-      /worktreePath is required for document write tools/,
-    );
+
+    const designResult = await designBeads.execute({
+      projectId: 'system',
+      specPath: 'docs/specs/product/simple.md',
+      maxBeads: 1,
+    }) as { success: boolean; createdCount: number };
+
+    assert.equal(specWrite.success, true);
+    assert.equal(specWrite.workspaceRoot, repoRoot);
+    assert.ok(existsSync(specWrite.filePath));
+    assert.equal(beadWrite.success, true);
+    assert.ok(existsSync(beadWrite.filePath));
+    assert.equal(designResult.success, true);
+    assert.equal(designResult.createdCount, 1);
   });
 });
 

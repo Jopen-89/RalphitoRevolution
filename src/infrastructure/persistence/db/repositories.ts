@@ -2,7 +2,7 @@ import { getRalphitoDatabase } from './client.js';
 
 type RalphitoDatabase = ReturnType<typeof getRalphitoDatabase>;
 
-export type TaskStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'failed' | 'cancelled';
+export type TaskStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'failed' | 'cancelled' | 'BLOCKED_BY_FAILURE';
 export type TaskPriority = 'low' | 'medium' | 'high';
 export type ProjectKind = 'system' | 'repo' | 'sandbox';
 

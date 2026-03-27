@@ -7,7 +7,7 @@ import { EngineNotificationDispatcher } from './engineNotificationDispatcher.js'
 import { AgentRegistryService } from '../../core/services/AgentRegistry.js';
 import { ACTIVE_AGENT_WINDOW_MS, resolveTelegramRouting } from './routing.js';
 import { invokeAgentInChatThread } from './agentInvocationService.js';
-import { editTelegramMessage, sendTelegramMessage } from './telegramSender.js';
+import { replaceTelegramMessage, sendTelegramMessage } from './telegramSender.js';
 
 // Capturar errores no manejados para ver el error real y no "[Object: null prototype]"
 process.on('uncaughtException', (err) => {
@@ -130,7 +130,7 @@ async function processAgentRequest(ctx: Context, agent: AgentInfo, instruction: 
             statusMessageId: statusMessage.messageId,
         });
     } catch (error: any) {
-        await editTelegramMessage(chatKey, statusMessage.messageId, `❌ ${agent.name}: ${normalizeErrorMessage(error)}`, {
+        await replaceTelegramMessage(chatKey, statusMessage.messageId, `❌ ${agent.name}: ${normalizeErrorMessage(error)}`, {
             senderPath: 'telegram.bot.processAgentRequest.error',
             agentId: agent.id,
         });
@@ -231,6 +231,10 @@ bot.on('text', async (ctx) => {
     if (routingDecision) {
         if (routingDecision.reason === 'raymon-entry') {
             console.log(`👉 Enrutando mensaje a Raymon como puerta de entrada: "${text}"`);
+        } else if (routingDecision.reason === 'explicit-raymon') {
+            console.log(`🎯 Enrutando por mención explícita a Raymon`);
+        } else if (routingDecision.reason === 'specialist-handback') {
+            console.log(`↩️ Devolviendo control a Raymon desde especialista activo: ${resolveRecentActiveAgent(chatId)}`);
         } else if (routingDecision.reason === 'active-agent') {
             console.log(`↪️ Enrutando por agente activo reciente: ${routingDecision.agent.id}`);
         } else {

@@ -1,13 +1,21 @@
 import { randomUUID } from 'crypto';
+import { execSync } from 'child_process';
+import { existsSync, readFileSync } from 'fs';
+import path from 'path';
 import type { Message, ToolDefinition, ToolCall, ToolResult, ToolResultPayload } from '../../core/domain/gateway.types.js';
 import type { IToolCallingProvider } from '../../core/domain/gateway.types.js';
 import type { Tool } from './toolRegistry.js';
 import { traceOutput } from '../../core/services/outputTrace.js';
+import { RUNTIME_SESSION_FILE_NAME } from '../../core/domain/constants.js';
 
 export interface ToolCallingLoopResult {
   text: string;
   toolCalls: ToolCall[];
   toolResults: ToolResult[];
+}
+
+export interface ToolCallingLoopContext {
+  worktreePath?: string;
 }
 
 export const MAX_CONSECUTIVE_IDENTICAL_TOOL_ITERATIONS = 2;
@@ -51,11 +59,67 @@ function buildToolErrorPayload(message: string): ToolResultPayload {
   };
 }
 
+function extractVerificationCommandFromBead(beadContent: string): string {
+  const match = beadContent.match(/## VERIFICATION_COMMAND\s*\n`([^`]+)`/);
+  const explicitCommand = match?.[1]?.trim();
+  if (explicitCommand) return explicitCommand;
+  console.log('[submit_for_review] No VERIFICATION_COMMAND in Bead, using fallback: npm run lint');
+  return 'npm run lint';
+}
+
+interface VerificationResult {
+  content: string;
+  ok: boolean;
+}
+
+function runVerificationFromWorktree(worktreePath: string): VerificationResult {
+  const sessionFilePath = path.join(worktreePath, RUNTIME_SESSION_FILE_NAME);
+  if (!existsSync(sessionFilePath)) {
+    return { content: `Error: Runtime session file not found at ${sessionFilePath}`, ok: false };
+  }
+
+  let beadPath: string | null = null;
+  try {
+    const sessionData = JSON.parse(readFileSync(sessionFilePath, 'utf8'));
+    beadPath = sessionData.beadPath;
+  } catch {
+    return { content: `Error: Failed to read or parse runtime session file`, ok: false };
+  }
+
+  if (!beadPath) {
+    return { content: 'Error: No beadPath in runtime session file', ok: false };
+  }
+
+  if (!existsSync(beadPath)) {
+    return { content: `Error: Bead file not found: ${beadPath}`, ok: false };
+  }
+
+  const beadContent = readFileSync(beadPath, 'utf8');
+  const verificationCommand = extractVerificationCommandFromBead(beadContent);
+
+  console.log(`[submit_for_review] Running verification: ${verificationCommand} in ${worktreePath}`);
+
+  try {
+    const stdout = execSync(verificationCommand, {
+      cwd: worktreePath,
+      encoding: 'utf8',
+      timeout: 120000,
+      killSignal: 'SIGTERM',
+    });
+    return { content: `CI PASSED:\n${stdout}`, ok: true };
+  } catch (err) {
+    const error = err as { stderr?: string; stdout?: string; message?: string };
+    const output = error.stderr || error.stdout || error.message || 'Unknown error';
+    return { content: `CI FAILED:\n${output}`, ok: false };
+  }
+}
+
 export async function executeToolCallLoop(
   messages: Message[],
   toolDefinitions: ToolDefinition[],
   toolImplementations: Tool[],
   provider: IToolCallingProvider,
+  context: ToolCallingLoopContext = {},
   maxIterations = 15,
 ): Promise<ToolCallingLoopResult> {
   const toolMap = new Map(toolImplementations.map((t) => [t.name, t]));
@@ -117,6 +181,22 @@ export async function executeToolCallLoop(
           content: errorMessage,
           ok: false,
           payload: buildToolErrorPayload(errorMessage),
+        };
+      } else if (call.name === 'submit_for_review' && context.worktreePath) {
+        const notes = typeof call.arguments === 'object' && call.arguments !== null
+          ? (call.arguments as Record<string, unknown>).notes
+          : undefined;
+        if (typeof notes === 'string') {
+          console.log(`[submit_for_review] notes: ${notes}`);
+        }
+        const verificationResult = runVerificationFromWorktree(context.worktreePath);
+        result = {
+          toolCallId: toolId,
+          content: verificationResult.content,
+          ok: verificationResult.ok,
+          payload: verificationResult.ok
+            ? buildToolOutputPayload(verificationResult.content)
+            : buildToolErrorPayload(verificationResult.content),
         };
       } else {
         try {

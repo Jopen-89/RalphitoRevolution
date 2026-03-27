@@ -45,9 +45,25 @@ function readProjectRules(project: EngineProjectConfig) {
   }
 }
 
-export function buildEnginePrompt(project: EngineProjectConfig, userPrompt: string, branchName: string) {
+export function buildEnginePrompt(
+  project: EngineProjectConfig,
+  userPrompt: string,
+  branchName: string,
+  beadContent?: string,
+) {
   const rules = readProjectRules(project);
   const systemSections = [];
+
+  if (beadContent) {
+    systemSections.push(
+      [
+        '## BEAD IMPLEMENTATION TASK',
+        beadContent,
+        '---',
+        "Tu misión es implementar estrictamente la Bead adjunta. Solo puedes editar los archivos listados en TARGET_FILES. Cuando termines y el código sea estable, DEBES llamar a la herramienta `submit_for_review` para cerrar la tarea.",
+      ].join('\n\n'),
+    );
+  }
 
   if (rules) {
     systemSections.push(rules);
@@ -68,6 +84,6 @@ export function buildEnginePrompt(project: EngineProjectConfig, userPrompt: stri
 
   return {
     systemPrompt: systemSections.join('\n\n'),
-    userTask: userPrompt
+    userTask: userPrompt,
   };
 }

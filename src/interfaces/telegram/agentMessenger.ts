@@ -1,6 +1,6 @@
 import type { AgentInfo } from './agentRegistry.js';
 import * as convStore from './conversationStore.js';
-import { editTelegramMessage, sanitizeTelegramVisibleText, sendTelegramMessage } from './telegramSender.js';
+import { replaceTelegramMessage, sanitizeTelegramVisibleText, sendTelegramMessage } from './telegramSender.js';
 
 function getAgentEmoji(agentId: string): string {
   const emojis: Record<string, string> = {
@@ -54,11 +54,13 @@ export async function publishAgentReply(chatId: string, messageId: number, agent
     role: 'assistant',
   });
 
-  await editTelegramMessage(chatId, messageId, firstChunk, {
+  const firstMessage = await replaceTelegramMessage(chatId, messageId, firstChunk, {
     senderPath: 'agentMessenger.publishAgentReply.edit',
     agentId: agent.id,
   });
-  convStore.setMessageAgentRoute(chatId, messageId, agent.id);
+  if (firstMessage.messageId) {
+    convStore.setMessageAgentRoute(chatId, firstMessage.messageId, agent.id);
+  }
   convStore.setActiveAgent(chatId, agent.id);
 
   for (const chunk of chunks.slice(1)) {

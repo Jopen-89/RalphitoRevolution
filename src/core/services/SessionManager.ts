@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import path from 'path';
 import type { Provider } from '../domain/gateway.types.js';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
@@ -152,7 +153,8 @@ export class SessionSupervisor {
       worktreePath = provisioned.worktreePath;
       const createdAt = new Date().toISOString();
 
-      const enginePrompt = buildEnginePrompt(project, input.prompt, branchName);
+      const beadContent = beadPath ? readFileSync(beadPath, 'utf8').trim() : undefined;
+      const enginePrompt = buildEnginePrompt(project, input.prompt, branchName, beadContent);
       const threadId = ensureRuntimeThread(runtimeSessionId);
 
       const sessionFile = {

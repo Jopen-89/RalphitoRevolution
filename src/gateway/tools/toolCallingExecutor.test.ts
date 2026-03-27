@@ -62,6 +62,7 @@ test('executeToolCallLoop preserves structured tool output for downstream provid
       }),
     }],
     provider,
+    {},
     3,
   );
 
@@ -109,6 +110,7 @@ test('executeToolCallLoop aborts repeated identical tool iterations before re-ex
         },
       }],
       provider,
+      {},
       4,
     ),
     /Detected repeated tool loop: execute_bash\(\{"command":"git status"\}\)/,
@@ -127,7 +129,7 @@ test('executeToolCallLoop rejects blank final text when no tool calls are return
   ]);
 
   await assert.rejects(
-    () => executeToolCallLoop(messages, TEST_TOOLS, [], provider, 2),
+    () => executeToolCallLoop(messages, TEST_TOOLS, [], provider, {}, 2),
     /returned empty response without tool calls/i,
   );
 });

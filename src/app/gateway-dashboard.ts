@@ -1,10 +1,46 @@
 #!/usr/bin/env node
 
 import chalk from 'chalk';
+import dotenv from 'dotenv';
 import { AgentRegistryService } from '../core/services/AgentRegistry.js';
+import { authenticateGoogle } from '../gateway/auth/google-oauth.js';
 import { getProviderCatalogStatus } from '../gateway/providers/providerCatalog.js';
 import { listConfiguredCodexProfiles } from '../gateway/providers/providerProfiles.js';
 import { initializeRalphitoDatabase } from '../infrastructure/persistence/db/index.js';
+
+dotenv.config();
+
+function readEnvValue(name: string) {
+  const value = process.env[name];
+  if (!value) return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1).trim() || null;
+  }
+
+  return trimmed;
+}
+
+async function buildProviderAuth() {
+  let googleAuthClient: unknown;
+
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+    try {
+      googleAuthClient = await authenticateGoogle();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(chalk.yellow(`⚠️ No pude validar Google OAuth para el dashboard: ${message}`));
+    }
+  }
+
+  return {
+    ...(googleAuthClient ? { googleAuthClient } : {}),
+    ...(readEnvValue('OPENAI_API_KEY') ? { openAiKey: readEnvValue('OPENAI_API_KEY')! } : {}),
+    ...(readEnvValue('MINIMAX_API_KEY') ? { minimaxKey: readEnvValue('MINIMAX_API_KEY')! } : {}),
+  };
+}
 
 function printAgentList() {
   const agents = AgentRegistryService.getAllActive().sort((a, b) => a.agent_id.localeCompare(b.agent_id));
@@ -33,8 +69,8 @@ function printAgentList() {
   }
 }
 
-function printProviderStatus() {
-  const providers = getProviderCatalogStatus({});
+function printProviderStatus(auth: Awaited<ReturnType<typeof buildProviderAuth>>) {
+  const providers = getProviderCatalogStatus(auth);
   const codexProfiles = listConfiguredCodexProfiles(process.env);
 
   console.log(`\n${chalk.bold.cyan('Provider readiness')}`);
@@ -53,11 +89,12 @@ function printProviderStatus() {
   console.log(codexProfiles.length > 0 ? `  ${codexProfiles.join(', ')}` : '  (sin perfiles configurados)');
 }
 
-function main() {
+async function main() {
   initializeRalphitoDatabase();
   AgentRegistryService.sync();
+  const auth = await buildProviderAuth();
   printAgentList();
-  printProviderStatus();
+  printProviderStatus(auth);
 }
 
-main();
+void main();
