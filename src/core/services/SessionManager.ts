@@ -33,10 +33,13 @@ import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js
 import { resolveWriteScopeTargetsFromBeadFile } from '../engine/writeScope.js';
 import { RuntimeReaper } from '../engine/runtimeReaper.js';
 import { WorktreeProvisioningService } from './WorktreeProvisioningService.js';
+import { ExecutionPipelineService } from './ExecutionPipelineService.js';
 
 export interface SpawnRuntimeSessionInput {
   project: string;
   prompt: string;
+  taskId?: string;
+  executionJobId?: string;
   beadPath?: string;
   workItemKey?: string;
   provider?: Provider;
@@ -49,6 +52,8 @@ export interface SpawnRuntimeSessionInput {
 }
 
 export interface SpawnRuntimeSessionResult {
+  taskId: string;
+  executionJobId: string;
   runtimeSessionId: string;
   baseCommitHash: string;
   worktreePath: string;
@@ -114,10 +119,18 @@ export class SessionSupervisor {
       tmux: TmuxRuntime,
     ) => new RuntimeReaper(sessionRepo, lockRepo, wtManager, tmux),
     private readonly worktreeProvisioningService = new WorktreeProvisioningService(commandRunner),
+    private readonly executionPipeline = new ExecutionPipelineService(),
   ) {}
 
   async spawn(input: SpawnRuntimeSessionInput) {
     const project = resolveEngineProjectConfig(input.project);
+    const taskId = input.taskId || input.workItemKey || null;
+    if (!taskId) {
+      throw new Error('SessionSupervisor.spawn requiere taskId persistida.');
+    }
+    if (!input.executionJobId) {
+      throw new Error('SessionSupervisor.spawn requiere executionJobId persistida.');
+    }
     const sessionRepository = getRuntimeSessionRepository();
     const lockRepository = getRuntimeLockRepository();
     const worktreeManager = this.worktreeManagerFactory(project);
@@ -177,6 +190,8 @@ export class SessionSupervisor {
         prompt: input.prompt,
         beadPath: input.beadPath || null,
         beadSnapshotPath: beadSnapshot?.snapshotPath || null,
+        taskId,
+        executionJobId: input.executionJobId,
         workItemKey: input.workItemKey || null,
         beadSpecHash: beadSnapshot?.hash || input.beadSpecHash || null,
         beadSpecVersion: beadSnapshot?.version || input.beadSpecVersion || null,
@@ -219,10 +234,17 @@ export class SessionSupervisor {
       });
 
       writeRuntimeSessionFile(worktreePath, sessionFile);
+      this.executionPipeline.markJobRunning({
+        executionJobId: input.executionJobId,
+        runtimeSessionId,
+        branchName,
+        baseCommitHash,
+        startedAt: createdAt,
+      });
       syncRuntimeTaskLink({
         runtimeSessionId,
         projectId: project.id,
-        workItemKey: input.workItemKey || null,
+        workItemKey: taskId,
         beadPath: beadPath || null,
         assignedAgent: project.id,
         status: 'in_progress',
@@ -288,6 +310,8 @@ export class SessionSupervisor {
       });
 
       return {
+        taskId,
+        executionJobId: input.executionJobId,
         runtimeSessionId,
         baseCommitHash,
         worktreePath,
@@ -340,10 +364,19 @@ export class SessionSupervisor {
           failureSummary: message,
         });
       }
+      this.executionPipeline.markJobFailed({
+        executionJobId: input.executionJobId,
+        runtimeSessionId,
+        summary: message,
+        reason: 'spawn_failed',
+        payload: {
+          kind: 'spawn_failed',
+        },
+      });
       syncRuntimeTaskLink({
         runtimeSessionId,
         projectId: project.id,
-        workItemKey: input.workItemKey || null,
+        workItemKey: taskId,
         beadPath: beadPath || null,
         assignedAgent: project.id,
         status: 'failed',

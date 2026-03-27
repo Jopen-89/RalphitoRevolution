@@ -78,6 +78,15 @@ test('summon_agent_to_chat allows Raymon caller to pass runtime guard', async ()
   );
 });
 
+test('spawn_session rejects free prompt without persisted task reference', async () => {
+  const tool = getTool('spawn_session', 'raymon');
+
+  await assert.rejects(
+    () => tool.execute({ prompt: 'hazlo ya' }),
+    /taskId|beadPath.*ya no está permitida/i,
+  );
+});
+
 test('Raymon exposes Stage 4 session-centric orchestration tools', () => {
   const names = createRaymonTools().map((tool) => tool.name).sort();
 

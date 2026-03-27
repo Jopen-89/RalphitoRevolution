@@ -8,8 +8,11 @@ import {
   closeRalphitoDatabase,
   getRalphitoDatabase,
   initializeRalphitoDatabase,
+  resetRalphitoRepositories,
 } from '../../infrastructure/persistence/db/index.js';
 import { AgentRegistryService } from '../services/AgentRegistry.js';
+import { BeadLifecycleService } from '../services/BeadLifecycleService.js';
+import { ExecutionPipelineService } from '../services/ExecutionPipelineService.js';
 import {
   getEngineNotificationRepository,
   resetEngineNotificationRepository,
@@ -98,6 +101,7 @@ function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string; wo
   process.env.RALPHITO_DISABLE_NOTIFICATION_KICK = '1';
   process.env.RALPHITO_WORKTREE_ROOT = worktreeRoot;
   closeRalphitoDatabase();
+  resetRalphitoRepositories();
   resetRuntimeSessionRepository();
   resetRuntimeLockRepository();
   resetEngineNotificationRepository();
@@ -107,6 +111,7 @@ function withTempRuntime<T>(fn: (ctx: { repoRoot: string; headCommit: string; wo
     .then(() => fn({ repoRoot, headCommit, worktreeRoot }))
     .finally(() => {
       closeRalphitoDatabase();
+      resetRalphitoRepositories();
       resetRuntimeSessionRepository();
       resetRuntimeLockRepository();
       resetEngineNotificationRepository();
@@ -196,8 +201,27 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     });
     process.chdir(runtimeCwd);
 
+    const beadPath = path.join(SOURCE_REPO_ROOT, 'docs/specs/projects/test-engine/bead-02-fake-test.md');
+    BeadLifecycleService.createTask({
+      taskId: 'task-phase3-spawn',
+      projectId: 'backend-team',
+      title: 'Spawn env phase 3',
+      beadPath,
+    });
+    const executionJob = new ExecutionPipelineService().createJob({
+      task: BeadLifecycleService.getTaskById('task-phase3-spawn')!,
+      executorAgentId: 'backend-team',
+      executionHarness: 'opencode',
+      provider: 'opencode',
+      model: 'minimax-m2.7',
+      prompt: 'Implementa la fase 3.',
+      requestedByAgentId: 'raymon',
+    });
+
     const result = await supervisor.spawn({
       project: 'backend-team',
+      taskId: 'task-phase3-spawn',
+      executionJobId: executionJob!.id,
       prompt: 'Implementa la fase 3.',
       originThreadId: 321,
       notificationChatId: 'chat-999',

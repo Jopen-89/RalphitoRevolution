@@ -77,17 +77,23 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
   return [
     {
       name: 'spawn_session',
-      description: 'Lanza una sesión de Ralphito con una tarea de implementación.',
+      description: 'Lanza una sesión de Ralphito para una task persistida en SQLite.',
       execute: async (params: Record<string, unknown>) => {
         const project = optionalString(params.project) || 'system';
-        const prompt = requireString(params.prompt, 'prompt');
+        const taskId = optionalString(params.taskId);
         const beadPath = optionalString(params.beadPath);
+        const prompt = optionalString(params.prompt);
         const provider = optionalProvider(params.provider);
         const model = optionalString(params.model);
 
+        if (!taskId && !beadPath) {
+          throw new Error("spawn_session requiere 'taskId' o 'beadPath'. Ejecución libre por prompt ya no está permitida.");
+        }
+
         const result = await orchestrator.spawn({
-          project,
-          prompt,
+          ...(project ? { project } : {}),
+          ...(taskId ? { taskId } : {}),
+          ...(prompt ? { prompt } : {}),
           ...(beadPath ? { beadPath } : {}),
           ...(provider ? { provider } : {}),
           ...(model ? { model } : {}),
@@ -96,6 +102,8 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
         });
 
         return {
+          taskId: result.taskId,
+          executionJobId: result.executionJobId,
           sessionId: result.runtimeSessionId,
           baseCommitHash: result.baseCommitHash,
           worktreePath: result.worktreePath,
@@ -327,17 +335,18 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
   return [
     {
       name: 'spawn_session',
-      description: 'Lanza una sesión de Ralphito con una tarea de implementación.',
+      description: 'Lanza una sesión de Ralphito para una task persistida.',
       parameters: {
         type: 'object',
         properties: {
           project: { type: 'string', description: 'Nombre del proyecto (opcional, por defecto: system)' },
-          prompt: { type: 'string', description: 'Prompt de la tarea a ejecutar' },
-          beadPath: { type: 'string', description: 'Ruta opcional del bead' },
+          taskId: { type: 'string', description: 'ID canonico de la task persistida a ejecutar' },
+          prompt: { type: 'string', description: 'Notas opcionales extra para el executor; ya no habilita spawn libre por sí solo' },
+          beadPath: { type: 'string', description: 'Ruta del bead si no conoces taskId; debe existir task registrada' },
           provider: { type: 'string', description: 'Provider LLM real opcional: gemini, openai, opencode o codex' },
           model: { type: 'string', description: 'Modelo LLM real opcional para el loop del engine' },
         },
-        required: ['prompt'],
+        required: [],
       },
     },
     {

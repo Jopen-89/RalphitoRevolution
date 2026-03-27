@@ -11,6 +11,8 @@ import {
 import { getEngineNotificationRepository, resetEngineNotificationRepository } from '../services/EventBus.js';
 import { SessionLoop } from './sessionLoop.js';
 import { getRuntimeLockRepository, resetRuntimeLockRepository } from './runtimeLockRepository.js';
+import { BeadLifecycleService } from '../services/BeadLifecycleService.js';
+import { ExecutionPipelineService } from '../services/ExecutionPipelineService.js';
 import { SessionSupervisor } from '../services/SessionManager.js';
 import { getRuntimeSessionRepository, resetRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { readRuntimeSessionFile, writeRuntimeSessionFile } from './runtimeFiles.js';
@@ -157,9 +159,20 @@ test('SessionSupervisor liga task existente al spawn por beadPath', async () => 
           },
         }) as never,
     );
+    const executionJob = new ExecutionPipelineService().createJob({
+      task: BeadLifecycleService.getTaskById('task-spawn-link')!,
+      executorAgentId: 'backend-team',
+      executionHarness: 'opencode',
+      provider: 'opencode',
+      model: 'minimax-m2.7',
+      prompt: 'Ejecuta el bead 02',
+      requestedByAgentId: 'raymon',
+    });
 
     const result = await supervisor.spawn({
       project: 'backend-team',
+      taskId: 'task-spawn-link',
+      executionJobId: executionJob!.id,
       prompt: 'Ejecuta el bead 02',
       beadPath: 'docs/specs/projects/test-engine/bead-02-fake-test.md',
     });
@@ -182,8 +195,12 @@ test('SessionSupervisor liga task existente al spawn por beadPath', async () => 
     assert.equal(task.status, 'in_progress');
     assert.equal(task.assignedAgent, 'backend-team');
     assert.equal(task.runtimeSessionId, result.runtimeSessionId);
+    assert.equal(result.taskId, 'task-spawn-link');
+    assert.equal(result.executionJobId, executionJob!.id);
     const sessionFile = readRuntimeSessionFile(worktreePath);
     assert.ok(sessionFile?.beadSnapshotPath);
+    assert.equal(sessionFile?.taskId, 'task-spawn-link');
+    assert.equal(sessionFile?.executionJobId, executionJob!.id);
     assert.match(sessionFile?.beadSpecHash || '', /^[a-f0-9]{64}$/);
     assert.match(sessionFile?.beadSpecVersion || '', /^sha256:/);
     assert.equal(
@@ -201,6 +218,22 @@ test('ExecutorLoop marca done la task ligada cuando el landing cierra bien', asy
     const worktreePath = createTempDirectory('rr-executor-done-worktree-');
     const beadPath = path.join(process.cwd(), 'docs/specs/projects/test-engine/bead-02-fake-test.md');
     const now = new Date().toISOString();
+    const executionJobId = new ExecutionPipelineService().createJob({
+      task: BeadLifecycleService.createTask({
+        taskId: 'task-done-link',
+        projectId: 'backend-team',
+        title: 'Prueba de Engine 02',
+        beadPath,
+        status: 'in_progress',
+        assignedAgent: 'backend-team',
+      })!,
+      executorAgentId: 'backend-team',
+      executionHarness: 'opencode',
+      provider: 'opencode',
+      model: 'minimax-m2.7',
+      prompt: 'Ejecuta el bead 02',
+      requestedByAgentId: 'raymon',
+    })!.id;
 
     mkdirSync(worktreePath, { recursive: true });
     writeFileSync(path.join(worktreePath, '.ralphito-runtime-exit-code'), '0\n', 'utf8');
@@ -218,6 +251,8 @@ test('ExecutorLoop marca done la task ligada cuando el landing cierra bien', asy
       pid: 123,
       prompt: 'Ejecuta el bead 02',
       beadPath: 'docs/specs/projects/test-engine/bead-02-fake-test.md',
+      taskId: 'task-done-link',
+      executionJobId,
       workItemKey: null,
       beadSpecHash: null,
       beadSpecVersion: null,
@@ -230,15 +265,9 @@ test('ExecutorLoop marca done la task ligada cuando el landing cierra bien', asy
       createdAt: now,
       updatedAt: now,
     });
-
-    insertTask({
-      id: 'task-done-link',
-      title: 'Prueba de Engine 02',
-      sourceSpecPath: beadPath,
-      status: 'in_progress',
-      runtimeSessionId,
-      assignedAgent: 'backend-team',
-    });
+    initializeRalphitoDatabase()
+      .prepare('UPDATE tasks SET runtime_session_id = ? WHERE id = ?')
+      .run(runtimeSessionId, 'task-done-link');
 
     getRuntimeSessionRepository().create({
       threadId: insertRuntimeThread(runtimeSessionId, now),
@@ -253,6 +282,13 @@ test('ExecutorLoop marca done la task ligada cuando el landing cierra bien', asy
       heartbeatAt: now,
       createdAt: now,
       updatedAt: now,
+    });
+    new ExecutionPipelineService().markJobRunning({
+      executionJobId,
+      runtimeSessionId,
+      branchName: `jopen/${runtimeSessionId}`,
+      baseCommitHash: 'base-commit',
+      startedAt: now,
     });
 
     const result = await new SessionLoop(
@@ -297,10 +333,22 @@ test('ExecutorLoop marca done la task ligada cuando el landing cierra bien', asy
       )
       .get('task-done-link') as { status: string; runtimeSessionId: string | null };
     const notifications = getEngineNotificationRepository().listAll();
+    const resultRow = db
+      .prepare(
+        `
+          SELECT status, summary
+          FROM execution_results
+          WHERE execution_job_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(executionJobId) as { status: string; summary: string | null } | undefined;
 
     assert.equal(result.terminalStatus, 'done');
     assert.equal(task.status, 'done');
     assert.equal(task.runtimeSessionId, runtimeSessionId);
+    assert.equal(resultRow?.status, 'done');
+    assert.match(resultRow?.summary || '', /Execution completed|landing_completed|process_exited/i);
     assert.equal(notifications[0]?.eventType, 'session.synced');
     assert.equal(notifications[0]?.runtimeSessionId, runtimeSessionId);
 

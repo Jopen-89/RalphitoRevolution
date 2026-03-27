@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 import { deriveRuntimeTaskTitle, findRuntimeTaskLink } from './runtimeTaskLinking.js';
-import { getGuardrailLogPath, readRuntimeSessionFile } from './runtimeFiles.js';
+import { getGuardrailLogPath, readRuntimeSessionFile, resolveRuntimeTaskId } from './runtimeFiles.js';
 
 export interface SessionChatResult {
   externalChatId: string | null;
@@ -90,6 +90,10 @@ export function getSessionChat(sessionId: string): SessionChatResult {
   const task = findRuntimeTaskLink({
     runtimeSessionId: sessionId,
     projectId: sessionFile?.projectId ?? null,
+    taskId: resolveRuntimeTaskId({
+      taskId: sessionFile?.taskId ?? null,
+      workItemKey: sessionFile?.workItemKey ?? null,
+    }),
     workItemKey: sessionFile?.workItemKey ?? null,
     beadPath: sessionFile?.beadPath ?? null,
   });
@@ -101,7 +105,14 @@ export function getSessionChat(sessionId: string): SessionChatResult {
       (thread?.channel === 'telegram' ? thread.externalChatId : null) ??
       null,
     notificationChatId: session?.notificationChatId ?? null,
-    beadId: task?.id ?? sessionFile?.workItemKey ?? deriveFallbackBeadId(sessionFile?.beadPath) ?? null,
+    beadId:
+      task?.id ??
+      resolveRuntimeTaskId({
+        taskId: sessionFile?.taskId ?? null,
+        workItemKey: sessionFile?.workItemKey ?? null,
+      }) ??
+      deriveFallbackBeadId(sessionFile?.beadPath) ??
+      null,
     title: task?.title ?? deriveRuntimeTaskTitle(sessionFile?.beadPath) ?? null,
     worktreePath: session?.worktreePath ?? sessionFile?.worktreePath ?? null,
     branchName: sessionFile?.branchName ?? null,

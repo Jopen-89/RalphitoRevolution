@@ -1,5 +1,5 @@
 import { resolveEngineProjectConfig } from '../engine/config.js';
-import { readRuntimeSessionFile } from '../engine/runtimeFiles.js';
+import { readRuntimeSessionFile, resolveRuntimeTaskId } from '../engine/runtimeFiles.js';
 import { getRuntimeLockRepository } from '../engine/runtimeLockRepository.js';
 import { RuntimeReaper, type ReapRuntimeStateInput, type ReapRuntimeStateResult } from '../engine/runtimeReaper.js';
 import { getRuntimeSessionRepository, type RuntimeSessionRecord } from '../engine/runtimeSessionRepository.js';
@@ -7,6 +7,7 @@ import { syncRuntimeTaskLink } from '../engine/runtimeTaskLinking.js';
 import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
 import { enqueueEngineNotification } from './EventBus.js';
+import { ExecutionPipelineService } from './ExecutionPipelineService.js';
 
 export const DEFAULT_RUNTIME_CANCEL_REASON = 'Sesión cancelada';
 
@@ -46,6 +47,7 @@ export class RuntimeSessionLifecycleService {
       worktreeManager = new WorktreeManager(process.cwd(), process.env.RALPHITO_WORKTREE_ROOT || undefined),
       tmuxRuntime = new TmuxRuntime(),
     ) => new RuntimeReaper(sessionRepository, lockRepository, worktreeManager, tmuxRuntime),
+    private readonly executionPipeline = new ExecutionPipelineService(),
   ) {}
 
   private resolveWorktreeManager(session: RuntimeSessionRecord, projectId?: string | null) {
@@ -78,10 +80,23 @@ export class RuntimeSessionLifecycleService {
       syncRuntimeTaskLink({
         runtimeSessionId: input.runtimeSessionId,
         projectId: sessionFile?.projectId ?? session.agentId,
+        taskId: resolveRuntimeTaskId({
+          taskId: sessionFile?.taskId ?? null,
+          workItemKey: sessionFile?.workItemKey ?? null,
+        }),
         workItemKey: sessionFile?.workItemKey ?? null,
         beadPath: sessionFile?.beadPath ?? null,
         assignedAgent: session.agentId,
         status: 'cancelled',
+      });
+      this.executionPipeline.recordTerminalResultByRuntimeSessionId({
+        runtimeSessionId: input.runtimeSessionId,
+        status: 'cancelled',
+        summary: reason,
+        reason: 'cancelled',
+        payload: {
+          kind: 'cancelled',
+        },
       });
 
       enqueueEngineNotification({

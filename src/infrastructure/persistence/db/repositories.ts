@@ -5,6 +5,8 @@ type RalphitoDatabase = ReturnType<typeof getRalphitoDatabase>;
 export type TaskStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'failed' | 'cancelled' | 'BLOCKED_BY_FAILURE';
 export type TaskPriority = 'low' | 'medium' | 'high';
 export type ProjectKind = 'system' | 'repo' | 'sandbox';
+export type ExecutionJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
+export type ExecutionResultStatus = Extract<ExecutionJobStatus, 'done' | 'failed' | 'cancelled'>;
 
 export interface ProjectRecord {
   projectId: string;
@@ -102,6 +104,99 @@ export interface CreateSessionSummaryInput {
   scopeId: string;
   summary: string;
   createdAt?: string;
+}
+
+export interface ExecutionJobRecord {
+  id: string;
+  taskId: string;
+  projectId: string;
+  agentId: string;
+  executionHarness: string;
+  executionProfile: string | null;
+  provider: string | null;
+  model: string | null;
+  providerProfile: string | null;
+  status: ExecutionJobStatus;
+  prompt: string | null;
+  beadPath: string | null;
+  requestedByAgentId: string | null;
+  originThreadId: number | null;
+  notificationChatId: string | null;
+  runtimeSessionId: string | null;
+  branchName: string | null;
+  baseCommitHash: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  updatedAt: string;
+}
+
+export interface CreateExecutionJobInput {
+  id: string;
+  taskId: string;
+  projectId: string;
+  agentId: string;
+  executionHarness: string;
+  executionProfile?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  providerProfile?: string | null;
+  status?: ExecutionJobStatus;
+  prompt?: string | null;
+  beadPath?: string | null;
+  requestedByAgentId?: string | null;
+  originThreadId?: number | null;
+  notificationChatId?: string | null;
+  runtimeSessionId?: string | null;
+  branchName?: string | null;
+  baseCommitHash?: string | null;
+  failureReason?: string | null;
+  createdAt?: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt?: string;
+}
+
+export interface UpdateExecutionJobStatusInput {
+  id: string;
+  status: ExecutionJobStatus;
+  runtimeSessionId?: string | null;
+  branchName?: string | null;
+  baseCommitHash?: string | null;
+  failureReason?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+}
+
+export interface ExecutionResultRecord {
+  id: string;
+  executionJobId: string;
+  taskId: string;
+  runtimeSessionId: string | null;
+  status: ExecutionResultStatus;
+  summary: string | null;
+  reason: string | null;
+  branchName: string | null;
+  baseCommitHash: string | null;
+  payloadJson: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertExecutionResultInput {
+  id: string;
+  executionJobId: string;
+  taskId: string;
+  runtimeSessionId?: string | null;
+  status: ExecutionResultStatus;
+  summary?: string | null;
+  reason?: string | null;
+  branchName?: string | null;
+  baseCommitHash?: string | null;
+  payloadJson?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 class ThreadsRepository {
@@ -439,6 +534,354 @@ class SessionSummariesRepository {
   }
 }
 
+function mapExecutionJob(row: Record<string, unknown> | undefined): ExecutionJobRecord | null {
+  if (!row) return null;
+
+  return {
+    id: String(row.id),
+    taskId: String(row.taskId),
+    projectId: String(row.projectId),
+    agentId: String(row.agentId),
+    executionHarness: String(row.executionHarness),
+    executionProfile: row.executionProfile ? String(row.executionProfile) : null,
+    provider: row.provider ? String(row.provider) : null,
+    model: row.model ? String(row.model) : null,
+    providerProfile: row.providerProfile ? String(row.providerProfile) : null,
+    status: row.status as ExecutionJobStatus,
+    prompt: row.prompt ? String(row.prompt) : null,
+    beadPath: row.beadPath ? String(row.beadPath) : null,
+    requestedByAgentId: row.requestedByAgentId ? String(row.requestedByAgentId) : null,
+    originThreadId: typeof row.originThreadId === 'number' ? row.originThreadId : row.originThreadId ? Number(row.originThreadId) : null,
+    notificationChatId: row.notificationChatId ? String(row.notificationChatId) : null,
+    runtimeSessionId: row.runtimeSessionId ? String(row.runtimeSessionId) : null,
+    branchName: row.branchName ? String(row.branchName) : null,
+    baseCommitHash: row.baseCommitHash ? String(row.baseCommitHash) : null,
+    failureReason: row.failureReason ? String(row.failureReason) : null,
+    createdAt: String(row.createdAt),
+    startedAt: row.startedAt ? String(row.startedAt) : null,
+    finishedAt: row.finishedAt ? String(row.finishedAt) : null,
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+function mapExecutionResult(row: Record<string, unknown> | undefined): ExecutionResultRecord | null {
+  if (!row) return null;
+
+  return {
+    id: String(row.id),
+    executionJobId: String(row.executionJobId),
+    taskId: String(row.taskId),
+    runtimeSessionId: row.runtimeSessionId ? String(row.runtimeSessionId) : null,
+    status: row.status as ExecutionResultStatus,
+    summary: row.summary ? String(row.summary) : null,
+    reason: row.reason ? String(row.reason) : null,
+    branchName: row.branchName ? String(row.branchName) : null,
+    baseCommitHash: row.baseCommitHash ? String(row.baseCommitHash) : null,
+    payloadJson: row.payloadJson ? String(row.payloadJson) : null,
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+class ExecutionJobsRepository {
+  constructor(private readonly db: RalphitoDatabase) {}
+
+  create(input: CreateExecutionJobInput) {
+    const createdAt = input.createdAt || new Date().toISOString();
+    const updatedAt = input.updatedAt || createdAt;
+    const status = input.status || 'pending';
+
+    this.db
+      .prepare(
+        `
+          INSERT INTO execution_jobs (
+            id,
+            task_id,
+            project_id,
+            agent_id,
+            execution_harness,
+            execution_profile,
+            provider,
+            model,
+            provider_profile,
+            status,
+            prompt,
+            bead_path,
+            requested_by_agent_id,
+            origin_thread_id,
+            notification_chat_id,
+            runtime_session_id,
+            branch_name,
+            base_commit_hash,
+            failure_reason,
+            created_at,
+            started_at,
+            finished_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+      )
+      .run(
+        input.id,
+        input.taskId,
+        input.projectId,
+        input.agentId,
+        input.executionHarness,
+        input.executionProfile || null,
+        input.provider || null,
+        input.model || null,
+        input.providerProfile || null,
+        status,
+        input.prompt || null,
+        input.beadPath || null,
+        input.requestedByAgentId || null,
+        input.originThreadId ?? null,
+        input.notificationChatId || null,
+        input.runtimeSessionId || null,
+        input.branchName || null,
+        input.baseCommitHash || null,
+        input.failureReason || null,
+        createdAt,
+        input.startedAt || null,
+        input.finishedAt || null,
+        updatedAt,
+      );
+
+    return this.getById(input.id);
+  }
+
+  getById(id: string) {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            task_id AS taskId,
+            project_id AS projectId,
+            agent_id AS agentId,
+            execution_harness AS executionHarness,
+            execution_profile AS executionProfile,
+            provider,
+            model,
+            provider_profile AS providerProfile,
+            status,
+            prompt,
+            bead_path AS beadPath,
+            requested_by_agent_id AS requestedByAgentId,
+            origin_thread_id AS originThreadId,
+            notification_chat_id AS notificationChatId,
+            runtime_session_id AS runtimeSessionId,
+            branch_name AS branchName,
+            base_commit_hash AS baseCommitHash,
+            failure_reason AS failureReason,
+            created_at AS createdAt,
+            started_at AS startedAt,
+            finished_at AS finishedAt,
+            updated_at AS updatedAt
+          FROM execution_jobs
+          WHERE id = ?
+          LIMIT 1
+        `,
+      )
+      .get(id) as Record<string, unknown> | undefined;
+
+    return mapExecutionJob(row);
+  }
+
+  getByRuntimeSessionId(runtimeSessionId: string) {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            task_id AS taskId,
+            project_id AS projectId,
+            agent_id AS agentId,
+            execution_harness AS executionHarness,
+            execution_profile AS executionProfile,
+            provider,
+            model,
+            provider_profile AS providerProfile,
+            status,
+            prompt,
+            bead_path AS beadPath,
+            requested_by_agent_id AS requestedByAgentId,
+            origin_thread_id AS originThreadId,
+            notification_chat_id AS notificationChatId,
+            runtime_session_id AS runtimeSessionId,
+            branch_name AS branchName,
+            base_commit_hash AS baseCommitHash,
+            failure_reason AS failureReason,
+            created_at AS createdAt,
+            started_at AS startedAt,
+            finished_at AS finishedAt,
+            updated_at AS updatedAt
+          FROM execution_jobs
+          WHERE runtime_session_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(runtimeSessionId) as Record<string, unknown> | undefined;
+
+    return mapExecutionJob(row);
+  }
+
+  findActiveByTaskId(taskId: string) {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            task_id AS taskId,
+            project_id AS projectId,
+            agent_id AS agentId,
+            execution_harness AS executionHarness,
+            execution_profile AS executionProfile,
+            provider,
+            model,
+            provider_profile AS providerProfile,
+            status,
+            prompt,
+            bead_path AS beadPath,
+            requested_by_agent_id AS requestedByAgentId,
+            origin_thread_id AS originThreadId,
+            notification_chat_id AS notificationChatId,
+            runtime_session_id AS runtimeSessionId,
+            branch_name AS branchName,
+            base_commit_hash AS baseCommitHash,
+            failure_reason AS failureReason,
+            created_at AS createdAt,
+            started_at AS startedAt,
+            finished_at AS finishedAt,
+            updated_at AS updatedAt
+          FROM execution_jobs
+          WHERE task_id = ?
+            AND status IN ('pending', 'running')
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1
+        `,
+      )
+      .get(taskId) as Record<string, unknown> | undefined;
+
+    return mapExecutionJob(row);
+  }
+
+  updateStatus(input: UpdateExecutionJobStatusInput) {
+    const updatedAt = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `
+          UPDATE execution_jobs
+          SET status = ?,
+              runtime_session_id = COALESCE(?, runtime_session_id),
+              branch_name = COALESCE(?, branch_name),
+              base_commit_hash = COALESCE(?, base_commit_hash),
+              failure_reason = ?,
+              started_at = COALESCE(?, started_at),
+              finished_at = ?,
+              updated_at = ?
+          WHERE id = ?
+        `,
+      )
+      .run(
+        input.status,
+        input.runtimeSessionId ?? null,
+        input.branchName ?? null,
+        input.baseCommitHash ?? null,
+        input.failureReason ?? null,
+        input.startedAt ?? null,
+        input.finishedAt ?? null,
+        updatedAt,
+        input.id,
+      );
+
+    return this.getById(input.id);
+  }
+}
+
+class ExecutionResultsRepository {
+  constructor(private readonly db: RalphitoDatabase) {}
+
+  upsert(input: UpsertExecutionResultInput) {
+    const createdAt = input.createdAt || new Date().toISOString();
+    const updatedAt = input.updatedAt || createdAt;
+
+    this.db
+      .prepare(
+        `
+          INSERT INTO execution_results (
+            id,
+            execution_job_id,
+            task_id,
+            runtime_session_id,
+            status,
+            summary,
+            reason,
+            branch_name,
+            base_commit_hash,
+            payload_json,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(execution_job_id)
+          DO UPDATE SET
+            runtime_session_id = excluded.runtime_session_id,
+            status = excluded.status,
+            summary = excluded.summary,
+            reason = excluded.reason,
+            branch_name = excluded.branch_name,
+            base_commit_hash = excluded.base_commit_hash,
+            payload_json = excluded.payload_json,
+            updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        input.id,
+        input.executionJobId,
+        input.taskId,
+        input.runtimeSessionId || null,
+        input.status,
+        input.summary || null,
+        input.reason || null,
+        input.branchName || null,
+        input.baseCommitHash || null,
+        input.payloadJson || null,
+        createdAt,
+        updatedAt,
+      );
+
+    return this.getByExecutionJobId(input.executionJobId);
+  }
+
+  getByExecutionJobId(executionJobId: string) {
+    const row = this.db
+      .prepare(
+        `
+          SELECT
+            id,
+            execution_job_id AS executionJobId,
+            task_id AS taskId,
+            runtime_session_id AS runtimeSessionId,
+            status,
+            summary,
+            reason,
+            branch_name AS branchName,
+            base_commit_hash AS baseCommitHash,
+            payload_json AS payloadJson,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+          FROM execution_results
+          WHERE execution_job_id = ?
+          LIMIT 1
+        `,
+      )
+      .get(executionJobId) as Record<string, unknown> | undefined;
+
+    return mapExecutionResult(row);
+  }
+}
+
 export interface RalphitoRepositories {
   projects: ProjectsRepository;
   threads: ThreadsRepository;
@@ -448,6 +891,8 @@ export interface RalphitoRepositories {
   taskEvents: TaskEventsRepository;
   artifacts: ArtifactsRepository;
   sessionSummaries: SessionSummariesRepository;
+  executionJobs: ExecutionJobsRepository;
+  executionResults: ExecutionResultsRepository;
 }
 
 let repositories: RalphitoRepositories | null = null;
@@ -466,6 +911,8 @@ export function getRalphitoRepositories() {
     taskEvents: new TaskEventsRepository(db),
     artifacts: new ArtifactsRepository(db),
     sessionSummaries: new SessionSummariesRepository(db),
+    executionJobs: new ExecutionJobsRepository(db),
+    executionResults: new ExecutionResultsRepository(db),
   };
 
   return repositories;

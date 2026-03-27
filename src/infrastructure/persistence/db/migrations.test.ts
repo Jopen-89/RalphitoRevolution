@@ -131,3 +131,26 @@ test('migration 19 backfills legacy tasks from project_key and source_spec_path'
     db.close();
   }
 });
+
+test('migration 22 creates execution pipeline tables and indexes', () => {
+  const db = createMigratedDatabase();
+
+  try {
+    const jobColumns = listTableColumns(db, 'execution_jobs').map((column) => column.name);
+    const resultColumns = listTableColumns(db, 'execution_results').map((column) => column.name);
+    const jobIndexes = listIndexes(db, 'execution_jobs').map((index) => index.name);
+    const resultIndexes = listIndexes(db, 'execution_results').map((index) => index.name);
+
+    assert.ok(jobColumns.includes('task_id'));
+    assert.ok(jobColumns.includes('execution_harness'));
+    assert.ok(jobColumns.includes('runtime_session_id'));
+    assert.ok(resultColumns.includes('execution_job_id'));
+    assert.ok(resultColumns.includes('payload_json'));
+    assert.ok(jobIndexes.includes('idx_execution_jobs_task_created_at'));
+    assert.ok(jobIndexes.includes('idx_execution_jobs_runtime_session_id'));
+    assert.ok(resultIndexes.includes('idx_execution_results_task_created_at'));
+    assert.ok(resultIndexes.includes('idx_execution_results_runtime_session_id'));
+  } finally {
+    db.close();
+  }
+});

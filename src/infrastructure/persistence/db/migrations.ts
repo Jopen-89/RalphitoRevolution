@@ -527,4 +527,71 @@ export const ralphitoMigrations: RalphitoMigration[] = [
         AND TRIM(provider_profile) <> '';
     `,
   },
+  {
+    id: 22,
+    name: 'execution_pipeline_contract',
+    sql: `
+      CREATE TABLE IF NOT EXISTS execution_jobs (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        execution_harness TEXT NOT NULL,
+        execution_profile TEXT,
+        provider TEXT,
+        model TEXT,
+        provider_profile TEXT,
+        status TEXT NOT NULL,
+        prompt TEXT,
+        bead_path TEXT,
+        requested_by_agent_id TEXT,
+        origin_thread_id INTEGER,
+        notification_chat_id TEXT,
+        runtime_session_id TEXT,
+        branch_name TEXT,
+        base_commit_hash TEXT,
+        failure_reason TEXT,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (runtime_session_id) REFERENCES agent_sessions(runtime_session_id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_execution_jobs_task_created_at
+        ON execution_jobs(task_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_execution_jobs_status_created_at
+        ON execution_jobs(status, created_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_jobs_runtime_session_id
+        ON execution_jobs(runtime_session_id)
+        WHERE runtime_session_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS execution_results (
+        id TEXT PRIMARY KEY,
+        execution_job_id TEXT NOT NULL UNIQUE,
+        task_id TEXT NOT NULL,
+        runtime_session_id TEXT,
+        status TEXT NOT NULL,
+        summary TEXT,
+        reason TEXT,
+        branch_name TEXT,
+        base_commit_hash TEXT,
+        payload_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (execution_job_id) REFERENCES execution_jobs(id) ON DELETE CASCADE,
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (runtime_session_id) REFERENCES agent_sessions(runtime_session_id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_execution_results_task_created_at
+        ON execution_results(task_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_execution_results_runtime_session_id
+        ON execution_results(runtime_session_id);
+    `,
+  },
 ];

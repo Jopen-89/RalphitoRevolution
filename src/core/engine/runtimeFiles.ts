@@ -43,6 +43,8 @@ export interface RuntimeSessionFileRecord {
   prompt: string;
   beadPath: string | null;
   beadSnapshotPath?: string | null;
+  taskId?: string | null;
+  executionJobId?: string | null;
   workItemKey: string | null;
   beadSpecHash: string | null;
   beadSpecVersion: string | null;
@@ -152,6 +154,16 @@ export function readRuntimeSessionFile(worktreePath: string) {
   const filePath = getRuntimeSessionFilePath(worktreePath);
   if (!existsSync(filePath)) return null;
   return JSON.parse(readFileSync(filePath, 'utf8')) as RuntimeSessionFileRecord;
+}
+
+export function resolveRuntimeTaskId(
+  input: Pick<RuntimeSessionFileRecord, 'taskId' | 'workItemKey'>,
+) {
+  const taskId = input.taskId?.trim();
+  if (taskId) return taskId;
+
+  const legacyTaskId = input.workItemKey?.trim();
+  return legacyTaskId || null;
 }
 
 export function writeRuntimeSessionFile(worktreePath: string, record: RuntimeSessionFileRecord) {

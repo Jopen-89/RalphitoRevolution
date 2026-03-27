@@ -1,6 +1,7 @@
 import path from 'path';
 import { existsSync, readFileSync, unlinkSync } from 'fs';
 import type { Provider } from '../domain/gateway.types.js';
+import { resolveEngineProjectConfig } from './config.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
 import { SessionSupervisor, type SpawnRuntimeSessionInput } from '../services/SessionManager.js';
@@ -8,12 +9,14 @@ import { getEngineSessionsStatus, type EngineStatusSession } from './status.js';
 import { resumeRuntimeSession } from './resume.js';
 import { RUNTIME_GUARDRAIL_LOG_NAME } from '../domain/constants.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
+import { ExecutionPipelineService, resolveExecutionTask } from '../services/ExecutionPipelineService.js';
 
 export interface OrchestratorSpawnInput {
-  project: string;
-  prompt: string;
-  beadPath?: string;
+  project?: string;
+  prompt?: string;
+  taskId?: string;
   workItemKey?: string;
+  beadPath?: string;
   provider?: Provider;
   model?: string;
   beadSpecHash?: string;
@@ -24,6 +27,8 @@ export interface OrchestratorSpawnInput {
 }
 
 export interface OrchestratorSpawnResult {
+  taskId: string;
+  executionJobId: string;
   runtimeSessionId: string;
   baseCommitHash: string;
   worktreePath: string;
@@ -56,20 +61,22 @@ export interface OrchestratorDivergenceResult {
 export class Orchestrator {
   constructor(
     private readonly sessionSupervisor = new SessionSupervisor(),
+    private readonly executionPipeline = new ExecutionPipelineService(),
     private readonly repoRoot = process.cwd(),
   ) {}
 
   async spawn(input: OrchestratorSpawnInput): Promise<OrchestratorSpawnResult> {
     const lockRepository = getRuntimeLockRepository();
-    const project = input.project;
-    const prompt = input.prompt;
-    let beadPath = input.beadPath;
-
-    if (!beadPath) {
-      beadPath = this.extractBeadPathFromPrompt(prompt);
-    }
-
-    const resolvedBeadPath = this.resolveBeadPath(beadPath);
+    const beadPath = input.beadPath || this.extractBeadPathFromPrompt(input.prompt || '');
+    const task = resolveExecutionTask({
+      taskId: input.taskId || input.workItemKey || null,
+      ...(beadPath ? { beadPath } : {}),
+      ...(input.project ? { projectId: input.project } : {}),
+    });
+    const targetProjectId = input.project || task.assignedAgent || task.projectId || 'system';
+    const projectConfig = resolveEngineProjectConfig(targetProjectId);
+    const prompt = input.prompt?.trim() || `Implementa la task ${task.id}: ${task.title}`;
+    const resolvedBeadPath = this.resolveBeadPath(task.beadPath || beadPath);
 
     if (resolvedBeadPath) {
       const targets = resolveWriteScopeTargetsFromBeadFile(resolvedBeadPath, this.repoRoot);
@@ -79,11 +86,27 @@ export class Orchestrator {
       }
     }
 
-    const spawnInput: SpawnRuntimeSessionInput = {
-      project,
+    const executionJob = this.executionPipeline.createJob({
+      task,
+      executorAgentId: projectConfig.id,
+      executionHarness: projectConfig.agent,
+      executionProfile: projectConfig.executionProfile || null,
+      provider: input.provider || projectConfig.provider,
+      model: input.model || projectConfig.model,
+      providerProfile: projectConfig.providerProfile || null,
       prompt,
+      requestedByAgentId: 'raymon',
+      originThreadId: input.originThreadId ?? null,
+      notificationChatId: input.notificationChatId || null,
+    });
+
+    const spawnInput: SpawnRuntimeSessionInput = {
+      project: projectConfig.id,
+      prompt,
+      taskId: task.id,
+      executionJobId: executionJob.id,
       ...(resolvedBeadPath ? { beadPath: path.relative(this.repoRoot, resolvedBeadPath) } : {}),
-      ...(input.workItemKey ? { workItemKey: input.workItemKey } : {}),
+      workItemKey: task.id,
       ...(input.provider ? { provider: input.provider } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.beadSpecHash ? { beadSpecHash: input.beadSpecHash } : {}),
@@ -168,7 +191,7 @@ let orchestrator: Orchestrator | null = null;
 
 export function getOrchestrator(repoRoot = process.cwd()): Orchestrator {
   if (!orchestrator || orchestrator['repoRoot'] !== repoRoot) {
-    orchestrator = new Orchestrator(new SessionSupervisor(), repoRoot);
+    orchestrator = new Orchestrator(new SessionSupervisor(), new ExecutionPipelineService(), repoRoot);
   }
   return orchestrator;
 }

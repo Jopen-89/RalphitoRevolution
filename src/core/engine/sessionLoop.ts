@@ -14,6 +14,7 @@ import {
   readRuntimeExitCode,
   readRuntimeFailureRecord,
   readRuntimeSessionFile,
+  resolveRuntimeTaskId,
   updateRuntimeSessionFile,
   writeRuntimeFailureRecord,
   isWaitingForLlm,
@@ -36,6 +37,7 @@ import { getSessionChat } from './sessionChatService.js';
 import { resumeRuntimeSession } from './resume.js';
 import { syncRuntimeTaskLink } from './runtimeTaskLinking.js';
 import type { RalphitoTaskStatus } from '../services/taskStateService.js';
+import { ExecutionPipelineService } from '../services/ExecutionPipelineService.js';
 
 export interface SessionLoopContext {
   runtimeSessionId: string;
@@ -169,6 +171,7 @@ export class SessionLoop {
     private readonly lockRepository = getRuntimeLockRepository(),
     private readonly blockingDaemonGraceMs = DEFAULT_RUNTIME_BLOCKING_DAEMON_GRACE_MS,
     private readonly commandRunner = new CommandRunner(),
+    private readonly executionPipeline = new ExecutionPipelineService(),
   ) {}
 
   private submissionAttempts = 0;
@@ -266,11 +269,40 @@ export class SessionLoop {
     syncRuntimeTaskLink({
       runtimeSessionId: session.runtimeSessionId,
       projectId: sessionFile?.projectId ?? session.agentId,
+      taskId: resolveRuntimeTaskId({
+        taskId: sessionFile?.taskId ?? null,
+        workItemKey: sessionFile?.workItemKey ?? null,
+      }),
       workItemKey: sessionFile?.workItemKey ?? null,
       beadPath: sessionFile?.beadPath ?? null,
       assignedAgent: session.agentId,
       status,
       ...(failureReason ? { failureReason } : {}),
+    });
+  }
+
+  private async recordTerminalExecutionResult(runtimeSessionId: string, result: SessionLoopResult) {
+    const session = this.sessionRepository.getByRuntimeSessionId(runtimeSessionId);
+    const status = result.terminalStatus === 'done'
+      ? 'done'
+      : result.terminalStatus === 'cancelled'
+        ? 'cancelled'
+        : 'failed';
+    const summary =
+      session?.failureSummary ||
+      (status === 'done' ? 'Execution completed.' : result.reason);
+
+    await this.executionPipeline.recordTerminalResultByRuntimeSessionId({
+      runtimeSessionId,
+      status,
+      summary,
+      reason: result.reason,
+      payload: {
+        terminalStatus: result.terminalStatus,
+        sessionStatus: session?.status || null,
+        failureKind: session?.failureKind || null,
+        failureReasonCode: session?.failureReasonCode || null,
+      },
     });
   }
 
@@ -473,16 +505,21 @@ export class SessionLoop {
     let currentCommand: string | null = null;
     let promptRetryCount = 0;
     let lastPromptMatch: PromptMatch | null = null;
+    let terminalOutcome: SessionLoopResult | null = null;
+    const finalize = <T extends SessionLoopResult>(result: T) => {
+      terminalOutcome = result;
+      return result;
+    };
 
     try {
       for (;;) {
       const session = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
-      if (!session) {
+        if (!session) {
           console.log(`[SessionLoop:${input.runtimeSessionId}] Session missing from DB, aborting.`);
-        return {
+        return finalize({
           terminalStatus: 'failed',
           reason: 'session_missing',
-        } satisfies SessionLoopResult;
+        } satisfies SessionLoopResult);
       }
 
       const sessionFile = session.worktreePath ? readRuntimeSessionFile(session.worktreePath) : null;
@@ -546,10 +583,10 @@ export class SessionLoop {
       const refreshedSession = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
       if (!refreshedSession) {
         console.log(`[SessionLoop:${input.runtimeSessionId}] Session missing after heartbeat`);
-        return {
+        return finalize({
           terminalStatus: 'failed',
           reason: 'session_missing_after_heartbeat',
-        } satisfies SessionLoopResult;
+        } satisfies SessionLoopResult);
       }
 
       const processExitCode = refreshedSession.worktreePath
@@ -558,31 +595,31 @@ export class SessionLoop {
 
       if (refreshedSession.status === 'done') {
         console.log(`[SessionLoop:${input.runtimeSessionId}] Session already marked done, validating landing`);
-        return this.finalizeDoneSession(
+        return finalize(await this.finalizeDoneSession(
           input,
           refreshedSession,
           sessionFile?.branchName || null,
           normalizedOutput,
           nowIso,
           alive,
-        );
+        ));
       }
 
       if (refreshedSession.status === 'cancelled') {
         console.log(`[SessionLoop:${input.runtimeSessionId}] Session marked cancelled, stopping runtime`);
-        return this.finalizeCancelledSession(input, refreshedSession, alive);
+        return finalize(await this.finalizeCancelledSession(input, refreshedSession, alive));
       }
 
       if (refreshedSession.status === 'running' && processExitCode === 0 && alive) {
         console.log(`[SessionLoop:${input.runtimeSessionId}] Exit code 0 detected while tmux is still alive, finalizing landing`);
-        return this.finalizeDoneSession(
+        return finalize(await this.finalizeDoneSession(
           input,
           refreshedSession,
           sessionFile?.branchName || null,
           normalizedOutput,
           nowIso,
           alive,
-        );
+        ));
       }
 
       const promptMatch: PromptMatch | null =
@@ -610,7 +647,7 @@ export class SessionLoop {
             this.syncTaskStatus(refreshedSession, 'failed', `Suspended for more than 15 min: ${promptMatch.matchedLine}`);
             await this.tmuxRuntime.killSession(input.runtimeSessionId);
             await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
-            return { terminalStatus: 'failed', reason: 'human_suspend_timeout' } satisfies SessionLoopResult;
+            return finalize({ terminalStatus: 'failed', reason: 'human_suspend_timeout' } satisfies SessionLoopResult);
           }
         }
       } else if (promptMatch) {
@@ -707,7 +744,7 @@ export class SessionLoop {
           });
           await this.tmuxRuntime.killSession(input.runtimeSessionId);
           await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
-          return { terminalStatus: 'failed', reason: 'interactive_prompt_unresolved' } satisfies SessionLoopResult;
+          return finalize({ terminalStatus: 'failed', reason: 'interactive_prompt_unresolved' } satisfies SessionLoopResult);
         }
       } else {
         if (promptRetryCount > 0) {
@@ -769,7 +806,7 @@ export class SessionLoop {
         });
         await this.tmuxRuntime.killSession(input.runtimeSessionId);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
-        return { terminalStatus: 'failed', reason: 'blocked_daemon_detected' } satisfies SessionLoopResult;
+        return finalize({ terminalStatus: 'failed', reason: 'blocked_daemon_detected' } satisfies SessionLoopResult);
       }
 
       if (refreshedSession.maxSteps && refreshedSession.stepCount >= refreshedSession.maxSteps) {
@@ -798,7 +835,7 @@ export class SessionLoop {
         this.syncTaskStatus(refreshedSession, 'failed', summary);
         await this.tmuxRuntime.killSession(input.runtimeSessionId);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
-        return { terminalStatus: 'failed', reason: 'max_steps_exceeded' } satisfies SessionLoopResult;
+        return finalize({ terminalStatus: 'failed', reason: 'max_steps_exceeded' } satisfies SessionLoopResult);
       }
 
       if (nowMs - startedAtMs > maxWallTimeMs) {
@@ -836,7 +873,7 @@ export class SessionLoop {
         });
         await this.tmuxRuntime.killSession(input.runtimeSessionId);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
-        return { terminalStatus: 'stuck', reason: 'max_wall_time_exceeded' } satisfies SessionLoopResult;
+        return finalize({ terminalStatus: 'stuck', reason: 'max_wall_time_exceeded' } satisfies SessionLoopResult);
       }
 
       if (refreshedSession.status === 'running' && nowMs - lastProgressAt > maxCommandTimeMs) {
@@ -874,7 +911,7 @@ export class SessionLoop {
         });
         await this.tmuxRuntime.killSession(input.runtimeSessionId);
         await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
-        return { terminalStatus: 'failed', reason: 'max_command_time_exceeded' } satisfies SessionLoopResult;
+        return finalize({ terminalStatus: 'failed', reason: 'max_command_time_exceeded' } satisfies SessionLoopResult);
       }
 
       if (!alive) {
@@ -910,7 +947,7 @@ export class SessionLoop {
             this.notifyTerminalGuardrailFailure(refreshedSession, failure);
           }
           this.syncTaskStatus(refreshedSession, 'failed', failure.summary);
-          return { terminalStatus: 'failed', reason: failure.kind } satisfies SessionLoopResult;
+          return finalize({ terminalStatus: 'failed', reason: failure.kind } satisfies SessionLoopResult);
         }
 
         if (refreshedSession.status === 'failed') {
@@ -918,20 +955,20 @@ export class SessionLoop {
           if (refreshedSession.worktreePath) {
             clearRuntimeExitCode(refreshedSession.worktreePath);
           }
-          return { terminalStatus: 'failed', reason: refreshedSession.failureKind || 'failed' } satisfies SessionLoopResult;
+          return finalize({ terminalStatus: 'failed', reason: refreshedSession.failureKind || 'failed' } satisfies SessionLoopResult);
         }
 
         if (refreshedSession.status === 'running') {
           if (processExitCode === 0) {
             console.log(`[SessionLoop:${input.runtimeSessionId}] Clean exit via exit code file`);
-            return this.finalizeDoneSession(
+            return finalize(await this.finalizeDoneSession(
               input,
               refreshedSession,
               sessionFile?.branchName || null,
               normalizedOutput,
               nowIso,
               false,
-            );
+            ));
           }
 
           if (typeof processExitCode === 'number') {
@@ -956,7 +993,7 @@ export class SessionLoop {
               finishedAt: nowIso,
             });
             this.syncTaskStatus(refreshedSession, 'failed', summary);
-            return { terminalStatus: 'failed', reason: 'process_exit_nonzero' } satisfies SessionLoopResult;
+            return finalize({ terminalStatus: 'failed', reason: 'process_exit_nonzero' } satisfies SessionLoopResult);
           }
 
           console.log(`[SessionLoop:${input.runtimeSessionId}] Silent exit detected`);
@@ -980,7 +1017,7 @@ export class SessionLoop {
             finishedAt: nowIso,
           });
           this.syncTaskStatus(refreshedSession, 'failed', summary);
-          return { terminalStatus: 'stuck', reason: 'silent_exit' } satisfies SessionLoopResult;
+          return finalize({ terminalStatus: 'stuck', reason: 'silent_exit' } satisfies SessionLoopResult);
         }
 
         console.log(`[SessionLoop:${input.runtimeSessionId}] Clean exit`);
@@ -995,12 +1032,15 @@ export class SessionLoop {
           finishedAt: nowIso,
         });
         this.syncTaskStatus(refreshedSession, 'done');
-        return { terminalStatus: 'done', reason: 'process_exited' } satisfies SessionLoopResult;
+        return finalize({ terminalStatus: 'done', reason: 'process_exited' } satisfies SessionLoopResult);
       }
 
       await sleep(input.pollMs ?? DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_MS);
     }
     } finally {
+      if (terminalOutcome) {
+        await this.recordTerminalExecutionResult(input.runtimeSessionId, terminalOutcome);
+      }
       console.log(`[SessionLoop:${input.runtimeSessionId}] Loop exiting, performing final cleanup`);
       const session = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
       await this.cleanupTerminalSession(input.runtimeSessionId, session?.worktreePath ?? null, false);
