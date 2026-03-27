@@ -64,6 +64,7 @@ function withTempDb<T>(fn: (ctx: { repoRoot: string; worktreeRoot: string }) => 
 test('resolveEngineProjectConfig reads provider and model from agent_registry', async () => {
   await withTempDb(({ repoRoot, worktreeRoot }) => {
     AgentRegistryService.updateAgentConfig('default', {
+      execution_harness: 'codex',
       primary_provider: 'opencode',
       provider: 'opencode',
       model: 'minimax-m2.7',
@@ -73,13 +74,15 @@ test('resolveEngineProjectConfig reads provider and model from agent_registry', 
 
     assert.equal(config.id, 'backend-team');
     assert.equal(config.canonicalId, 'system');
-    assert.equal(config.agent, 'opencode');
+    assert.equal(config.agent, 'codex');
     assert.equal(config.provider, 'opencode');
     assert.equal(config.model, 'minimax-m2.7');
     assert.equal(config.path, repoRoot);
     assert.equal(config.worktreeRoot, worktreeRoot);
     assert.equal(config.defaultBranch, 'main');
     assert.equal(config.agentRulesFile, 'AGENTS.md');
+    assert.equal(config.toolMode, 'allowed');
+    assert.ok(config.allowedTools.includes('finish_task'));
   });
 });
 

@@ -495,4 +495,22 @@ export const ralphitoMigrations: RalphitoMigration[] = [
         WHERE bead_path IS NOT NULL;
     `,
   },
+  {
+    id: 20,
+    name: 'agent_registry_execution_harness_and_tool_calling_mode',
+    sql: `
+      ALTER TABLE agent_registry ADD COLUMN execution_harness TEXT DEFAULT 'opencode';
+      ALTER TABLE agent_registry ADD COLUMN tool_calling_mode TEXT DEFAULT 'none';
+
+      UPDATE agent_registry
+      SET execution_harness = COALESCE(NULLIF(TRIM(execution_harness), ''), 'opencode');
+
+      UPDATE agent_registry
+      SET tool_calling_mode = COALESCE(
+        NULLIF(TRIM(tool_calling_mode), ''),
+        NULLIF(TRIM(tool_mode), ''),
+        'none'
+      );
+    `,
+  },
 ];

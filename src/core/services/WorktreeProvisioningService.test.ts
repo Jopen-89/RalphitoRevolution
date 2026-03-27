@@ -49,6 +49,9 @@ function createProject(repoRoot: string, worktreeRoot: string): EngineProjectCon
     agent: 'opencode',
     provider: 'opencode',
     model: 'minimax-m2.7',
+    toolMode: 'none',
+    allowedTools: [],
+    fallbacks: [],
   };
 }
 
@@ -103,13 +106,12 @@ test('WorktreeProvisioningService respects explicit branch name', async () => {
       branchName: 'jopen/custom-stage3-branch',
     });
 
-    const branch = execFileSync(GIT_BIN, ['branch', '--show-current'], {
-      cwd: result.worktreePath,
-      encoding: 'utf8',
-    }).trim();
+    const gitPointer = readFileSync(path.join(result.worktreePath, '.git'), 'utf8').trim();
+    const gitDir = gitPointer.replace(/^gitdir:\s*/, '').trim();
+    const headRef = readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();
 
     assert.equal(result.branchName, 'jopen/custom-stage3-branch');
-    assert.equal(branch, 'jopen/custom-stage3-branch');
+    assert.equal(headRef, 'ref: refs/heads/jopen/custom-stage3-branch');
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
     rmSync(worktreeRoot, { recursive: true, force: true });

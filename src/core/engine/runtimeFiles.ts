@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import path from 'path';
-import type { Provider } from '../domain/gateway.types.js';
+import type { AgentFallbackRoute, ExecutionHarness, Provider, ToolMode } from '../domain/gateway.types.js';
 import {
   RUNTIME_BEAD_SNAPSHOT_FILE_NAME,
   RUNTIME_EXIT_CODE_FILE_NAME,
@@ -11,6 +11,17 @@ import {
   RUNTIME_SESSION_FILE_NAME,
 } from '../domain/constants.js';
 import { ProjectService } from '../services/ProjectService.js';
+
+export interface RuntimeAgentConfigSnapshot {
+  primaryProvider: Provider | null;
+  model: string | null;
+  providerProfile?: string | null;
+  executionHarness: ExecutionHarness;
+  toolMode: ToolMode;
+  allowedTools: string[];
+  fallbacks: AgentFallbackRoute[];
+  resolvedAt: string;
+}
 
 export interface RuntimeSessionFileRecord {
   runtimeSessionId: string;
@@ -34,6 +45,7 @@ export interface RuntimeSessionFileRecord {
   qaConfig: unknown;
   originThreadId: number | null;
   notificationChatId: string | null;
+  agentConfigSnapshot?: RuntimeAgentConfigSnapshot;
   autoResumeAttempts?: Record<string, number>;
   maxSteps: number;
   maxWallTimeMs: number;

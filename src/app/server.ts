@@ -29,6 +29,7 @@ import { traceOutput } from '../core/services/outputTrace.js';
 import {
   buildAgentConfigApiMetadata,
   validateAllowedTools,
+  validateExecutionHarness,
   validateFallbacks as validateFallbackRoutes,
   validateProviderModel,
   validateProviderProfile,
@@ -140,7 +141,8 @@ function serializeAgentRecord(record: AgentRegistryRecord) {
     primaryProvider,
     model: record.model || DEFAULT_MODEL_BY_PROVIDER[primaryProvider],
     providerProfile: record.provider_profile,
-    toolMode: record.tool_mode || 'none',
+    executionHarness: record.execution_harness || 'opencode',
+    toolMode: record.tool_calling_mode || record.tool_mode || 'none',
     allowedTools: parseJsonArray<string>(record.allowed_tools_json, []),
     fallbacks: parseJsonArray<AgentFallbackRoute>(record.fallbacks_json, []),
     createdAt: record.created_at,
@@ -178,6 +180,10 @@ function parseProvider(value: unknown): Provider | null {
 
 function parseToolMode(value: unknown): 'none' | 'allowed' | null {
   return typeof value === 'string' && VALID_TOOL_MODES.has(value) ? (value as 'none' | 'allowed') : null;
+}
+
+function parseExecutionHarness(value: unknown) {
+  return value === 'opencode' || value === 'codex' ? value : null;
 }
 
 function parseFallbacks(value: unknown) {
@@ -744,6 +750,20 @@ app.patch('/api/agents/:id', (req, res) => {
     updates.provider_profile = parseProviderProfile(body.providerProfile);
   }
 
+  if ('executionHarness' in body) {
+    const executionHarness = parseExecutionHarness(body.executionHarness);
+    if (!executionHarness) {
+      res.status(400).json({ field: 'executionHarness', error: 'Invalid executionHarness' });
+      return;
+    }
+    const harnessError = validateExecutionHarness(executionHarness);
+    if (harnessError) {
+      res.status(400).json(harnessError);
+      return;
+    }
+    updates.execution_harness = executionHarness;
+  }
+
   if ('model' in body) {
     const model = typeof body.model === 'string' ? body.model.trim() : '';
     if (!model) {
@@ -759,7 +779,7 @@ app.patch('/api/agents/:id', (req, res) => {
       res.status(400).json({ error: 'Invalid toolMode' });
       return;
     }
-    updates.tool_mode = toolMode;
+    updates.tool_calling_mode = toolMode;
   }
 
   if ('allowedTools' in body) {

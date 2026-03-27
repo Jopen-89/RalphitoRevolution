@@ -70,6 +70,34 @@ test('resolveAllowedToolDefinitions usa agent_registry para raymon', async () =>
   });
 });
 
+test('resolveAllowedToolDefinitions normaliza Raymon legacy tools from live DB', async () => {
+  await withTempDb(() => {
+    AgentRegistryService.updateAgentConfig('raymon', {
+      tool_calling_mode: 'allowed',
+      allowed_tools_json: JSON.stringify([
+        'spawn_executor',
+        'resume_executor',
+        'cancel_executor',
+        'cleanup_zombies',
+        'read_workspace_file',
+      ]),
+    });
+
+    AgentRegistryService.sync();
+
+    const raymonConfig = loadAgentConfig('raymon');
+    const { allowed, unknownNames } = resolveAllowedToolDefinitions(raymonConfig);
+    const names = allowed.map((tool) => tool.name).sort();
+
+    assert.deepEqual(unknownNames, []);
+    assert.ok(names.includes('spawn_session'));
+    assert.ok(names.includes('resume_session'));
+    assert.ok(names.includes('cancel_session'));
+    assert.ok(names.includes('reap_stale_sessions'));
+    assert.ok(names.includes('read_workspace_file'));
+  });
+});
+
 test('resolveAllowedToolDefinitions usa agent_registry para poncho', async () => {
   await withTempDb(() => {
     const ponchoConfig = loadAgentConfig('poncho');

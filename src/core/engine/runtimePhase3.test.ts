@@ -9,6 +9,7 @@ import {
   getRalphitoDatabase,
   initializeRalphitoDatabase,
 } from '../../infrastructure/persistence/db/index.js';
+import { AgentRegistryService } from '../services/AgentRegistry.js';
 import {
   getEngineNotificationRepository,
   resetEngineNotificationRepository,
@@ -183,6 +184,18 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
         }) as never,
     );
 
+    const runtimeCwd = process.cwd();
+    process.chdir(SOURCE_REPO_ROOT);
+    AgentRegistryService.sync();
+    AgentRegistryService.updateAgentConfig('default', {
+      primary_provider: 'opencode',
+      provider: 'opencode',
+      model: 'minimax-m2.7',
+      tool_calling_mode: 'allowed',
+      allowed_tools_json: JSON.stringify(['finish_task']),
+    });
+    process.chdir(runtimeCwd);
+
     const result = await supervisor.spawn({
       project: 'backend-team',
       prompt: 'Implementa la fase 3.',
@@ -230,6 +243,9 @@ test('SessionSupervisor crea sesion runtime con thread sintetico y session file'
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"provider": "opencode"/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"pid": 987/);
     assert.match(readFileSync(sessionFilePath, 'utf8'), /"notificationChatId": "chat-999"/);
+    assert.match(readFileSync(sessionFilePath, 'utf8'), /"agentConfigSnapshot":/);
+    assert.match(readFileSync(sessionFilePath, 'utf8'), /"executionHarness": "opencode"/);
+    assert.match(readFileSync(sessionFilePath, 'utf8'), /"toolMode": "allowed"/);
     assert.deepEqual(
       getEngineNotificationRepository().listAll().map((notification) => notification.eventType),
       ['session.started'],

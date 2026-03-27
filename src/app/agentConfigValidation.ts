@@ -1,4 +1,4 @@
-import type { AgentFallbackRoute, Provider } from '../core/domain/gateway.types.js';
+import type { AgentFallbackRoute, ExecutionHarness, Provider } from '../core/domain/gateway.types.js';
 import { PROVIDER_MATRIX } from '../gateway/providers/providerCatalog.js';
 import { listConfiguredCodexProfiles } from '../gateway/providers/providerProfiles.js';
 import { createAllToolDefinitions } from '../gateway/tools/toolCatalog.js';
@@ -13,6 +13,7 @@ export interface AgentConfigApiError {
 export function buildAgentConfigApiMetadata() {
   return {
     providers: Object.keys(PROVIDER_MATRIX).sort() as Provider[],
+    executionHarnesses: ['opencode', 'codex'] as const satisfies readonly ExecutionHarness[],
     toolModes: ['none', 'allowed'] as const,
     toolNames: createAllToolDefinitions().map((tool) => tool.name).sort(),
     providerModels: Object.fromEntries(
@@ -21,6 +22,17 @@ export function buildAgentConfigApiMetadata() {
     providerProfiles: {
       codex: listConfiguredCodexProfiles(process.env),
     },
+  };
+}
+
+export function validateExecutionHarness(harness: ExecutionHarness): AgentConfigApiError | null {
+  if (harness === 'opencode' || harness === 'codex') {
+    return null;
+  }
+
+  return {
+    field: 'executionHarness',
+    error: `Unknown executionHarness ${harness}`,
   };
 }
 

@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   buildAgentConfigApiMetadata,
   validateAllowedTools,
+  validateExecutionHarness,
   validateFallbacks,
   validateProviderModel,
   validateProviderProfile,
@@ -12,9 +13,17 @@ test('buildAgentConfigApiMetadata exposes provider and tool metadata', () => {
   const meta = buildAgentConfigApiMetadata();
 
   assert.ok(meta.providers.includes('gemini'));
+  assert.ok(meta.executionHarnesses.includes('opencode'));
   assert.ok(meta.toolModes.includes('allowed'));
   assert.ok(meta.toolNames.includes('inspect_workspace_path'));
   assert.ok(Array.isArray(meta.providerModels.codex));
+});
+
+test('validateExecutionHarness rejects unknown harnesses', () => {
+  const error = validateExecutionHarness('llama.cpp' as never);
+
+  assert.equal(error?.field, 'executionHarness');
+  assert.match(error?.error || '', /unknown executionHarness/i);
 });
 
 test('validateProviderModel rejects models outside provider catalog', () => {

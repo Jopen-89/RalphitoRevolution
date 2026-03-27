@@ -1,4 +1,5 @@
 export type Provider = 'gemini' | 'openai' | 'opencode' | 'codex';
+export type ExecutionHarness = 'opencode' | 'codex';
 
 export interface ToolResultPayload {
   output?: unknown;
@@ -91,6 +92,7 @@ export interface AgentConfig {
   primaryProvider: Provider;
   model: string;
   providerProfile?: string;
+  executionHarness?: ExecutionHarness;
   fallbacks: AgentFallbackRoute[];
   toolMode?: ToolMode;
   allowedTools?: string[];

@@ -42,7 +42,7 @@ test('loadAgentRegistry usa agent_registry y refleja provider/model persistidos'
       provider: 'codex',
       model: 'gpt-5.4',
       provider_profile: 'martapa',
-      tool_mode: 'allowed',
+      tool_calling_mode: 'allowed',
       allowed_tools_json: JSON.stringify(['write_spec_document']),
     });
 

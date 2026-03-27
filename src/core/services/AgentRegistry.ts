@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { AgentConfig, AgentFallbackRoute, Provider, ToolMode } from '../domain/gateway.types.js';
+import type { AgentConfig, AgentFallbackRoute, ExecutionHarness, Provider, ToolMode } from '../domain/gateway.types.js';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 
 const RAYMON_ONLY_TOOLS = new Set([
@@ -15,6 +15,15 @@ const RAYMON_ONLY_TOOLS = new Set([
   'reap_stale_sessions',
 ]);
 
+const LEGACY_ALLOWED_TOOL_ALIASES = {
+  spawn_executor: 'spawn_session',
+  resume_executor: 'resume_session',
+  cancel_executor: 'cancel_session',
+  cleanup_zombies: 'reap_stale_sessions',
+} as const satisfies Record<string, string>;
+
+const REQUIRED_RAYMON_TOOL = 'spawn_session';
+
 export interface AgentRegistryRecord {
   agent_id: string;
   name: string;
@@ -22,7 +31,9 @@ export interface AgentRegistryRecord {
   session_prefix: string;
   provider: string | null;
   model: string | null;
-  tool_mode: string;
+  tool_mode?: string | null;
+  tool_calling_mode: string | null;
+  execution_harness: string | null;
   allowed_tools_json: string | null;
   primary_provider: string | null;
   provider_profile: string | null;
@@ -40,6 +51,7 @@ interface AgentSeedProfile {
   primaryProvider: Provider;
   model: string;
   providerProfile?: string;
+  executionHarness: ExecutionHarness;
   toolMode: ToolMode;
   allowedTools: string[];
   fallbacks: AgentFallbackRoute[];
@@ -47,11 +59,13 @@ interface AgentSeedProfile {
 
 const DEFAULT_PROVIDER: Provider = 'gemini';
 const DEFAULT_MODEL = 'gemini-3.1-pro-preview';
+const DEFAULT_EXECUTION_HARNESS: ExecutionHarness = 'opencode';
 
 const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleFilePath' | 'sessionPrefix'>> = {
   default: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'allowed',
     allowedTools: [
       'execute_bash',
@@ -70,6 +84,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   ralphito: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'allowed',
     allowedTools: [
       'execute_bash',
@@ -88,6 +103,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   raymon: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'allowed',
     allowedTools: [
         'spawn_session',
@@ -107,6 +123,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   moncho: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'allowed',
     allowedTools: ['write_spec_document', 'inspect_workspace_path'],
     fallbacks: [],
@@ -114,6 +131,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   poncho: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'allowed',
     allowedTools: [
       'read_workspace_file',
@@ -127,6 +145,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   lola: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'allowed',
     allowedTools: ['write_spec_document', 'inspect_workspace_path'],
     fallbacks: [],
@@ -134,6 +153,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   mapito: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'allowed',
     allowedTools: ['write_spec_document', 'inspect_workspace_path'],
     fallbacks: [],
@@ -141,6 +161,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   martapepis: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'allowed',
     allowedTools: ['write_spec_document', 'inspect_workspace_path'],
     fallbacks: [],
@@ -148,6 +169,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   juez: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'none',
     allowedTools: [],
     fallbacks: [],
@@ -155,6 +177,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   tracker: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'none',
     allowedTools: [],
     fallbacks: [],
@@ -162,6 +185,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   ricky: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'none',
     allowedTools: [],
     fallbacks: [],
@@ -169,6 +193,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   miron: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'none',
     allowedTools: [],
     fallbacks: [],
@@ -176,6 +201,7 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
   relleno: {
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
+    executionHarness: DEFAULT_EXECUTION_HARNESS,
     toolMode: 'none',
     allowedTools: [],
     fallbacks: [],
@@ -206,10 +232,44 @@ function buildSeedProfile(agentId: string, name: string, roleFilePath: string | 
     sessionPrefix,
     primaryProvider: preset?.primaryProvider || DEFAULT_PROVIDER,
     model: preset?.model || DEFAULT_MODEL,
+    executionHarness: preset?.executionHarness || DEFAULT_EXECUTION_HARNESS,
     toolMode: preset?.toolMode || 'none',
     allowedTools: preset?.allowedTools || [],
     fallbacks: preset?.fallbacks || [],
   };
+}
+
+function normalizeToolMode(record: Pick<AgentRegistryRecord, 'tool_calling_mode' | 'tool_mode'>): ToolMode {
+  const persisted = record.tool_calling_mode || record.tool_mode;
+  return persisted === 'allowed' ? 'allowed' : 'none';
+}
+
+function normalizeExecutionHarness(value: string | null | undefined): ExecutionHarness {
+  return value === 'codex' ? 'codex' : DEFAULT_EXECUTION_HARNESS;
+}
+
+function normalizeAllowedTools(agentId: string, allowedTools: readonly unknown[]) {
+  const normalizedAgentId = normalizeAgentId(agentId);
+  const normalizedTools: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawTool of allowedTools) {
+    if (typeof rawTool !== 'string') continue;
+
+    const trimmedTool = rawTool.trim();
+    if (!trimmedTool) continue;
+
+    const canonicalTool = LEGACY_ALLOWED_TOOL_ALIASES[trimmedTool as keyof typeof LEGACY_ALLOWED_TOOL_ALIASES] || trimmedTool;
+    if (normalizedAgentId !== 'raymon' && RAYMON_ONLY_TOOLS.has(canonicalTool)) {
+      continue;
+    }
+
+    if (seen.has(canonicalTool)) continue;
+    seen.add(canonicalTool);
+    normalizedTools.push(canonicalTool);
+  }
+
+  return normalizedTools;
 }
 
 function recordToAgentConfig(record: AgentRegistryRecord): AgentConfig {
@@ -220,9 +280,10 @@ function recordToAgentConfig(record: AgentRegistryRecord): AgentConfig {
     primaryProvider,
     model: record.model || DEFAULT_MODEL,
     ...(record.provider_profile ? { providerProfile: record.provider_profile } : {}),
+    executionHarness: normalizeExecutionHarness(record.execution_harness),
     fallbacks: safeJsonParse(record.fallbacks_json, [] as AgentFallbackRoute[]),
-    toolMode: (record.tool_mode as ToolMode) || 'none',
-    allowedTools: safeJsonParse(record.allowed_tools_json, [] as string[]),
+    toolMode: normalizeToolMode(record),
+    allowedTools: normalizeAllowedTools(record.agent_id, safeJsonParse(record.allowed_tools_json, [] as unknown[])),
   };
 }
 
@@ -253,7 +314,8 @@ export class AgentRegistryService {
         session_prefix,
         provider,
         model,
-        tool_mode,
+        tool_calling_mode,
+        execution_harness,
         allowed_tools_json,
         primary_provider,
         provider_profile,
@@ -262,17 +324,22 @@ export class AgentRegistryService {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       ON CONFLICT(agent_id) DO UPDATE SET
         name = excluded.name,
         role_file_path = excluded.role_file_path,
         session_prefix = excluded.session_prefix,
         provider = COALESCE(agent_registry.provider, excluded.provider),
         model = COALESCE(agent_registry.model, excluded.model),
-        tool_mode = CASE
-          WHEN agent_registry.tool_mode IS NULL OR agent_registry.tool_mode = '' OR agent_registry.tool_mode = 'none'
-            THEN excluded.tool_mode
-          ELSE agent_registry.tool_mode
+        tool_calling_mode = CASE
+          WHEN agent_registry.tool_calling_mode IS NULL OR agent_registry.tool_calling_mode = '' OR agent_registry.tool_calling_mode = 'none'
+            THEN COALESCE(NULLIF(agent_registry.tool_mode, ''), excluded.tool_calling_mode)
+          ELSE agent_registry.tool_calling_mode
+        END,
+        execution_harness = CASE
+          WHEN agent_registry.execution_harness IS NULL OR agent_registry.execution_harness = ''
+            THEN excluded.execution_harness
+          ELSE agent_registry.execution_harness
         END,
         allowed_tools_json = CASE
           WHEN agent_registry.allowed_tools_json IS NULL OR agent_registry.allowed_tools_json = ''
@@ -301,6 +368,7 @@ export class AgentRegistryService {
         seed.primaryProvider,
         seed.model,
         seed.toolMode,
+        seed.executionHarness,
         JSON.stringify(seed.allowedTools),
         seed.primaryProvider,
         seed.providerProfile || null,
@@ -320,6 +388,7 @@ export class AgentRegistryService {
       defaultSeed.primaryProvider,
       defaultSeed.model,
       defaultSeed.toolMode,
+      defaultSeed.executionHarness,
       JSON.stringify(defaultSeed.allowedTools),
       defaultSeed.primaryProvider,
       defaultSeed.providerProfile || null,
@@ -339,6 +408,7 @@ export class AgentRegistryService {
     }
 
     this.sanitizeOperationalConfig(now);
+    this.assertRaymonSpawnSessionIntegrity();
   }
 
   private static sanitizeOperationalConfig(now: string) {
@@ -346,15 +416,33 @@ export class AgentRegistryService {
     const records = db.prepare('SELECT agent_id, allowed_tools_json FROM agent_registry WHERE is_active = 1').all() as Pick<AgentRegistryRecord, 'agent_id' | 'allowed_tools_json'>[];
 
     for (const record of records) {
-      if (record.agent_id === 'raymon') continue;
-      const allowedTools = safeJsonParse(record.allowed_tools_json, [] as string[]);
-      const sanitizedTools = allowedTools.filter((tool) => !RAYMON_ONLY_TOOLS.has(tool));
-      if (sanitizedTools.length === allowedTools.length) continue;
+      const allowedTools = safeJsonParse(record.allowed_tools_json, [] as unknown[]);
+      const sanitizedTools = normalizeAllowedTools(record.agent_id, allowedTools);
+      const serializedAllowedTools = JSON.stringify(allowedTools);
+      const serializedSanitizedTools = JSON.stringify(sanitizedTools);
+
+      if (serializedSanitizedTools === serializedAllowedTools) continue;
 
       db.prepare('UPDATE agent_registry SET allowed_tools_json = ?, updated_at = ? WHERE agent_id = ?').run(
-        JSON.stringify(sanitizedTools),
+        serializedSanitizedTools,
         now,
         record.agent_id,
+      );
+    }
+  }
+
+  private static assertRaymonSpawnSessionIntegrity() {
+    const record = this.getById('raymon');
+    if (!record || record.is_active !== 1) {
+      throw new Error('[AgentRegistryService] raymon missing or inactive after sync.');
+    }
+
+    const config = recordToAgentConfig(record);
+    const allowedTools = config.allowedTools || [];
+    if (config.toolMode !== 'allowed' || !allowedTools.includes(REQUIRED_RAYMON_TOOL)) {
+      const allowedToolsLabel = allowedTools.join(', ') || '(none)';
+      throw new Error(
+        `[AgentRegistryService] raymon must allow ${REQUIRED_RAYMON_TOOL}. toolMode=${config.toolMode} allowedTools=${allowedToolsLabel}`,
       );
     }
   }
