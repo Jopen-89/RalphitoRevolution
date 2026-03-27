@@ -100,10 +100,13 @@ export async function resumeRuntimeSession(
         runtimeSessionId,
         worktreePath: session.worktreePath,
         projectId: project.id,
+        executionHarness: sessionFile.agent,
+        executionProfile: sessionFile.executionProfile || null,
         systemPrompt: prompt.systemPrompt,
         instruction: prompt.userTask,
         provider: sessionFile.provider,
         model: sessionFile.model,
+        providerProfile: sessionFile.providerProfile || null,
       }),
     );
 

@@ -34,12 +34,14 @@ function withTempDb<T>(fn: () => Promise<T> | T) {
     });
 }
 
-test('getAgentConfig exposes provider profile and fallback profiles', async () => {
+test('getAgentConfig exposes provider/execution profiles and fallback profiles', async () => {
   await withTempDb(() => {
     AgentRegistryService.updateAgentConfig('raymon', {
       primary_provider: 'codex',
       provider: 'codex',
       provider_profile: 'jopen',
+      execution_harness: 'codex',
+      execution_profile: 'martapa',
       model: 'gpt-5.4',
       fallbacks_json: JSON.stringify([
         { provider: 'codex', model: 'gpt-5.4', providerProfile: 'martapa' },
@@ -52,6 +54,7 @@ test('getAgentConfig exposes provider profile and fallback profiles', async () =
     assert.ok(config);
     assert.equal(config.primaryProvider, 'codex');
     assert.equal(config.providerProfile, 'jopen');
+    assert.equal(config.executionProfile, 'martapa');
     assert.deepEqual(config.fallbacks, [
       { provider: 'codex', model: 'gpt-5.4', providerProfile: 'martapa' },
       { provider: 'gemini', model: 'gemini-3.1-pro-preview' },

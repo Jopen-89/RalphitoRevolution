@@ -113,6 +113,8 @@ test('resolveEngineProjectConfig includes provider profile from agent_registry',
       provider: 'codex',
       model: 'gpt-5.4',
       provider_profile: 'jopen',
+      execution_harness: 'codex',
+      execution_profile: 'martapa',
     });
 
     const config = resolveEngineProjectConfig('poncho');
@@ -120,5 +122,6 @@ test('resolveEngineProjectConfig includes provider profile from agent_registry',
     assert.equal(config.provider, 'codex');
     assert.equal(config.model, 'gpt-5.4');
     assert.equal(config.providerProfile, 'jopen');
+    assert.equal(config.executionProfile, 'martapa');
   });
 });

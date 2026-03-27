@@ -42,6 +42,8 @@ test('loadAgentRegistry usa agent_registry y refleja provider/model persistidos'
       provider: 'codex',
       model: 'gpt-5.4',
       provider_profile: 'martapa',
+      execution_harness: 'codex',
+      execution_profile: 'jopen',
       tool_calling_mode: 'allowed',
       allowed_tools_json: JSON.stringify(['write_spec_document']),
     });
@@ -54,6 +56,7 @@ test('loadAgentRegistry usa agent_registry y refleja provider/model persistidos'
     assert.equal(poncho.provider, 'codex');
     assert.equal(poncho.model, 'gpt-5.4');
     assert.equal(poncho.providerProfile, 'martapa');
+    assert.equal(poncho.executionProfile, 'jopen');
     assert.deepEqual(poncho.allowedTools, ['write_spec_document']);
     assert.equal(defaultAgent, undefined);
   });

@@ -38,6 +38,7 @@ export interface EngineProjectConfig {
   provider: Provider | null;
   model: string | null;
   providerProfile?: string;
+  executionProfile?: string;
   toolMode: ToolMode;
   allowedTools: string[];
   fallbacks: AgentFallbackRoute[];
@@ -148,6 +149,7 @@ export class ProjectService {
       provider: agentConfig.primaryProvider || FALLBACK_PROVIDER,
       model: agentConfig.model || FALLBACK_MODEL,
       ...(agentConfig.providerProfile ? { providerProfile: agentConfig.providerProfile } : {}),
+      ...(agentConfig.executionProfile ? { executionProfile: agentConfig.executionProfile } : {}),
       toolMode: agentConfig.toolMode || 'none',
       allowedTools: agentConfig.allowedTools || [],
       fallbacks: agentConfig.fallbacks || [],

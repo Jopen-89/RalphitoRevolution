@@ -92,6 +92,7 @@ test('resolveRuntimeAgentConfig congela snapshot y corrige alias backend-team ->
         model: 'minimax-m2.7',
         providerProfile: null,
         executionHarness: 'codex',
+        executionProfile: 'jopen',
         toolMode: 'allowed',
         allowedTools: ['finish_task'],
         fallbacks: [],
@@ -119,6 +120,7 @@ test('resolveRuntimeAgentConfig congela snapshot y corrige alias backend-team ->
     assert.equal(resolved?.agentConfig.primaryProvider, 'opencode');
     assert.equal(resolved?.agentConfig.model, 'minimax-m2.7');
     assert.equal(resolved?.agentConfig.executionHarness, 'codex');
+    assert.equal(resolved?.agentConfig.executionProfile, 'jopen');
     assert.equal(resolved?.agentConfig.toolMode, 'allowed');
     assert.deepEqual(resolved?.agentConfig.allowedTools, ['finish_task']);
   });

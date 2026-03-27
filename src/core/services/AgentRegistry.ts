@@ -34,6 +34,7 @@ export interface AgentRegistryRecord {
   tool_mode?: string | null;
   tool_calling_mode: string | null;
   execution_harness: string | null;
+  execution_profile: string | null;
   allowed_tools_json: string | null;
   primary_provider: string | null;
   provider_profile: string | null;
@@ -281,6 +282,7 @@ function recordToAgentConfig(record: AgentRegistryRecord): AgentConfig {
     model: record.model || DEFAULT_MODEL,
     ...(record.provider_profile ? { providerProfile: record.provider_profile } : {}),
     executionHarness: normalizeExecutionHarness(record.execution_harness),
+    ...(record.execution_profile ? { executionProfile: record.execution_profile } : {}),
     fallbacks: safeJsonParse(record.fallbacks_json, [] as AgentFallbackRoute[]),
     toolMode: normalizeToolMode(record),
     allowedTools: normalizeAllowedTools(record.agent_id, safeJsonParse(record.allowed_tools_json, [] as unknown[])),
@@ -316,6 +318,7 @@ export class AgentRegistryService {
         model,
         tool_calling_mode,
         execution_harness,
+        execution_profile,
         allowed_tools_json,
         primary_provider,
         provider_profile,
@@ -324,7 +327,7 @@ export class AgentRegistryService {
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
       ON CONFLICT(agent_id) DO UPDATE SET
         name = excluded.name,
         role_file_path = excluded.role_file_path,
@@ -341,6 +344,7 @@ export class AgentRegistryService {
             THEN excluded.execution_harness
           ELSE agent_registry.execution_harness
         END,
+        execution_profile = COALESCE(agent_registry.execution_profile, excluded.execution_profile),
         allowed_tools_json = CASE
           WHEN agent_registry.allowed_tools_json IS NULL OR agent_registry.allowed_tools_json = ''
             THEN excluded.allowed_tools_json
@@ -369,6 +373,7 @@ export class AgentRegistryService {
         seed.model,
         seed.toolMode,
         seed.executionHarness,
+        null,
         JSON.stringify(seed.allowedTools),
         seed.primaryProvider,
         seed.providerProfile || null,
@@ -389,6 +394,7 @@ export class AgentRegistryService {
       defaultSeed.model,
       defaultSeed.toolMode,
       defaultSeed.executionHarness,
+      null,
       JSON.stringify(defaultSeed.allowedTools),
       defaultSeed.primaryProvider,
       defaultSeed.providerProfile || null,

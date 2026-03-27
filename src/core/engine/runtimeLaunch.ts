@@ -5,6 +5,7 @@ import type { Provider } from '../domain/gateway.types.js';
 import { getRalphitoDatabasePath } from '../../infrastructure/persistence/db/index.js';
 import { CommandRunner } from '../../infrastructure/runtime/commandRunner.js';
 import { getRuntimeExitCodeFilePath } from './runtimeFiles.js';
+import { resolveCodexProfileConfig } from '../../gateway/providers/providerProfiles.js';
 
 function shellEscape(str: string) {
   if (!str.includes("'")) return `'${str}'`;
@@ -42,6 +43,8 @@ export interface BuildRuntimeEnvironmentInput {
   runtimeSessionId: string;
   worktreePath: string;
   projectId: string;
+  executionHarness?: string;
+  executionProfile?: string | null;
   systemPrompt: string;
   instruction: string;
   provider?: Provider | null;
@@ -66,7 +69,12 @@ export function buildRuntimeEnvironment(
   input: BuildRuntimeEnvironmentInput,
   env: NodeJS.ProcessEnv = process.env,
 ) {
+  const codexProfileEnv = input.executionHarness === 'codex'
+    ? resolveCodexProfileConfig(input.executionProfile || undefined, env)?.env || {}
+    : {};
+
   return toStringEnv(env, {
+    ...codexProfileEnv,
     CI: '1',
     RALPHITO_DB_PATH: getRalphitoDatabasePath(),
     RALPHITO_RUNTIME_SESSION_ID: input.runtimeSessionId,
@@ -74,6 +82,8 @@ export function buildRuntimeEnvironment(
     RALPHITO_ENGINE_MANAGED: '1',
     RALPHITO_PROJECT_ID: input.projectId,
     RALPHITO_WORKTREE_PATH: input.worktreePath,
+    RALPHITO_EXECUTION_HARNESS: input.executionHarness || '',
+    RALPHITO_EXECUTION_PROFILE: input.executionProfile || '',
     RALPHITO_SYSTEM_PROMPT: input.systemPrompt,
     RALPHITO_INSTRUCTION: input.instruction,
     RALPHITO_LLM_PROVIDER: input.provider || '',

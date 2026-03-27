@@ -11,6 +11,8 @@ export interface AgentConfigApiError {
 }
 
 export function buildAgentConfigApiMetadata() {
+  const codexProfiles = listConfiguredCodexProfiles(process.env);
+
   return {
     providers: Object.keys(PROVIDER_MATRIX).sort() as Provider[],
     executionHarnesses: ['opencode', 'codex'] as const satisfies readonly ExecutionHarness[],
@@ -20,7 +22,10 @@ export function buildAgentConfigApiMetadata() {
       Object.entries(PROVIDER_MATRIX).map(([provider, entry]) => [provider, entry.officialModels]),
     ) as Record<Provider, string[]>,
     providerProfiles: {
-      codex: listConfiguredCodexProfiles(process.env),
+      codex: codexProfiles,
+    },
+    executionProfiles: {
+      codex: codexProfiles,
     },
   };
 }
@@ -68,6 +73,28 @@ export function validateProviderProfile(provider: Provider, profile: string | nu
     return {
       field: 'providerProfile',
       error: `Unknown codex providerProfile ${profile}`,
+      details: `Configured profiles: ${configuredProfiles.join(', ')}`,
+    };
+  }
+
+  return null;
+}
+
+export function validateExecutionProfile(harness: ExecutionHarness, profile: string | null): AgentConfigApiError | null {
+  if (!profile) return null;
+
+  if (harness !== 'codex') {
+    return {
+      field: 'executionProfile',
+      error: `Execution harness ${harness} does not support executionProfile`,
+    };
+  }
+
+  const configuredProfiles = listConfiguredCodexProfiles(process.env);
+  if (configuredProfiles.length > 0 && !configuredProfiles.includes(profile)) {
+    return {
+      field: 'executionProfile',
+      error: `Unknown codex executionProfile ${profile}`,
       details: `Configured profiles: ${configuredProfiles.join(', ')}`,
     };
   }

@@ -58,6 +58,7 @@ test('buildRuntimeEnvironment includes provider profile when configured', () => 
     runtimeSessionId: 'test-session',
     worktreePath: '/tmp/worktree',
     projectId: 'backend-team',
+    executionHarness: 'opencode',
     systemPrompt: 'test system prompt',
     instruction: 'test instruction',
     provider: 'codex',
@@ -66,4 +67,27 @@ test('buildRuntimeEnvironment includes provider profile when configured', () => 
   }, {});
 
   assert.equal(result.RALPHITO_LLM_PROVIDER_PROFILE, 'jopen');
+});
+
+test('buildRuntimeEnvironment injects codex execution profile env for codex harness', () => {
+  const result = buildRuntimeEnvironment({
+    runtimeSessionId: 'test-session',
+    worktreePath: '/tmp/worktree',
+    projectId: 'backend-team',
+    executionHarness: 'codex',
+    executionProfile: 'jopen',
+    systemPrompt: 'test system prompt',
+    instruction: 'test instruction',
+    provider: 'openai',
+    model: 'gpt-5.4',
+  }, {
+    CODEX_PROFILE_JOPEN_HOME: '/tmp/codex-home',
+    CODEX_PROFILE_JOPEN_XDG_CONFIG_HOME: '/tmp/codex-config',
+  });
+
+  assert.equal(result.RALPHITO_EXECUTION_HARNESS, 'codex');
+  assert.equal(result.RALPHITO_EXECUTION_PROFILE, 'jopen');
+  assert.equal(result.HOME, '/tmp/codex-home');
+  assert.equal(result.XDG_CONFIG_HOME, '/tmp/codex-config');
+  assert.equal(result.RALPHITO_LLM_PROVIDER, 'openai');
 });

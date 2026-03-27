@@ -58,12 +58,14 @@ function printAgentList() {
     const model = agent.model || 'gemini-3.1-pro-preview';
     const providerProfile = agent.provider_profile || '(default)';
     const executionHarness = agent.execution_harness || 'opencode';
+    const executionProfile = agent.execution_profile || '(default)';
     const toolMode = agent.tool_calling_mode || agent.tool_mode || 'none';
     const allowedTools = agent.allowed_tools_json ? JSON.parse(agent.allowed_tools_json) as string[] : [];
     const toolsLabel = toolMode === 'allowed' ? allowedTools.join(', ') || '(sin tools)' : '(tool calling desactivado)';
 
     console.log(`${chalk.cyan(agent.agent_id)} -> ${chalk.yellow(provider)} (${model})`);
     console.log(`  execution_harness: ${executionHarness}`);
+    console.log(`  execution_profile: ${executionProfile}`);
     console.log(`  provider_profile: ${providerProfile}`);
     console.log(`  rules: ${agent.role_file_path || 'sin role file'}`);
     console.log(`  tool_calling_mode: ${toolMode}`);

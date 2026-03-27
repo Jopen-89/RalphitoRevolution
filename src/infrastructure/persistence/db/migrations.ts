@@ -513,4 +513,18 @@ export const ralphitoMigrations: RalphitoMigration[] = [
       );
     `,
   },
+  {
+    id: 21,
+    name: 'agent_registry_execution_profile',
+    sql: `
+      ALTER TABLE agent_registry ADD COLUMN execution_profile TEXT;
+
+      UPDATE agent_registry
+      SET execution_profile = provider_profile
+      WHERE execution_harness = 'codex'
+        AND execution_profile IS NULL
+        AND provider_profile IS NOT NULL
+        AND TRIM(provider_profile) <> '';
+    `,
+  },
 ];

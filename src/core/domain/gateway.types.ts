@@ -93,6 +93,7 @@ export interface AgentConfig {
   model: string;
   providerProfile?: string;
   executionHarness?: ExecutionHarness;
+  executionProfile?: string;
   fallbacks: AgentFallbackRoute[];
   toolMode?: ToolMode;
   allowedTools?: string[];

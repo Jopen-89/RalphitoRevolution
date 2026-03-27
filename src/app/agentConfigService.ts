@@ -3,6 +3,7 @@ import type { AgentRegistryRecord } from '../core/services/AgentRegistry.js';
 import {
   validateAllowedTools,
   validateExecutionHarness,
+  validateExecutionProfile,
   validateFallbacks,
   validateProviderModel,
   validateProviderProfile,
@@ -29,6 +30,7 @@ export interface SerializedAgentRecord {
   model: string;
   providerProfile: string | null;
   executionHarness: string;
+  executionProfile: string | null;
   toolMode: string;
   allowedTools: string[];
   fallbacks: AgentFallbackRoute[];
@@ -99,6 +101,7 @@ export function serializeAgentRecord(record: AgentRegistryRecord, aliases: strin
     model: record.model || DEFAULT_MODEL_BY_PROVIDER[primaryProvider],
     providerProfile: record.provider_profile,
     executionHarness: record.execution_harness || 'opencode',
+    executionProfile: record.execution_profile,
     toolMode: record.tool_calling_mode || record.tool_mode || 'none',
     allowedTools: parseJsonArray<string>(record.allowed_tools_json, []),
     fallbacks: parseJsonArray<AgentFallbackRoute>(record.fallbacks_json, []),
@@ -140,6 +143,13 @@ export function buildAgentConfigUpdates(
       return { error: harnessError };
     }
     updates.execution_harness = executionHarness;
+  }
+
+  if ('executionProfile' in body) {
+    if (body.executionProfile !== null && typeof body.executionProfile !== 'string') {
+      return { error: { error: 'Invalid executionProfile' } };
+    }
+    updates.execution_profile = parseProviderProfile(body.executionProfile);
   }
 
   if ('model' in body) {
@@ -195,18 +205,40 @@ export function buildAgentConfigUpdates(
 
   const effectiveProvider = (updates.primary_provider || existing.primary_provider || existing.provider || DEFAULT_MODEL_BY_PROVIDER.gemini) as Provider;
   const effectiveModel = updates.model || existing.model || DEFAULT_MODEL_BY_PROVIDER[effectiveProvider];
+  const effectiveExecutionHarness = (updates.execution_harness || existing.execution_harness) === 'codex' ? 'codex' : 'opencode';
   const effectiveProviderProfile = 'provider_profile' in updates
     ? updates.provider_profile || null
     : existing.provider_profile || null;
+  const effectiveExecutionProfile = 'execution_profile' in updates
+    ? updates.execution_profile || null
+    : existing.execution_profile || null;
 
   const modelError = validateProviderModel(effectiveProvider, effectiveModel);
   if (modelError) {
     return { error: modelError };
   }
 
+  if (effectiveExecutionHarness === 'codex') {
+    const executionModelError = validateProviderModel('codex', effectiveModel);
+    if (executionModelError) {
+      return {
+        error: {
+          ...executionModelError,
+          field: 'model',
+          error: `Model ${effectiveModel} is not supported for executionHarness codex`,
+        },
+      };
+    }
+  }
+
   const profileError = validateProviderProfile(effectiveProvider, effectiveProviderProfile);
   if (profileError) {
     return { error: profileError };
+  }
+
+  const executionProfileError = validateExecutionProfile(effectiveExecutionHarness, effectiveExecutionProfile);
+  if (executionProfileError) {
+    return { error: executionProfileError };
   }
 
   return { updates };

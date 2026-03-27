@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildToolCallingUnsupportedMessage, splitToolCallingAttempts } from './providerRouting.js';
 
-test('splitToolCallingAttempts keeps compatible fallbacks for tool-calling', () => {
+test('splitToolCallingAttempts reroutes codex to openai and keeps compatible fallbacks', () => {
   const result = splitToolCallingAttempts([
     { provider: 'codex', model: 'gpt-5.4' },
     { provider: 'openai', model: 'gpt-5.4' },
@@ -13,8 +13,13 @@ test('splitToolCallingAttempts keeps compatible fallbacks for tool-calling', () 
     { provider: 'openai', model: 'gpt-5.4' },
     { provider: 'gemini', model: 'gemini-3.1-pro-preview' },
   ]);
-  assert.deepEqual(result.unsupported, [
-    { provider: 'codex', model: 'gpt-5.4' },
+  assert.deepEqual(result.unsupported, []);
+  assert.deepEqual(result.rerouted, [
+    {
+      from: { provider: 'codex', model: 'gpt-5.4' },
+      to: { provider: 'openai', model: 'gpt-5.4' },
+      reason: 'codex_requires_openai_tool_calling',
+    },
   ]);
 });
 

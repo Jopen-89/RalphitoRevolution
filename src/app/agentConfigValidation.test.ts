@@ -4,6 +4,7 @@ import {
   buildAgentConfigApiMetadata,
   validateAllowedTools,
   validateExecutionHarness,
+  validateExecutionProfile,
   validateFallbacks,
   validateProviderModel,
   validateProviderProfile,
@@ -17,6 +18,7 @@ test('buildAgentConfigApiMetadata exposes provider and tool metadata', () => {
   assert.ok(meta.toolModes.includes('allowed'));
   assert.ok(meta.toolNames.includes('inspect_workspace_path'));
   assert.ok(Array.isArray(meta.providerModels.codex));
+  assert.ok(Array.isArray(meta.executionProfiles.codex));
 });
 
 test('validateExecutionHarness rejects unknown harnesses', () => {
@@ -45,6 +47,13 @@ test('validateAllowedTools rejects raymon-only tools for specialists', () => {
 
   assert.equal(error?.field, 'allowedTools');
   assert.match(error?.error || '', /reserved for Raymon/i);
+});
+
+test('validateExecutionProfile rejects non-codex harnesses', () => {
+  const error = validateExecutionProfile('opencode', 'jopen');
+
+  assert.equal(error?.field, 'executionProfile');
+  assert.match(error?.error || '', /does not support executionProfile/i);
 });
 
 test('validateFallbacks rejects invalid fallback provider profile combos', () => {

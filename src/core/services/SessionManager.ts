@@ -168,6 +168,7 @@ export class SessionSupervisor {
         provider,
         model,
         providerProfile: project.providerProfile || null,
+        executionProfile: project.executionProfile || null,
         baseCommitHash,
         branchName,
         worktreePath,
@@ -188,6 +189,7 @@ export class SessionSupervisor {
           model: project.model,
           providerProfile: project.providerProfile || null,
           executionHarness: project.agent,
+          executionProfile: project.executionProfile || null,
           toolMode: project.toolMode,
           allowedTools: [...project.allowedTools],
           fallbacks: [...project.fallbacks],
@@ -247,6 +249,7 @@ export class SessionSupervisor {
           provider,
           model,
           providerProfile: project.providerProfile || null,
+          executionProfile: project.executionProfile || null,
         }),
       );
       tmuxCreated = true;

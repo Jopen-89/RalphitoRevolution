@@ -65,6 +65,7 @@ export function buildCliUpdateBody(args: string[]) {
         body[field] = value;
         break;
       case 'providerProfile':
+      case 'executionProfile':
         body[field] = value.trim().toLowerCase() === 'null' ? null : value;
         break;
       case 'allowedTools':

@@ -18,6 +18,7 @@ export interface RuntimeAgentConfigSnapshot {
   model: string | null;
   providerProfile?: string | null;
   executionHarness: ExecutionHarness;
+  executionProfile?: string | null;
   toolMode: ToolMode;
   allowedTools: string[];
   fallbacks: AgentFallbackRoute[];
@@ -33,6 +34,7 @@ export interface RuntimeSessionFileRecord {
   provider: Provider | null;
   model: string | null;
   providerProfile?: string | null;
+  executionProfile?: string | null;
   baseCommitHash: string;
   branchName: string;
   worktreePath: string;

@@ -338,7 +338,11 @@ app.post('/v1/chat', async (req, res) => {
     });
     const useToolCalling = allowedToolDefinitions.length > 0;
     if (useToolCalling) {
-      const { supported: toolCallingAttempts, unsupported: unsupportedToolCallingAttempts } = splitToolCallingAttempts(attempts);
+      const {
+        supported: toolCallingAttempts,
+        unsupported: unsupportedToolCallingAttempts,
+        rerouted: reroutedToolCallingAttempts,
+      } = splitToolCallingAttempts(attempts);
       const failedAttempts = unsupportedToolCallingAttempts.map((attempt) => ({
         provider: attempt.provider,
         model: attempt.model,
@@ -347,90 +351,95 @@ app.post('/v1/chat', async (req, res) => {
         reason: 'tool-calling unsupported for configured provider',
       })) as Array<ReturnType<typeof createAttemptDiagnostic>>;
 
-    if (toolCallingAttempts.length === 0) {
-      return res.status(400).json({
-        error: 'TOOL_CALLING_UNSUPPORTED',
-        message: buildToolCallingUnsupportedMessage(unsupportedToolCallingAttempts),
+      if (toolCallingAttempts.length === 0) {
+        return res.status(400).json({
+          error: 'TOOL_CALLING_UNSUPPORTED',
+          message: buildToolCallingUnsupportedMessage(unsupportedToolCallingAttempts),
+          attempts: failedAttempts,
+          details: formatAttemptSummary(failedAttempts),
+        });
+      }
+
+      if (unknownNames.length > 0) {
+        console.warn(`[Gateway] Tools desconocidas para '${resolvedAgentId}': ${unknownNames.join(', ')}`);
+      }
+      if (unsupportedToolCallingAttempts.length > 0) {
+        console.warn(
+          `[Gateway] Omitiendo providers sin tool-calling para '${resolvedAgentId}': ${unsupportedToolCallingAttempts.map((attempt) => `${attempt.provider} (${attempt.model})`).join(', ')}`,
+        );
+      }
+      if (reroutedToolCallingAttempts.length > 0) {
+        console.warn(
+          `[Gateway] Rerouting tool-calling para '${resolvedAgentId}': ${reroutedToolCallingAttempts.map((route) => `${route.from.provider} (${route.from.model}) -> ${route.to.provider} (${route.to.model})`).join(', ')}`,
+        );
+      }
+      const allTools = createAllToolImplementations({
+        ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
+        ...(typeof originChatId === 'string' && originChatId.trim() ? { notificationChatId: originChatId } : {}),
+        ...(worktreePath ? { worktreePath } : {}),
+        ...(resolvedAgentId ? { currentAgentId: resolvedAgentId } : {}),
+      });
+      let lastToolCallingError: unknown = null;
+
+      for (const attempt of toolCallingAttempts) {
+        try {
+          console.log(`[Gateway] Tool-calling con ${attempt.provider} (${attempt.model})...`);
+
+          const llmProvider = ProviderFactory.create(
+            attempt.provider,
+            attempt.model,
+            buildProviderAuth(),
+            attempt.providerProfile,
+          ) as IToolCallingProvider;
+
+          const { text, toolCalls, toolResults } = await executeToolCallLoop(
+            messages,
+            allowedToolDefinitions,
+            allTools,
+            llmProvider,
+            {
+              ...(worktreePath ? { worktreePath } : {}),
+              ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+            },
+          );
+          assertRequiredToolCalls(requiredToolNames, toolCalls);
+
+          const handoffAgentId = extractHandoffAgentId(toolCalls, toolResults);
+          traceOutput({
+            stage: 'gateway.response.toolCalling',
+            text,
+            provider: attempt.provider,
+            model: attempt.model,
+            ...(resolvedAgentId ? { agentId: resolvedAgentId } : {}),
+            ...(handoffAgentId ? { handoffAgentId } : {}),
+            toolCallCount: toolCalls.length,
+          });
+          const successResponse: ChatResponse = {
+            response: text,
+            providerUsed: attempt.provider,
+            modelUsed: attempt.model,
+            ...(handoffAgentId ? { handoffAgentId } : {}),
+            toolCalls,
+            toolResults,
+          };
+
+          return res.json(successResponse);
+        } catch (error) {
+          const details = toDiagnosticErrorMessage(error);
+          console.warn(`⚠️ Falló tool-calling con ${attempt.provider}:`, details);
+          failedAttempts.push(createAttemptDiagnostic(attempt.provider, attempt.model, 'tool-calling', error));
+          lastToolCallingError = error;
+          continue;
+        }
+      }
+
+      return res.status(502).json({
+        error: 'TOOL_CALLING_FAILED',
+        message: 'Todos los providers con soporte de tool-calling fallaron.',
+        ...(lastToolCallingError ? { details: formatAttemptSummary(failedAttempts) } : {}),
         attempts: failedAttempts,
-        details: formatAttemptSummary(failedAttempts),
       });
     }
-
-    if (unknownNames.length > 0) {
-      console.warn(`[Gateway] Tools desconocidas para '${resolvedAgentId}': ${unknownNames.join(', ')}`);
-    }
-    if (unsupportedToolCallingAttempts.length > 0) {
-      console.warn(
-        `[Gateway] Omitiendo providers sin tool-calling para '${resolvedAgentId}': ${unsupportedToolCallingAttempts.map((attempt) => `${attempt.provider} (${attempt.model})`).join(', ')}`,
-      );
-    }
-    const allTools = createAllToolImplementations({
-      ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
-      ...(typeof originChatId === 'string' && originChatId.trim() ? { notificationChatId: originChatId } : {}),
-      ...(worktreePath ? { worktreePath } : {}),
-      ...(resolvedAgentId ? { currentAgentId: resolvedAgentId } : {}),
-    });
-    let lastToolCallingError: unknown = null;
-
-    for (const attempt of toolCallingAttempts) {
-      try {
-        console.log(`[Gateway] Tool-calling con ${attempt.provider} (${attempt.model})...`);
-
-        const llmProvider = ProviderFactory.create(
-          attempt.provider,
-          attempt.model,
-          buildProviderAuth(),
-          attempt.providerProfile,
-        ) as IToolCallingProvider;
-
-        const { text, toolCalls, toolResults } = await executeToolCallLoop(
-          messages,
-          allowedToolDefinitions,
-          allTools,
-          llmProvider,
-          {
-            ...(worktreePath ? { worktreePath } : {}),
-            ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
-          },
-        );
-        assertRequiredToolCalls(requiredToolNames, toolCalls);
-
-        const handoffAgentId = extractHandoffAgentId(toolCalls, toolResults);
-        traceOutput({
-          stage: 'gateway.response.toolCalling',
-          text,
-          provider: attempt.provider,
-          model: attempt.model,
-          ...(resolvedAgentId ? { agentId: resolvedAgentId } : {}),
-          ...(handoffAgentId ? { handoffAgentId } : {}),
-          toolCallCount: toolCalls.length,
-        });
-        const successResponse: ChatResponse = {
-          response: text,
-          providerUsed: attempt.provider,
-          modelUsed: attempt.model,
-          ...(handoffAgentId ? { handoffAgentId } : {}),
-          toolCalls,
-          toolResults,
-        };
-
-        return res.json(successResponse);
-      } catch (error) {
-        const details = toDiagnosticErrorMessage(error);
-        console.warn(`⚠️ Falló tool-calling con ${attempt.provider}:`, details);
-        failedAttempts.push(createAttemptDiagnostic(attempt.provider, attempt.model, 'tool-calling', error));
-        lastToolCallingError = error;
-        continue;
-      }
-    }
-
-    return res.status(502).json({
-      error: 'TOOL_CALLING_FAILED',
-      message: 'Todos los providers con soporte de tool-calling fallaron.',
-      ...(lastToolCallingError ? { details: formatAttemptSummary(failedAttempts) } : {}),
-      attempts: failedAttempts,
-    });
-  }
 
   let lastError: unknown = null;
   const failedAttempts = [] as Array<ReturnType<typeof createAttemptDiagnostic>>;

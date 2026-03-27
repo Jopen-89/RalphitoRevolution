@@ -18,7 +18,8 @@ Los modelos usados salen de la matriz oficial en `src/gateway/providers/provider
 
 ## Configurar perfiles Codex
 
-- El provider sigue siendo `codex`, pero la ruta operativa se elige con `providerProfile`.
+- `providerProfile` sigue siendo solo para el provider `codex` en ruta chat/smoke.
+- `executionProfile` es aparte y aplica al harness `codex` en runtime.
 - Perfiles previstos: `jopen` y `martapa`.
 - Variables soportadas por perfil:
   - `CODEX_PROFILE_JOPEN_HOME`
@@ -29,6 +30,7 @@ Los modelos usados salen de la matriz oficial en `src/gateway/providers/provider
   - `CODEX_PROFILE_JOPEN_ENV_JSON`
 - Repite el mismo patron para `MARTAPA`.
 - `providerProfile` se persiste por agente en `agent_registry.provider_profile`.
+- `executionProfile` se persiste por agente en `agent_registry.execution_profile`.
 
 ## Comportamiento
 

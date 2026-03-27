@@ -103,6 +103,7 @@ export interface UnifiedDashboardSessionDetail {
       model: string | null;
       providerProfile: string | null;
       executionHarness: string;
+      executionProfile: string | null;
       toolMode: string;
       allowedTools: string[];
       fallbacks: AgentFallbackRoute[];
@@ -114,6 +115,7 @@ export interface UnifiedDashboardSessionDetail {
       model: string | null;
       providerProfile: string | null;
       executionHarness: string;
+      executionProfile: string | null;
       toolMode: string;
       allowedTools: string[];
       fallbacks: AgentFallbackRoute[];
@@ -271,6 +273,7 @@ function buildDetailAgentConfig(session: UnifiedDashboardSession) {
         model: project.model,
         providerProfile: project.providerProfile || null,
         executionHarness: project.agent,
+        executionProfile: project.executionProfile || null,
         toolMode: project.toolMode,
         allowedTools: [...project.allowedTools],
         fallbacks: [...project.fallbacks],
@@ -284,6 +287,7 @@ function buildDetailAgentConfig(session: UnifiedDashboardSession) {
         model: sessionFile.agentConfigSnapshot.model,
         providerProfile: sessionFile.agentConfigSnapshot.providerProfile || null,
         executionHarness: sessionFile.agentConfigSnapshot.executionHarness,
+        executionProfile: sessionFile.agentConfigSnapshot.executionProfile || null,
         toolMode: sessionFile.agentConfigSnapshot.toolMode,
         allowedTools: [...sessionFile.agentConfigSnapshot.allowedTools],
         fallbacks: [...sessionFile.agentConfigSnapshot.fallbacks],

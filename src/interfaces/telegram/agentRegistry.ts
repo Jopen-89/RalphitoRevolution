@@ -11,6 +11,7 @@ export interface AgentInfo {
   model?: string;
   providerProfile?: string;
   executionHarness?: string;
+  executionProfile?: string;
   toolMode?: string;
   allowedTools?: string[];
 }
@@ -54,7 +55,7 @@ function humanizeRole(rawRole: string) {
     .trim();
 }
 
-function parseRoleStem(stem: string, rolePath: string, provider?: string | null, model?: string | null, providerProfile?: string | null, executionHarness?: string | null, toolMode?: string | null, allowedTools?: string[] | null): AgentInfo | null {
+function parseRoleStem(stem: string, rolePath: string, provider?: string | null, model?: string | null, providerProfile?: string | null, executionHarness?: string | null, executionProfile?: string | null, toolMode?: string | null, allowedTools?: string[] | null): AgentInfo | null {
   const match = stem.match(/^(.*?)\(([^)]+)\)$/);
   if (!match) return null;
 
@@ -75,6 +76,7 @@ function parseRoleStem(stem: string, rolePath: string, provider?: string | null,
     ...(model ? { model } : {}),
     ...(providerProfile ? { providerProfile } : {}),
     ...(executionHarness ? { executionHarness } : {}),
+    ...(executionProfile ? { executionProfile } : {}),
     ...(toolMode ? { toolMode } : {}),
     ...(allowedTools ? { allowedTools } : {}),
   };
@@ -97,6 +99,7 @@ export function loadAgentRegistry(): AgentInfo[] {
         record.model,
         record.provider_profile,
         record.execution_harness,
+        record.execution_profile,
         record.tool_calling_mode || record.tool_mode,
         allowedTools,
       );

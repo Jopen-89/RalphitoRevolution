@@ -26,6 +26,7 @@ export function resolveRuntimeAgentConfig(worktreePath: string): RuntimeResolved
       model: snapshot.model || project.model || DEFAULT_MODEL_BY_PROVIDER[primaryProvider],
       ...(snapshot.providerProfile ? { providerProfile: snapshot.providerProfile } : {}),
       executionHarness: snapshot.executionHarness,
+      ...(snapshot.executionProfile ? { executionProfile: snapshot.executionProfile } : {}),
       toolMode: snapshot.toolMode,
       allowedTools: [...snapshot.allowedTools],
       fallbacks: [...snapshot.fallbacks],

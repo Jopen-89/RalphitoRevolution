@@ -39,6 +39,8 @@ test('buildCliUpdateBody parsea arrays, null y bool', () => {
   const body = buildCliUpdateBody([
     'providerProfile',
     'null',
+    'executionProfile',
+    'jopen',
     'allowedTools',
     'finish_task,git_status',
     'fallbacks',
@@ -48,6 +50,7 @@ test('buildCliUpdateBody parsea arrays, null y bool', () => {
   ]);
 
   assert.equal(body.providerProfile, null);
+  assert.equal(body.executionProfile, 'jopen');
   assert.deepEqual(body.allowedTools, ['finish_task', 'git_status']);
   assert.deepEqual(body.fallbacks, [
     { provider: 'openai', model: 'gpt-5.4' },
@@ -59,8 +62,14 @@ test('buildCliUpdateBody parsea arrays, null y bool', () => {
 test('setAgentForCli actualiza config y listAgentsForCli lo expone', async () => {
   await withTempDb(() => {
     const result = setAgentForCli('poncho', [
+      'primaryProvider',
+      'openai',
+      'model',
+      'gpt-5.4',
       'executionHarness',
       'codex',
+      'executionProfile',
+      'jopen',
       'toolMode',
       'allowed',
       'allowedTools',
@@ -69,7 +78,10 @@ test('setAgentForCli actualiza config y listAgentsForCli lo expone', async () =>
 
     assert.equal(result.success, true);
     assert.equal(result.appliesTo, 'new_sessions_only');
+    assert.equal(result.agent.primaryProvider, 'openai');
+    assert.equal(result.agent.model, 'gpt-5.4');
     assert.equal(result.agent.executionHarness, 'codex');
+    assert.equal(result.agent.executionProfile, 'jopen');
     assert.equal(result.agent.toolMode, 'allowed');
     assert.deepEqual(result.agent.allowedTools, ['finish_task']);
 
@@ -77,5 +89,6 @@ test('setAgentForCli actualiza config y listAgentsForCli lo expone', async () =>
     const poncho = listed.find((agent) => agent.agentId === 'poncho');
     assert.ok(poncho);
     assert.equal(poncho?.executionHarness, 'codex');
+    assert.equal(poncho?.executionProfile, 'jopen');
   });
 });
