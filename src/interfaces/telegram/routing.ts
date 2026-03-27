@@ -4,7 +4,7 @@ export const ACTIVE_AGENT_WINDOW_MS = 15 * 60 * 1000;
 
 export type TelegramRoutingDecision = {
   agent: AgentInfo;
-  reason: 'reply' | 'active-agent' | 'raymon-entry' | 'explicit-raymon';
+  reason: 'reply' | 'active-agent' | 'raymon-entry' | 'explicit-raymon' | 'specialist-handback';
 };
 
 type ResolveTelegramRoutingInput = {
@@ -14,6 +14,20 @@ type ResolveTelegramRoutingInput = {
   activeAgentId?: string | null | undefined;
 };
 
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildExplicitRaymonPattern(raymon: AgentInfo) {
+  const aliases = [raymon.id, ...(raymon.aliases || [])]
+    .map((alias) => alias.trim())
+    .filter(Boolean)
+    .map(escapeRegex)
+    .join('|');
+
+  return new RegExp(`^(?:${aliases})(?:\\b|\\s*[:,?!])`, 'i');
+}
+
 export function resolveTelegramRouting(input: ResolveTelegramRoutingInput): TelegramRoutingDecision | null {
   const normalizedText = input.text.trim();
   if (!normalizedText) return null;
@@ -21,11 +35,7 @@ export function resolveTelegramRouting(input: ResolveTelegramRoutingInput): Tele
   const raymon = getAgentById(input.agents, 'raymon');
   if (!raymon) return null;
 
-  const explicitRaymonPattern = new RegExp(`^(?:${[raymon.id, ...(raymon.aliases || [])]
-    .map((alias) => alias.trim())
-    .filter(Boolean)
-    .map((alias) => alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|')})(?:\b|\s*[:,])`, 'i');
+  const explicitRaymonPattern = buildExplicitRaymonPattern(raymon);
   if (explicitRaymonPattern.test(normalizedText)) {
     return { agent: raymon, reason: 'explicit-raymon' };
   }
@@ -37,6 +47,9 @@ export function resolveTelegramRouting(input: ResolveTelegramRoutingInput): Tele
 
   const activeAgent = input.activeAgentId ? getAgentById(input.agents, input.activeAgentId) : null;
   if (activeAgent) {
+    if (activeAgent.id !== raymon.id) {
+      return { agent: raymon, reason: 'specialist-handback' };
+    }
     return { agent: activeAgent, reason: 'active-agent' };
   }
 

@@ -4,6 +4,7 @@ import { createGitToolDefinitions, createGitTools } from './git/gitTools.js';
 import { createRaymonToolDefinitions, createRaymonTools, isRaymonToolName } from './raymonTools.js';
 import { createSystemToolDefinitions, createSystemTools } from './filesystem/systemTools.js';
 import { createResearchToolDefinitions, createResearchTools } from './research/researchTools.js';
+import { createReviewToolDefinitions, createReviewTools } from './reviewTools.js';
 import type { Tool } from './toolRegistry.js';
 
 interface ToolCatalogContext {
@@ -20,6 +21,7 @@ export function createAllToolDefinitions(): ToolDefinition[] {
     ...createGitToolDefinitions(),
     ...createSystemToolDefinitions(),
     ...createResearchToolDefinitions(),
+    ...createReviewToolDefinitions(),
   ];
 }
 
@@ -30,6 +32,7 @@ export function createAllToolImplementations(context: ToolCatalogContext = {}): 
     ...createGitTools(context.worktreePath),
     ...createSystemTools(context.worktreePath),
     ...createResearchTools(),
+    ...createReviewTools(context),
   ];
 }
 

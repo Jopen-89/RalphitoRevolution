@@ -430,6 +430,7 @@ app.post('/v1/chat', async (req, res) => {
           allowedToolDefinitions,
           allTools,
           llmProvider,
+          worktreePath ? { worktreePath } : {},
         );
 
         const handoffAgentId = extractHandoffAgentId(toolCalls, toolResults);
