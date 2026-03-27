@@ -19,6 +19,7 @@ import { getRuntimeSessionRepository, resetRuntimeSessionRepository } from './ru
 import { resumeRuntimeSession } from './resume.js';
 import {
   clearRuntimeExitCode,
+  getRuntimeBeadSnapshotFilePath,
   getRuntimeExitCodeFilePath,
   writeRuntimeFailureRecord,
   writeRuntimeSessionFile,
@@ -1396,6 +1397,12 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
     const runtimeSessionId = 'be-resume-dead';
     const worktreePath = runtimeWorktreePath(worktreeRoot, runtimeSessionId);
     mkdirSync(worktreePath, { recursive: true });
+    const beadSnapshotPath = getRuntimeBeadSnapshotFilePath(worktreePath);
+    writeFileSync(
+      beadSnapshotPath,
+      ['# Resume bead', '', '## Scope', '- keep snapshot', '', '## VERIFICATION_COMMAND', '`printf ok`'].join('\n'),
+      'utf8',
+    );
 
     writeRuntimeSessionFile(worktreePath, {
       runtimeSessionId,
@@ -1411,6 +1418,7 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
       pid: 456,
       prompt: 'hola',
       beadPath: null,
+      beadSnapshotPath,
       workItemKey: null,
       beadSpecHash: null,
       beadSpecVersion: null,
@@ -1501,6 +1509,8 @@ test('resumeRuntimeSession relanza sesion muerta y reinyecta fallo estructurado'
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /Resumen corto: Fallo tsc/);
     assert.doesNotMatch(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /Motivo verificacion:/);
     assert.match(createdSessions[0]?.env.RALPHITO_INSTRUCTION || '', /src\/a\.ts:1 error TS1005/);
+    assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /## BEAD IMPLEMENTATION TASK/);
+    assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /# Resume bead/);
     assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /Validation Playbook/);
     assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /use `git_commit`/);
     assert.match(createdSessions[0]?.env.RALPHITO_SYSTEM_PROMPT || '', /finish_task/);

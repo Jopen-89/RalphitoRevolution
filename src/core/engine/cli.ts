@@ -6,7 +6,6 @@ import {
   type RuntimeLockConflict,
 } from './runtimeLockRepository.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
-import { RuntimeReaper } from './runtimeReaper.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
 import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
 import { SessionSupervisor } from '../services/SessionManager.js';
@@ -25,6 +24,7 @@ import {
 } from '../services/EventBus.js';
 import { EngineNotificationDispatcher } from '../../interfaces/telegram/engineNotificationDispatcher.js';
 import type { Provider } from '../domain/gateway.types.js';
+import { RuntimeSessionLifecycleService } from '../services/RuntimeSessionLifecycleService.js';
 
 function printJson(payload: unknown) {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
@@ -253,15 +253,9 @@ async function main() {
     }
 
     case 'reap-stale': {
-      const reaper = new RuntimeReaper(
-        getRuntimeSessionRepository(),
-        lockRepository,
-        new WorktreeManager(),
-      );
-
       printJson({
         status: 'ok',
-        ...(await reaper.reap()),
+        ...(await new RuntimeSessionLifecycleService().reapStaleSessions()),
       });
       return;
     }
@@ -348,6 +342,15 @@ async function main() {
       const finishStatus = args[1] as 'done' | 'cancelled' | undefined;
       if (!runtimeSessionId) {
         throw new Error('Uso: cli.ts finish-session <runtime_session_id> [done|cancelled]');
+      }
+
+      if (finishStatus === 'cancelled') {
+        const result = await new RuntimeSessionLifecycleService().cancel({
+          runtimeSessionId,
+          reason: 'Sesión cancelada por CLI finish-session',
+        });
+        printJson({ status: 'ok', ...result });
+        return;
       }
 
       const session = sessionRepository.finish({

@@ -1,4 +1,4 @@
-import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult, IToolCallingProvider, ToolDefinition, ToolCall } from '../../core/domain/gateway.types.js';
+import type { IVisionProvider, Provider, Message, QuotaInfo, VisionResult, IToolCallingProvider, ToolDefinition, ToolCall, ToolCallingOptions } from '../../core/domain/gateway.types.js';
 
 type AnthropicMessage = {
   role: 'user' | 'assistant';
@@ -41,7 +41,11 @@ export class OpencodeProvider implements IVisionProvider, IToolCallingProvider {
     return result.text;
   }
 
-  async generateResponseWithTools(messages: Message[], tools: ToolDefinition[]): Promise<{ text: string; toolCalls: ToolCall[] }> {
+  async generateResponseWithTools(
+    messages: Message[],
+    tools: ToolDefinition[],
+    options: ToolCallingOptions = {},
+  ): Promise<{ text: string; toolCalls: ToolCall[] }> {
     console.log(`[OpencodeProvider] Enrutando petición a ${this.model} con ${tools.length} tools...`);
 
     const { systemPrompt, conversation } = this.toAnthropicPayload(messages);
@@ -56,8 +60,11 @@ export class OpencodeProvider implements IVisionProvider, IToolCallingProvider {
 
       if (systemPrompt) payload.system = systemPrompt;
       if (anthropicTools.length > 0) {
+        const forcedToolName = options.requiredToolNames?.length === 1 ? options.requiredToolNames[0] : null;
         payload.tools = anthropicTools;
-        payload.tool_choice = { type: 'auto' };
+        payload.tool_choice = forcedToolName
+          ? { type: 'tool', name: forcedToolName }
+          : { type: 'auto' };
       }
 
       const response = await fetch(`${this.baseUrl}/v1/messages`, {

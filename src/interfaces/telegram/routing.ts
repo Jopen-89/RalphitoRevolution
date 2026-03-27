@@ -4,7 +4,7 @@ export const ACTIVE_AGENT_WINDOW_MS = 15 * 60 * 1000;
 
 export type TelegramRoutingDecision = {
   agent: AgentInfo;
-  reason: 'reply' | 'active-agent' | 'raymon-entry' | 'explicit-raymon' | 'specialist-handback';
+  reason: 'reply' | 'active-agent' | 'raymon-entry' | 'explicit-raymon';
 };
 
 type ResolveTelegramRoutingInput = {
@@ -47,9 +47,6 @@ export function resolveTelegramRouting(input: ResolveTelegramRoutingInput): Tele
 
   const activeAgent = input.activeAgentId ? getAgentById(input.agents, input.activeAgentId) : null;
   if (activeAgent) {
-    if (activeAgent.id !== raymon.id) {
-      return { agent: raymon, reason: 'specialist-handback' };
-    }
     return { agent: activeAgent, reason: 'active-agent' };
   }
 

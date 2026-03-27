@@ -1,4 +1,4 @@
-import path from 'path';
+import { readFileSync } from 'fs';
 import { CommandRunner } from '../../infrastructure/runtime/commandRunner.js';
 import { ProjectService } from '../services/ProjectService.js';
 import { buildEnginePrompt } from './promptBuilder.js';
@@ -6,6 +6,7 @@ import {
   clearRuntimeExitCode,
   clearRuntimeFailureRecord,
   readRuntimeFailureRecord,
+  resolveRuntimeBeadPath,
   readRuntimeSessionFile,
   updateRuntimeSessionFile,
 } from './runtimeFiles.js';
@@ -43,11 +44,6 @@ function buildResumedTaskPrompt(originalPrompt: string, resumePrompt: string | n
   return `${originalPrompt}\n\n## Resume Context\n${resumePrompt}`;
 }
 
-function resolveBeadPath(repoRoot: string, beadPath: string | null) {
-  if (!beadPath) return null;
-  return path.isAbsolute(beadPath) ? beadPath : path.join(repoRoot, beadPath);
-}
-
 export async function resumeRuntimeSession(
   runtimeSessionId: string,
   tmuxRuntime = new TmuxRuntime(),
@@ -74,7 +70,11 @@ export async function resumeRuntimeSession(
     }
 
     const project = ProjectService.resolve(sessionFile.projectId);
-    const beadPath = resolveBeadPath(project.path, sessionFile.beadPath);
+    const beadPath = resolveRuntimeBeadPath(sessionFile, {
+      repoRoot: project.path,
+      worktreePath: session.worktreePath,
+    });
+    const beadContent = beadPath ? readFileSync(beadPath, 'utf8').trim() : undefined;
 
     if (beadPath) {
       getRuntimeLockRepository().acquireForSession({
@@ -89,6 +89,7 @@ export async function resumeRuntimeSession(
       project,
       buildResumedTaskPrompt(sessionFile.prompt, resumePrompt),
       sessionFile.branchName,
+      beadContent,
     );
 
     await tmuxRuntime.createSession(

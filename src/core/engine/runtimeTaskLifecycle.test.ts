@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import {
@@ -13,7 +13,7 @@ import { SessionLoop } from './sessionLoop.js';
 import { getRuntimeLockRepository, resetRuntimeLockRepository } from './runtimeLockRepository.js';
 import { SessionSupervisor } from '../services/SessionManager.js';
 import { getRuntimeSessionRepository, resetRuntimeSessionRepository } from './runtimeSessionRepository.js';
-import { writeRuntimeSessionFile } from './runtimeFiles.js';
+import { readRuntimeSessionFile, writeRuntimeSessionFile } from './runtimeFiles.js';
 
 function createTempDirectory(prefix: string) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -182,6 +182,14 @@ test('SessionSupervisor liga task existente al spawn por beadPath', async () => 
     assert.equal(task.status, 'in_progress');
     assert.equal(task.assignedAgent, 'backend-team');
     assert.equal(task.runtimeSessionId, result.runtimeSessionId);
+    const sessionFile = readRuntimeSessionFile(worktreePath);
+    assert.ok(sessionFile?.beadSnapshotPath);
+    assert.match(sessionFile?.beadSpecHash || '', /^[a-f0-9]{64}$/);
+    assert.match(sessionFile?.beadSpecVersion || '', /^sha256:/);
+    assert.equal(
+      readFileSync(sessionFile?.beadSnapshotPath || '', 'utf8'),
+      readFileSync(beadPath, 'utf8'),
+    );
 
     rmSync(worktreePath, { force: true, recursive: true });
   });

@@ -233,8 +233,6 @@ bot.on('text', async (ctx) => {
             console.log(`👉 Enrutando mensaje a Raymon como puerta de entrada: "${text}"`);
         } else if (routingDecision.reason === 'explicit-raymon') {
             console.log(`🎯 Enrutando por mención explícita a Raymon`);
-        } else if (routingDecision.reason === 'specialist-handback') {
-            console.log(`↩️ Devolviendo control a Raymon desde especialista activo: ${resolveRecentActiveAgent(chatId)}`);
         } else if (routingDecision.reason === 'active-agent') {
             console.log(`↪️ Enrutando por agente activo reciente: ${routingDecision.agent.id}`);
         } else {

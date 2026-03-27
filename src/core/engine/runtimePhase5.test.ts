@@ -209,3 +209,29 @@ test('formatEngineNotificationMessage cubre suspended_human_input', () => {
   assert.match(message, /credential_required/i);
   assert.match(message, /Paste token:/);
 });
+
+test('formatEngineNotificationMessage cubre session.cancelled', () => {
+  const message = formatEngineNotificationMessage({
+    eventId: 'evt-2',
+    runtimeSessionId: 'rt-2',
+    eventType: 'session.cancelled',
+    payload: {
+      projectId: 'backend-team',
+      branchName: 'jopen/rt-2',
+      beadPath: 'docs/specs/projects/runtime/bead-cancel.md',
+      workItemKey: 'task-cancel',
+      reason: 'Sesión cancelada por Raymon via cancel_session',
+    },
+    targetChatId: 'chat-2',
+    status: 'pending',
+    attemptCount: 0,
+    nextAttemptAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    deliveredAt: null,
+    errorMessage: null,
+  });
+
+  assert.match(message, /sesion cancelada/i);
+  assert.match(message, /task-cancel/);
+  assert.match(message, /cancel_session/);
+});

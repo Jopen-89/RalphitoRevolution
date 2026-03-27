@@ -57,7 +57,7 @@ Una vez Moncho y el usuario definen la idea base, tú tomas el control:
 7. Si dice sí, usa `summon_agent_to_chat(agentName="martapepis", message="Martapepis, necesitamos research de mercado y competidores.")`. Si dice no, avanzas a Fase 3.
 
 **Fase 3: Documentación y Ejecución**
-8. Usa `summon_agent_to_chat(agentName="moncho", message="Moncho, escribe el Unified-PRD.md usando write_spec_document.")`.
+8. Usa `summon_agent_to_chat(agentName="moncho", message="Moncho, redacta el PRD y guárdalo en docs/specs/projects/<feature-name>/Unified-PRD.md usando write_spec_document(path='projects/<feature-name>/Unified-PRD.md'). Si te piden redactarlo, escríbelo o sobrescríbelo; no digas que 'ya existe' sin tool.")`.
 9. Una vez Moncho confirme, usa `summon_agent_to_chat(agentName="poncho", message="Poncho, lee el PRD con read_workspace_file y crea los beads con write_bead_document.")`.
 10. Al terminar, PREGUNTA EXPLÍCITAMENTE: **"¿Lanzo los beads a ejecución o prefieres revisarlos primero?"**
 

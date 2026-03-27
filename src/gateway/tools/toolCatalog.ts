@@ -28,7 +28,8 @@ export function createAllToolDefinitions(): ToolDefinition[] {
 export function createAllToolImplementations(context: ToolCatalogContext = {}): Tool[] {
   return [
     ...createRaymonTools(context),
-    ...createDocumentTools(context.worktreePath),
+    // Design docs live in the canonical repo root, never inside ephemeral worktrees.
+    ...createDocumentTools(),
     ...createGitTools(context.worktreePath),
     ...createSystemTools(context.worktreePath),
     ...createResearchTools(),

@@ -63,6 +63,41 @@ test('GeminiProvider incluye toolConfig AUTO cuando hay tools', async () => {
   }
 });
 
+test('GeminiProvider fuerza function tool cuando una tool es obligatoria', async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | undefined;
+
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return createJsonResponse({
+      candidates: [{ content: { parts: [{ text: 'ok' }] } }],
+    });
+  }) as typeof fetch;
+
+  try {
+    const authClient = {
+      getAccessToken: async () => ({ token: 'test-token' }),
+    } as unknown as OAuth2Client;
+    const provider = new GeminiProvider(authClient, 'gemini-3.1-pro-preview');
+
+    await provider.generateResponseWithTools(
+      [{ role: 'user', content: 'guarda el prd' }],
+      TEST_TOOLS,
+      { requiredToolNames: ['execute_bash'] },
+    );
+
+    assert.ok(requestBody);
+    assert.deepEqual(requestBody.toolConfig, {
+      functionCallingConfig: {
+        mode: 'ANY',
+        allowedFunctionNames: ['execute_bash'],
+      },
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('GeminiProvider reinyecta functionResponse estructurado para tool results', async () => {
   const originalFetch = globalThis.fetch;
   let requestBody: Record<string, unknown> | undefined;
@@ -147,6 +182,42 @@ test('OpencodeProvider incluye tool_choice auto cuando hay tools', async () => {
     assert.ok(requestBody);
     assert.deepEqual(requestBody.tool_choice, {
       type: 'auto',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousBaseUrl === undefined) {
+      delete process.env.MINIMAX_BASE_URL;
+    } else {
+      process.env.MINIMAX_BASE_URL = previousBaseUrl;
+    }
+  }
+});
+
+test('OpencodeProvider fuerza la tool requerida cuando existe una obligatoria', async () => {
+  const originalFetch = globalThis.fetch;
+  const previousBaseUrl = process.env.MINIMAX_BASE_URL;
+  let requestBody: Record<string, unknown> | undefined;
+
+  process.env.MINIMAX_BASE_URL = 'https://minimax.test';
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return createJsonResponse({
+      content: [{ type: 'text', text: 'ok' }],
+    });
+  }) as typeof fetch;
+
+  try {
+    const provider = new OpencodeProvider('test-key', 'minimax-m2.7');
+    await provider.generateResponseWithTools(
+      [{ role: 'user', content: 'guarda el prd' }],
+      TEST_TOOLS,
+      { requiredToolNames: ['execute_bash'] },
+    );
+
+    assert.ok(requestBody);
+    assert.deepEqual(requestBody.tool_choice, {
+      type: 'tool',
+      name: 'execute_bash',
     });
   } finally {
     globalThis.fetch = originalFetch;

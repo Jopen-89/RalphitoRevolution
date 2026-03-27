@@ -7,6 +7,7 @@ import type {
   QuotaInfo,
   ToolDefinition,
   ToolCall,
+  ToolCallingOptions,
   VisionResult,
 } from '../../core/domain/gateway.types.js';
 
@@ -75,6 +76,7 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
   async generateResponseWithTools(
     messages: Message[],
     tools: ToolDefinition[],
+    options: ToolCallingOptions = {},
   ): Promise<{ text: string; toolCalls: ToolCall[] }> {
     console.log(`[GeminiProvider] generateResponseWithTools a ${this.model} con ${tools.length} tools...`);
 
@@ -160,9 +162,11 @@ export class GeminiProvider implements IVisionProvider, IToolCallingProvider {
     };
 
     if (functionDeclarations.length > 0) {
+      const forcedToolName = options.requiredToolNames?.length === 1 ? options.requiredToolNames[0] : null;
       requestBody.toolConfig = {
         functionCallingConfig: {
-          mode: 'AUTO',
+          mode: forcedToolName ? 'ANY' : 'AUTO',
+          ...(forcedToolName ? { allowedFunctionNames: [forcedToolName] } : {}),
         },
       };
     }
