@@ -43,7 +43,7 @@ export interface SessionLoopContext {
 }
 
 export interface SessionLoopResult {
-  terminalStatus: 'done' | 'failed' | 'stuck';
+  terminalStatus: 'done' | 'failed' | 'stuck' | 'cancelled';
   reason: string;
 }
 
@@ -272,6 +272,22 @@ export class SessionLoop {
       status,
       ...(failureReason ? { failureReason } : {}),
     });
+  }
+
+  private async finalizeCancelledSession(
+    input: SessionLoopContext,
+    session: RuntimeSessionRecord,
+    alive: boolean,
+  ) {
+    this.syncTaskStatus(session, 'cancelled');
+    if (alive) {
+      await this.tmuxRuntime.killSession(input.runtimeSessionId);
+    }
+    await this.cleanupTerminalSession(input.runtimeSessionId, session.worktreePath, true);
+    return {
+      terminalStatus: 'cancelled',
+      reason: 'cancelled',
+    } satisfies SessionLoopResult;
   }
 
   private async finalizeDoneSession(
@@ -550,6 +566,11 @@ export class SessionLoop {
           nowIso,
           alive,
         );
+      }
+
+      if (refreshedSession.status === 'cancelled') {
+        console.log(`[SessionLoop:${input.runtimeSessionId}] Session marked cancelled, stopping runtime`);
+        return this.finalizeCancelledSession(input, refreshedSession, alive);
       }
 
       if (refreshedSession.status === 'running' && processExitCode === 0 && alive) {

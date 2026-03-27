@@ -7,6 +7,7 @@ import type { IToolCallingProvider } from '../../core/domain/gateway.types.js';
 import type { Tool } from './toolRegistry.js';
 import { traceOutput } from '../../core/services/outputTrace.js';
 import { RUNTIME_SESSION_FILE_NAME } from '../../core/domain/constants.js';
+import { resolveRuntimeBeadPath } from '../../core/engine/runtimeFiles.js';
 
 export interface ToolCallingLoopResult {
   text: string;
@@ -16,9 +17,11 @@ export interface ToolCallingLoopResult {
 
 export interface ToolCallingLoopContext {
   worktreePath?: string;
+  requiredToolNames?: string[];
 }
 
 export const MAX_CONSECUTIVE_IDENTICAL_TOOL_ITERATIONS = 2;
+export const MAX_REQUIRED_TOOL_REMINDERS = 1;
 
 function isBlankText(value: string | undefined) {
   return !value || !value.trim();
@@ -59,6 +62,21 @@ function buildToolErrorPayload(message: string): ToolResultPayload {
   };
 }
 
+function findMissingRequiredToolNames(requiredToolNames: string[], toolCalls: ToolCall[]) {
+  if (requiredToolNames.length === 0) return [];
+
+  const calledTools = new Set(toolCalls.map((call) => call.name));
+  return requiredToolNames.filter((toolName) => !calledTools.has(toolName));
+}
+
+function buildRequiredToolReminder(requiredToolNames: string[]) {
+  return [
+    `Debes llamar ahora la tool obligatoria: ${requiredToolNames.join(', ')}.`,
+    'No respondas con texto final hasta ejecutar la tool.',
+    'Si falta contenido, redactalo y guardalo con la tool.',
+  ].join(' ');
+}
+
 function extractVerificationCommandFromBead(beadContent: string): string {
   const match = beadContent.match(/## VERIFICATION_COMMAND\s*\n`([^`]+)`/);
   const explicitCommand = match?.[1]?.trim();
@@ -79,22 +97,32 @@ function runVerificationFromWorktree(worktreePath: string): VerificationResult {
   }
 
   let beadPath: string | null = null;
+  let beadSnapshotPath: string | null = null;
   try {
     const sessionData = JSON.parse(readFileSync(sessionFilePath, 'utf8'));
     beadPath = sessionData.beadPath;
+    beadSnapshotPath = sessionData.beadSnapshotPath || null;
   } catch {
     return { content: `Error: Failed to read or parse runtime session file`, ok: false };
   }
 
-  if (!beadPath) {
+  const beadFilePath = resolveRuntimeBeadPath(
+    {
+      beadPath,
+      beadSnapshotPath,
+    },
+    { worktreePath },
+  );
+
+  if (!beadFilePath) {
     return { content: 'Error: No beadPath in runtime session file', ok: false };
   }
 
-  if (!existsSync(beadPath)) {
-    return { content: `Error: Bead file not found: ${beadPath}`, ok: false };
+  if (!existsSync(beadFilePath)) {
+    return { content: `Error: Bead file not found: ${beadFilePath}`, ok: false };
   }
 
-  const beadContent = readFileSync(beadPath, 'utf8');
+  const beadContent = readFileSync(beadFilePath, 'utf8');
   const verificationCommand = extractVerificationCommandFromBead(beadContent);
 
   console.log(`[submit_for_review] Running verification: ${verificationCommand} in ${worktreePath}`);
@@ -127,12 +155,38 @@ export async function executeToolCallLoop(
   const allToolResults: ToolResult[] = [];
   let previousIterationSignature: string | null = null;
   let consecutiveIdenticalToolIterations = 0;
+  let requiredToolReminderCount = 0;
 
   for (let i = 0; i < maxIterations; i++) {
-    const { text, toolCalls: calls } = await provider.generateResponseWithTools(messages, toolDefinitions);
+    const { text, toolCalls: calls } = await provider.generateResponseWithTools(
+      messages,
+      toolDefinitions,
+      context.requiredToolNames ? { requiredToolNames: context.requiredToolNames } : {},
+    );
     console.log(`[executeToolCallLoop] Iteration ${i + 1}: LLM returned ${calls?.length || 0} calls`);
 
     if (!calls || calls.length === 0) {
+      const missingRequiredToolNames = findMissingRequiredToolNames(context.requiredToolNames || [], allToolCalls);
+      if (missingRequiredToolNames.length > 0) {
+        if (requiredToolReminderCount >= MAX_REQUIRED_TOOL_REMINDERS) {
+          throw new Error(`Required tool call missing: ${missingRequiredToolNames.join(', ')}`);
+        }
+
+        if (!isBlankText(text)) {
+          messages.push({
+            role: 'assistant',
+            content: text,
+          });
+        }
+
+        messages.push({
+          role: 'user',
+          content: buildRequiredToolReminder(missingRequiredToolNames),
+        });
+        requiredToolReminderCount += 1;
+        continue;
+      }
+
       if (isBlankText(text)) {
         throw new Error(`Provider ${provider.name} returned empty response without tool calls.`);
       }
@@ -144,6 +198,8 @@ export async function executeToolCallLoop(
       });
       return { text, toolCalls: allToolCalls, toolResults: allToolResults };
     }
+
+    requiredToolReminderCount = 0;
 
     for (const call of calls) {
       console.log(`[executeToolCallLoop] Iteration ${i + 1}: Calling ${call.name}(${JSON.stringify(call.arguments)})`);

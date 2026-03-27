@@ -52,6 +52,18 @@ test('routea a agente activo reciente cuando el activo es Raymon', () => {
   assert.equal(decision.reason, 'active-agent');
 });
 
+test('mantiene sticky al especialista activo', () => {
+  const decision = resolveTelegramRouting({
+    agents: AGENTS,
+    text: 'seguimos',
+    activeAgentId: 'poncho',
+  });
+
+  assert.ok(decision);
+  assert.equal(decision.agent.id, 'poncho');
+  assert.equal(decision.reason, 'active-agent');
+});
+
 test('mencion explicita a Raymon rompe el agente activo y vuelve a Raymon', () => {
   const decision = resolveTelegramRouting({
     agents: AGENTS,
@@ -97,18 +109,6 @@ test('vuelve a Raymon cuando no hay reply ni agente activo', () => {
   assert.ok(decision);
   assert.equal(decision.agent.id, 'raymon');
   assert.equal(decision.reason, 'raymon-entry');
-});
-
-test('devuelve control a Raymon cuando el activo reciente es especialista y no hay reply', () => {
-  const decision = resolveTelegramRouting({
-    agents: AGENTS,
-    text: 'seguimos',
-    activeAgentId: 'poncho',
-  });
-
-  assert.ok(decision);
-  assert.equal(decision.agent.id, 'raymon');
-  assert.equal(decision.reason, 'specialist-handback');
 });
 
 test('mencion libre a especialista no hace bypass y entra por Raymon', () => {

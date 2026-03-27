@@ -106,6 +106,7 @@ export {
   type EngineNotificationPayloadMap,
   type EngineNotificationRecord,
   type EngineNotificationStatus,
+  type SessionCancelledNotificationPayload,
   type EnqueueEngineNotificationInput,
   type MarkEngineNotificationFailedInput,
   type SessionGuardrailFailedNotificationPayload,

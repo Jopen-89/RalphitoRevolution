@@ -47,6 +47,10 @@ export interface ToolResult {
   payload?: ToolResultPayload;
 }
 
+export interface ToolCallingOptions {
+  requiredToolNames?: string[];
+}
+
 export interface ToolMessage {
   role: 'tool';
   toolCallId: string;
@@ -154,5 +158,6 @@ export interface IToolCallingProvider extends ILLMProvider {
   generateResponseWithTools(
     messages: Message[],
     tools: ToolDefinition[],
+    options?: ToolCallingOptions,
   ): Promise<{ text: string; toolCalls: ToolCall[] }>;
 }

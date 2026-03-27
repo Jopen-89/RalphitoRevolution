@@ -1,7 +1,9 @@
+import { createHash } from 'crypto';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import path from 'path';
 import type { Provider } from '../domain/gateway.types.js';
 import {
+  RUNTIME_BEAD_SNAPSHOT_FILE_NAME,
   RUNTIME_EXIT_CODE_FILE_NAME,
   RUNTIME_FAILURE_FILE_NAME,
   RUNTIME_GUARDRAIL_LOG_NAME,
@@ -25,6 +27,7 @@ export interface RuntimeSessionFileRecord {
   pid: number | null;
   prompt: string;
   beadPath: string | null;
+  beadSnapshotPath?: string | null;
   workItemKey: string | null;
   beadSpecHash: string | null;
   beadSpecVersion: string | null;
@@ -49,8 +52,19 @@ export interface RuntimeFailureRecord {
   updatedAt: string;
 }
 
+export interface FrozenRuntimeBeadSpec {
+  content: string;
+  hash: string;
+  version: string;
+  snapshotPath: string;
+}
+
 export function getRuntimeSessionFilePath(worktreePath: string) {
   return path.join(worktreePath, RUNTIME_SESSION_FILE_NAME);
+}
+
+export function getRuntimeBeadSnapshotFilePath(worktreePath: string) {
+  return path.join(worktreePath, RUNTIME_BEAD_SNAPSHOT_FILE_NAME);
 }
 
 export function getRuntimeFailureFilePath(worktreePath: string) {
@@ -63,6 +77,55 @@ export function getRuntimeExitCodeFilePath(worktreePath: string) {
 
 export function getGuardrailLogPath(worktreePath: string) {
   return path.join(worktreePath, RUNTIME_GUARDRAIL_LOG_NAME);
+}
+
+export function buildRuntimeBeadSpecVersion(hash: string) {
+  return `sha256:${hash.slice(0, 12)}`;
+}
+
+export function freezeRuntimeBeadSpec(beadPath: string, worktreePath: string): FrozenRuntimeBeadSpec {
+  const content = readFileSync(beadPath, 'utf8');
+  const hash = createHash('sha256').update(content).digest('hex');
+  const version = buildRuntimeBeadSpecVersion(hash);
+  const snapshotPath = getRuntimeBeadSnapshotFilePath(worktreePath);
+  writeFileSync(snapshotPath, content, 'utf8');
+
+  return {
+    content,
+    hash,
+    version,
+    snapshotPath,
+  };
+}
+
+export function resolveRuntimeBeadPath(
+  input: Pick<RuntimeSessionFileRecord, 'beadPath' | 'beadSnapshotPath'>,
+  options: { repoRoot?: string; worktreePath?: string } = {},
+) {
+  const snapshotPath = input.beadSnapshotPath?.trim();
+  if (snapshotPath) {
+    const resolvedSnapshotPath = path.resolve(snapshotPath);
+    if (existsSync(resolvedSnapshotPath)) {
+      return resolvedSnapshotPath;
+    }
+  }
+
+  const beadPath = input.beadPath?.trim();
+  if (!beadPath) return null;
+  if (path.isAbsolute(beadPath)) return path.resolve(beadPath);
+
+  if (options.worktreePath) {
+    const worktreeCandidate = path.resolve(options.worktreePath, beadPath);
+    if (existsSync(worktreeCandidate)) {
+      return worktreeCandidate;
+    }
+  }
+
+  if (options.repoRoot) {
+    return path.resolve(options.repoRoot, beadPath);
+  }
+
+  return path.resolve(beadPath);
 }
 
 export function getManagedRuntimeWorktreePath(runtimeSessionId: string, projectId = 'default') {

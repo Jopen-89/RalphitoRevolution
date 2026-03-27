@@ -194,6 +194,7 @@ export function createDocumentTools(workspaceRoot?: string): Tool[] {
 
         const fullPath = sanitizePath(activeSpecsPrefix, relativePath);
         const dir = path.dirname(fullPath);
+        const existedBeforeWrite = fs.existsSync(fullPath);
 
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
@@ -209,8 +210,10 @@ export function createDocumentTools(workspaceRoot?: string): Tool[] {
 
         return {
           filePath: fullPath,
+          repoRelativePath: stageableRelativePath(activeRoot, fullPath),
           workspaceRoot: activeRoot,
           bytesWritten: Buffer.byteLength(content),
+          replacedExisting: existedBeforeWrite,
           success: true,
         };
       },

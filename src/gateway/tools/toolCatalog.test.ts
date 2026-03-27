@@ -11,7 +11,7 @@ import {
   resetRalphitoRepositories,
 } from '../../infrastructure/persistence/db/index.js';
 import { createDocumentTools } from './documentTools.js';
-import { createAllToolDefinitions, resolveAllowedToolDefinitions } from './toolCatalog.js';
+import { createAllToolDefinitions, createAllToolImplementations, resolveAllowedToolDefinitions } from './toolCatalog.js';
 
 function createTempDirectory(prefix: string) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -175,7 +175,7 @@ test('document write tools mutate docs/specs desde repo root sin runtime worktre
     const specWrite = await writeSpec.execute({
       path: 'projects/system/spec.md',
       content: '# Spec\n',
-    }) as { success: boolean; filePath: string; workspaceRoot: string };
+    }) as { success: boolean; filePath: string; repoRelativePath: string; workspaceRoot: string; replacedExisting: boolean };
     const beadWrite = await writeBead.execute({
       beadPath: 'projects/system/test.md',
       projectKey: 'system',
@@ -199,11 +199,73 @@ test('document write tools mutate docs/specs desde repo root sin runtime worktre
 
     assert.equal(specWrite.success, true);
     assert.equal(specWrite.workspaceRoot, repoRoot);
+    assert.equal(specWrite.repoRelativePath, path.join('docs', 'specs', 'projects', 'system', 'spec.md'));
+    assert.equal(specWrite.replacedExisting, false);
     assert.ok(existsSync(specWrite.filePath));
     assert.equal(beadWrite.success, true);
     assert.ok(existsSync(beadWrite.filePath));
     assert.equal(designResult.success, true);
     assert.equal(designResult.createdCount, 1);
+  });
+});
+
+test('write_spec_document reporta repoRelativePath y overwrite real', async () => {
+  await withTempDb(async () => {
+    const repoRoot = process.env.RALPHITO_REPO_ROOT;
+    assert.ok(repoRoot);
+
+    const tool = createDocumentTools(repoRoot).find((item) => item.name === 'write_spec_document');
+    assert.ok(tool, 'write_spec_document tool missing');
+
+    const first = await tool.execute({
+      path: 'projects/test-bead-prd/Unified-PRD.md',
+      content: '# First\n',
+    }) as { repoRelativePath: string; replacedExisting: boolean; filePath: string };
+
+    const second = await tool.execute({
+      path: 'projects/test-bead-prd/Unified-PRD.md',
+      content: '# Second\n',
+    }) as { repoRelativePath: string; replacedExisting: boolean; filePath: string };
+
+    assert.equal(first.repoRelativePath, path.join('docs', 'specs', 'projects', 'test-bead-prd', 'Unified-PRD.md'));
+    assert.equal(first.replacedExisting, false);
+    assert.equal(second.repoRelativePath, path.join('docs', 'specs', 'projects', 'test-bead-prd', 'Unified-PRD.md'));
+    assert.equal(second.replacedExisting, true);
+    assert.equal(readFileSync(second.filePath, 'utf8'), '# Second\n');
+  });
+});
+
+test('document tools usan repo root aunque exista worktree runtime', async () => {
+  await withTempDb(async () => {
+    const repoRoot = process.env.RALPHITO_REPO_ROOT;
+    assert.ok(repoRoot);
+
+    const runtimeWorktree = path.join(path.dirname(repoRoot), 'runtime-worktree');
+    mkdirSync(path.join(repoRoot, 'docs', 'specs', 'product'), { recursive: true });
+    mkdirSync(path.join(runtimeWorktree, 'docs', 'specs', 'product'), { recursive: true });
+
+    writeFileSync(path.join(repoRoot, 'docs', 'specs', 'product', 'source.md'), '# Root\n', 'utf8');
+    writeFileSync(path.join(runtimeWorktree, 'docs', 'specs', 'product', 'source.md'), '# Worktree\n', 'utf8');
+
+    const tools = createAllToolImplementations({ worktreePath: runtimeWorktree });
+    const readTool = tools.find((tool) => tool.name === 'read_workspace_file');
+    const writeTool = tools.find((tool) => tool.name === 'write_spec_document');
+
+    assert.ok(readTool);
+    assert.ok(writeTool);
+
+    const readResult = await readTool.execute({
+      filePath: 'docs/specs/product/source.md',
+    }) as { content: string };
+    const writeResult = await writeTool.execute({
+      path: 'product/target.md',
+      content: '# Target\n',
+    }) as { filePath: string };
+
+    assert.equal(readResult.content, '# Root\n');
+    assert.equal(writeResult.filePath, path.join(repoRoot, 'docs', 'specs', 'product', 'target.md'));
+    assert.equal(existsSync(path.join(repoRoot, 'docs', 'specs', 'product', 'target.md')), true);
+    assert.equal(existsSync(path.join(runtimeWorktree, 'docs', 'specs', 'product', 'target.md')), false);
   });
 });
 

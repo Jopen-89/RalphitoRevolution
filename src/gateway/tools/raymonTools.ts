@@ -4,11 +4,8 @@ import { getOrchestrator } from '../../core/engine/orchestrator.js';
 import { sendTelegramMessage, getAllowedChatId } from '../../interfaces/telegram/telegramSender.js';
 import { loadAgentRegistry, resolveAgentReference } from '../../interfaces/telegram/agentRegistry.js';
 import { invokeAgentInChatThread } from '../../interfaces/telegram/agentInvocationService.js';
-import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
-import { getRuntimeSessionRepository } from '../../core/engine/runtimeSessionRepository.js';
-import { getRuntimeLockRepository } from '../../core/engine/runtimeLockRepository.js';
-import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
 import { BeadLifecycleService } from '../../core/services/BeadLifecycleService.js';
+import { RuntimeSessionLifecycleService } from '../../core/services/RuntimeSessionLifecycleService.js';
 import { normalizeBeadPriority } from '../../core/domain/bead.types.js';
 
 const VALID_PROVIDERS = new Set<Provider>(['gemini', 'openai', 'opencode', 'codex']);
@@ -55,6 +52,8 @@ export const RAYMON_TOOL_NAMES = [
 ] as const;
 
 export type RaymonToolName = (typeof RAYMON_TOOL_NAMES)[number];
+
+const CANCELLED_BY_RAYMON_SUMMARY = 'Sesión cancelada por Raymon via cancel_session';
 
 export function isRaymonToolName(name: string): name is RaymonToolName {
   return RAYMON_TOOL_NAMES.includes(name as RaymonToolName);
@@ -284,31 +283,18 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
         'Cancela y mata una sesión específica de Ralphito. Útil cuando una sesión se queda colgada o necesita detenerse manualmente.',
       execute: async (params: Record<string, unknown>) => {
         const sessionId = requireString(params.sessionId, 'sessionId');
-
-        const tmuxRuntime = new TmuxRuntime();
-        const killed = await tmuxRuntime.killSession(sessionId);
-
-        const sessionRepo = getRuntimeSessionRepository();
-        const session = sessionRepo.getByRuntimeSessionId(sessionId);
-
-        if (session) {
-          sessionRepo.fail({
-            runtimeSessionId: sessionId,
-            failureKind: 'cancelled_by_user',
-            failureSummary: 'Sesión cancelada por Raymon via cancel_session',
-          });
-
-          const lockRepo = getRuntimeLockRepository();
-          lockRepo.releaseForSession(sessionId);
-        }
+        const result = await new RuntimeSessionLifecycleService().cancel({
+          runtimeSessionId: sessionId,
+          reason: CANCELLED_BY_RAYMON_SUMMARY,
+        });
 
         return {
-          success: killed,
+          success: result.runtimeStopped,
           sessionId,
-          killed,
-          message: killed
+          killed: result.killed,
+          message: result.runtimeStopped
             ? `Sesión ${sessionId} cancelada`
-            : `No se pudo matar sesión ${sessionId} (puede que ya esté muerta)`,
+            : `No se pudo detener sesión ${sessionId}; queda cancelada y el loop la cerrará`,
         };
       },
     },
@@ -317,45 +303,20 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
       description:
         'Audita sesiones en la base de datos y marca como stuck/failed cualquier sesión que figure como running pero no tenga proceso TMUX vivo. Limpia locks y worktrees asociados.',
       execute: async () => {
-        const tmuxRuntime = new TmuxRuntime();
-        const sessionRepo = getRuntimeSessionRepository();
-        const lockRepo = getRuntimeLockRepository();
-        const worktreeManager = new WorktreeManager();
-        const nowIso = new Date().toISOString();
-
-        const sessions = sessionRepo.listActive();
-        const zombies: string[] = [];
-
-        for (const session of sessions) {
-          if (session.status !== 'running') continue;
-
-          const alive = await tmuxRuntime.isAlive(session.runtimeSessionId);
-          if (!alive) {
-            sessionRepo.markStuck({
-              runtimeSessionId: session.runtimeSessionId,
-              failureKind: 'zombie_session',
-              failureSummary: `Sesión marcada running pero tmux murió sin razón`,
-              heartbeatAt: nowIso,
-              finishedAt: nowIso,
-            });
-            lockRepo.releaseForSession(session.runtimeSessionId);
-
-            if (session.worktreePath && worktreeManager.isManagedWorkspace(session.worktreePath)) {
-              await worktreeManager.teardownWorkspacePath(session.worktreePath);
-            }
-
-            zombies.push(session.runtimeSessionId);
-          }
-        }
+        const result = await new RuntimeSessionLifecycleService().reapStaleSessions();
 
         return {
-          audited: sessions.length,
-          zombiesFound: zombies.length,
-          zombies,
+          audited: result.auditedSessions,
+          staleSessionsFound: result.staleSessions.length,
+          staleSessions: result.staleSessions,
+          releasedLocks: result.releasedLocks,
+          removedWorktrees: result.removedWorktrees,
+          killedTmuxSessions: result.killedTmuxSessions,
+          killedPids: result.killedPids,
           message:
-            zombies.length === 0
-              ? `Auditada ${sessions.length} sesiones. Sin zombies.`
-              : `Auditada ${sessions.length} sesiones. Zombies encontrados: ${zombies.join(', ')}`,
+            result.staleSessions.length === 0
+              ? `Auditada ${result.auditedSessions} sesiones. Sin stale sessions.`
+              : `Auditada ${result.auditedSessions} sesiones. Stale: ${result.staleSessions.join(', ')}`,
         };
       },
     },

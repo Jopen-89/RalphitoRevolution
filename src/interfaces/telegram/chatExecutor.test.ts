@@ -100,3 +100,47 @@ test('executeAgentTask reuses persisted worktree context in gateway requests', a
     }
   });
 });
+
+test('executeAgentTask ignora RALPHITO_WORKTREE_PATH si no hay sesion persistida', async () => {
+  await withTempDb(async ({ tmpDir }) => {
+    const rolePath = path.join(tmpDir, 'Moncho.md');
+    writeFileSync(rolePath, '# Rol\n', 'utf8');
+
+    const agent: AgentInfo = {
+      id: 'moncho',
+      name: 'Moncho',
+      role: 'Feature PM',
+      rolePath,
+      aliases: ['moncho'],
+    };
+
+    process.env.RALPHITO_WORKTREE_PATH = path.join(tmpDir, 'ambient-worktree');
+
+    let receivedHeader = 'missing';
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input, init) => {
+      receivedHeader = String((init?.headers as Record<string, string>)['x-ralphito-worktree-path'] || '');
+
+      return {
+        ok: true,
+        async json() {
+          return {
+            response: 'Listo',
+            providerUsed: 'gemini',
+            modelUsed: 'gemini-3.1-pro-preview',
+          };
+        },
+      } as Response;
+    }) as typeof fetch;
+
+    try {
+      const result = await executeAgentTask('chat-1', agent, 'Guarda el PRD');
+
+      assert.equal(result.response, 'Listo');
+      assert.equal(receivedHeader, '');
+      assert.equal(getConversationSessionContext('chat-1', 'moncho'), null);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+});

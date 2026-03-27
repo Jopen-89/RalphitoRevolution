@@ -220,8 +220,8 @@ export async function executeAgentTask(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...((sessionContext?.worktreePath || process.env.RALPHITO_WORKTREE_PATH)
-          ? { 'x-ralphito-worktree-path': sessionContext?.worktreePath || process.env.RALPHITO_WORKTREE_PATH! }
+        ...(sessionContext?.worktreePath
+          ? { 'x-ralphito-worktree-path': sessionContext.worktreePath }
           : {}),
       },
       body: JSON.stringify(requestBody)

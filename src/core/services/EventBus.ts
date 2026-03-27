@@ -13,6 +13,7 @@ type RalphitoDatabase = ReturnType<typeof getRalphitoDatabase>;
 export const ENGINE_NOTIFICATION_EVENT_TYPES = [
   'session.started',
   'session.spawn_failed',
+  'session.cancelled',
   'session.timeout',
   'session.interactive_blocked',
   'session.guardrail_failed',
@@ -37,6 +38,14 @@ export interface SessionSpawnFailedNotificationPayload {
   beadPath: string | null;
   workItemKey: string | null;
   error: string;
+}
+
+export interface SessionCancelledNotificationPayload {
+  projectId: string;
+  branchName: string | null;
+  beadPath: string | null;
+  workItemKey: string | null;
+  reason: string | null;
 }
 
 export interface SessionTimeoutNotificationPayload {
@@ -81,6 +90,7 @@ export interface SessionReapedNotificationPayload {
 export interface EngineNotificationPayloadMap {
   'session.started': SessionStartedNotificationPayload;
   'session.spawn_failed': SessionSpawnFailedNotificationPayload;
+  'session.cancelled': SessionCancelledNotificationPayload;
   'session.timeout': SessionTimeoutNotificationPayload;
   'session.interactive_blocked': SessionInteractiveBlockedNotificationPayload;
   'session.guardrail_failed': SessionGuardrailFailedNotificationPayload;

@@ -14,6 +14,7 @@ import {
 import { buildEnginePrompt } from '../engine/promptBuilder.js';
 import { enqueueEngineNotification } from './EventBus.js';
 import {
+  freezeRuntimeBeadSpec,
   updateRuntimeSessionFile,
   writeRuntimeSessionFile,
   writeRuntimeFailureRecord,
@@ -153,7 +154,8 @@ export class SessionSupervisor {
       worktreePath = provisioned.worktreePath;
       const createdAt = new Date().toISOString();
 
-      const beadContent = beadPath ? readFileSync(beadPath, 'utf8').trim() : undefined;
+      const beadSnapshot = beadPath ? freezeRuntimeBeadSpec(beadPath, worktreePath) : null;
+      const beadContent = beadSnapshot?.content.trim() || (beadPath ? readFileSync(beadPath, 'utf8').trim() : undefined);
       const enginePrompt = buildEnginePrompt(project, input.prompt, branchName, beadContent);
       const threadId = ensureRuntimeThread(runtimeSessionId);
 
@@ -172,9 +174,10 @@ export class SessionSupervisor {
         pid: null,
         prompt: input.prompt,
         beadPath: input.beadPath || null,
+        beadSnapshotPath: beadSnapshot?.snapshotPath || null,
         workItemKey: input.workItemKey || null,
-        beadSpecHash: input.beadSpecHash || null,
-        beadSpecVersion: input.beadSpecVersion || null,
+        beadSpecHash: beadSnapshot?.hash || input.beadSpecHash || null,
+        beadSpecVersion: beadSnapshot?.version || input.beadSpecVersion || null,
         qaConfig: input.qaConfig || null,
         originThreadId: input.originThreadId ?? null,
         notificationChatId: input.notificationChatId || null,
@@ -212,7 +215,7 @@ export class SessionSupervisor {
       });
 
       if (beadPath) {
-        const targets = resolveWriteScopeTargetsFromBeadFile(beadPath, project.path);
+        const targets = resolveWriteScopeTargetsFromBeadFile(beadSnapshot?.snapshotPath || beadPath, project.path);
         lockRepository.acquireForSession({
           runtimeSessionId,
           targets,

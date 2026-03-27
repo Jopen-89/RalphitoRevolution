@@ -33,6 +33,7 @@ import {
   validateProviderModel,
   validateProviderProfile,
 } from './agentConfigValidation.js';
+import { assertRequiredToolCalls, resolveRequiredToolNames } from './chatToolRequirements.js';
 import { validateManagedWorktreeHeader } from './worktreeHeaderValidation.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -378,6 +379,11 @@ app.post('/v1/chat', async (req, res) => {
 
   const { allowed: allowedToolDefinitions, unknownNames } = resolveAllowedToolDefinitions(agentConfig);
   console.log(`[Gateway] Tools permitidas para "${resolvedAgentId}":`, allowedToolDefinitions.map(d => d.name));
+  const requiredToolNames = resolveRequiredToolNames({
+    agentId: resolvedAgentId,
+    messages,
+    allowedToolNames: allowedToolDefinitions.map((definition) => definition.name),
+  });
   const useToolCalling = allowedToolDefinitions.length > 0;
   if (useToolCalling) {
     const { supported: toolCallingAttempts, unsupported: unsupportedToolCallingAttempts } = splitToolCallingAttempts(attempts);
@@ -430,8 +436,12 @@ app.post('/v1/chat', async (req, res) => {
           allowedToolDefinitions,
           allTools,
           llmProvider,
-          worktreePath ? { worktreePath } : {},
+          {
+            ...(worktreePath ? { worktreePath } : {}),
+            ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+          },
         );
+        assertRequiredToolCalls(requiredToolNames, toolCalls);
 
         const handoffAgentId = extractHandoffAgentId(toolCalls, toolResults);
         traceOutput({

@@ -7,6 +7,7 @@ import type {
   QuotaInfo,
   ToolDefinition,
   ToolCall,
+  ToolCallingOptions,
   VisionResult,
 } from '../../core/domain/gateway.types.js';
 
@@ -47,6 +48,7 @@ export class OpenAIProvider implements IVisionProvider, IToolCallingProvider {
   async generateResponseWithTools(
     messages: Message[],
     tools: ToolDefinition[],
+    options: ToolCallingOptions = {},
   ): Promise<{ text: string; toolCalls: ToolCall[] }> {
     console.log(`[OpenAIProvider] generateResponseWithTools a ${this.model} con ${tools.length} tools...`);
 
@@ -80,8 +82,16 @@ export class OpenAIProvider implements IVisionProvider, IToolCallingProvider {
     };
 
     if (openaiTools.length > 0) {
+      const forcedToolName = options.requiredToolNames?.length === 1 ? options.requiredToolNames[0] : null;
       requestParams.tools = openaiTools;
-      requestParams.tool_choice = 'auto';
+      requestParams.tool_choice = forcedToolName
+        ? {
+            type: 'function',
+            function: {
+              name: forcedToolName,
+            },
+          } as OpenAI.Chat.ChatCompletionToolChoiceOption
+        : 'auto';
     }
 
     const response = await this.client.chat.completions.create(requestParams);

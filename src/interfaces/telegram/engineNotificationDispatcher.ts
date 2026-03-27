@@ -3,6 +3,7 @@ import {
   DEFAULT_ENGINE_NOTIFICATION_POLL_INTERVAL_MS,
   getEngineNotificationRepository,
   type EngineNotificationSummary,
+  type SessionCancelledNotificationPayload,
   type EngineNotificationRecord,
   type SessionGuardrailFailedNotificationPayload,
   type SessionInteractiveBlockedNotificationPayload,
@@ -70,6 +71,23 @@ function formatSpawnFailed(
     compactLine('Work item', payload.workItemKey),
     compactLine('Bead', payload.beadPath),
     compactLine('Error', truncate(payload.error)),
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function formatCancelled(
+  runtimeSessionId: string | null,
+  payload: SessionCancelledNotificationPayload,
+) {
+  return [
+    'Autopilot: sesion cancelada',
+    compactLine('Sesion', runtimeSessionId),
+    compactLine('Proyecto', payload.projectId),
+    compactLine('Rama', payload.branchName),
+    compactLine('Work item', payload.workItemKey),
+    compactLine('Bead', payload.beadPath),
+    compactLine('Motivo', truncate(payload.reason)),
   ]
     .filter(Boolean)
     .join('\n');
@@ -177,6 +195,11 @@ export function formatEngineNotificationMessage(notification: EngineNotification
       return formatSpawnFailed(
         notification.runtimeSessionId,
         notification.payload as SessionSpawnFailedNotificationPayload,
+      );
+    case 'session.cancelled':
+      return formatCancelled(
+        notification.runtimeSessionId,
+        notification.payload as SessionCancelledNotificationPayload,
       );
     case 'session.timeout':
       return formatTimeout(notification.runtimeSessionId, notification.payload as SessionTimeoutNotificationPayload);

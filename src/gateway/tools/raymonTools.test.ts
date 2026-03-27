@@ -2,14 +2,22 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import os from 'os';
 import path from 'path';
-import { mkdtempSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { createRaymonTools } from './raymonTools.js';
 import {
   closeRalphitoDatabase,
   initializeRalphitoDatabase,
   resetRalphitoRepositories,
 } from '../../infrastructure/persistence/db/index.js';
+import { getRuntimeLockRepository } from '../../core/engine/runtimeLockRepository.js';
+import { getRuntimeSessionRepository } from '../../core/engine/runtimeSessionRepository.js';
+import { writeRuntimeSessionFile } from '../../core/engine/runtimeFiles.js';
 import { BeadLifecycleService } from '../../core/services/BeadLifecycleService.js';
+import {
+  getEngineNotificationRepository,
+  resetEngineNotificationRepository,
+} from '../../core/services/EventBus.js';
+import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 
 function createTempDirectory(prefix: string) {
   return mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -27,6 +35,7 @@ function withTempDb<T>(fn: () => Promise<T> | T) {
 
   closeRalphitoDatabase();
   resetRalphitoRepositories();
+  resetEngineNotificationRepository();
   initializeRalphitoDatabase();
 
   return Promise.resolve()
@@ -34,6 +43,7 @@ function withTempDb<T>(fn: () => Promise<T> | T) {
     .finally(() => {
       closeRalphitoDatabase();
       resetRalphitoRepositories();
+      resetEngineNotificationRepository();
       if (previousDbPath) process.env.RALPHITO_DB_PATH = previousDbPath;
       else delete process.env.RALPHITO_DB_PATH;
       if (previousRepoRoot) process.env.RALPHITO_REPO_ROOT = previousRepoRoot;
@@ -146,5 +156,117 @@ test('set_task_priority reprioritizes a task by task id', async () => {
     assert.equal(result.priority, 'high');
     assert.equal(result.success, true);
     assert.equal(updated?.priority, 'high');
+  });
+});
+
+test('cancel_session marca cancelled, sincroniza task, limpia worktree y notifica', async () => {
+  await withTempDb(async () => {
+    const sessionId = 'sy-cancel-1';
+    const now = new Date().toISOString();
+    const db = initializeRalphitoDatabase();
+    const threadId = Number(
+      db
+        .prepare(
+          `
+            INSERT INTO threads (channel, external_chat_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+          `,
+        )
+        .run('runtime', sessionId, sessionId, now, now).lastInsertRowid,
+    );
+    const worktreePath = path.join(process.env.RALPHITO_WORKTREE_ROOT!, sessionId);
+    const beadPath = path.join(process.env.RALPHITO_REPO_ROOT!, 'docs', 'specs', 'projects', 'system', 'bead-cancel.md');
+
+    mkdirSync(worktreePath, { recursive: true });
+    mkdirSync(path.dirname(beadPath), { recursive: true });
+    writeFileSync(beadPath, '# bead\n', 'utf8');
+
+    BeadLifecycleService.createTask({
+      taskId: 'task-cancel',
+      projectId: 'system',
+      title: 'Cancel me',
+      beadPath,
+      status: 'in_progress',
+      assignedAgent: 'system',
+    });
+
+    getRuntimeSessionRepository().create({
+      threadId,
+      agentId: 'system',
+      runtimeSessionId: sessionId,
+      status: 'running',
+      worktreePath,
+      notificationChatId: 'chat-cancel',
+      startedAt: now,
+      heartbeatAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    writeRuntimeSessionFile(worktreePath, {
+      runtimeSessionId: sessionId,
+      projectId: 'system',
+      agentId: 'system',
+      agent: 'opencode',
+      provider: 'opencode',
+      model: 'minimax-m2.7',
+      baseCommitHash: 'abc123',
+      branchName: 'jopen/sy-cancel-1',
+      worktreePath,
+      tmuxSessionId: sessionId,
+      pid: 123,
+      prompt: 'Cancela esta sesión',
+      beadPath,
+      workItemKey: 'task-cancel',
+      beadSpecHash: null,
+      beadSpecVersion: null,
+      qaConfig: null,
+      originThreadId: null,
+      notificationChatId: 'chat-cancel',
+      maxSteps: 10,
+      maxWallTimeMs: 60_000,
+      maxCommandTimeMs: 60_000,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    getRuntimeLockRepository().acquireForSession({
+      runtimeSessionId: sessionId,
+      targets: [{ path: beadPath, pathKind: 'file' }],
+    });
+
+    const originalKillSession = TmuxRuntime.prototype.killSession;
+    let killedSessionId: string | null = null;
+    TmuxRuntime.prototype.killSession = async (runtimeSessionId: string) => {
+      killedSessionId = runtimeSessionId;
+      return true;
+    };
+
+    try {
+      const tool = getTool('cancel_session');
+      const result = await tool.execute({ sessionId }) as {
+        success: boolean;
+        killed: boolean;
+        sessionId: string;
+      };
+
+      const session = getRuntimeSessionRepository().getByRuntimeSessionId(sessionId);
+      const task = BeadLifecycleService.getTaskById('task-cancel');
+      const notifications = getEngineNotificationRepository().listAll();
+
+      assert.equal(result.success, true);
+      assert.equal(result.killed, true);
+      assert.equal(result.sessionId, sessionId);
+      assert.equal(killedSessionId, sessionId);
+      assert.equal(session?.status, 'cancelled');
+      assert.equal(task?.status, 'cancelled');
+      assert.equal(task?.runtimeSessionId, sessionId);
+      assert.equal(getRuntimeLockRepository().listAllActive().length, 0);
+      assert.equal(notifications[0]?.eventType, 'session.cancelled');
+      assert.equal(notifications[0]?.targetChatId, 'chat-cancel');
+      assert.equal(existsSync(worktreePath), false);
+    } finally {
+      TmuxRuntime.prototype.killSession = originalKillSession;
+    }
   });
 });
