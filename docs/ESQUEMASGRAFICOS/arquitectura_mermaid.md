@@ -29,8 +29,8 @@ graph TD
         ROUTER -- "Reply / active agent" --> SABIOS
         RAYMON -- "Invoca especialistas" --> TOOL_SUMMON["summon_agent_to_chat<br/>handoff canonico"]
         RAYMON -- "Decide lanzar Sabios" --> TOOL_DIV["Runtime nativo:<br/>divergence via engine"]
-        RAYMON -- "Decide lanzar Ejecutor" --> TOOL_SPAWN["Runtime nativo:<br/>spawn-session"]
-        RAYMON -- "Supervisa/Resucita" --> TOOL_MGMT["Runtime nativo:<br/>status / resume-session"]
+        RAYMON -- "Encola ejecucion" --> TOOL_SPAWN["Runtime nativo:<br/>spawn_session -> execution_job"]
+        RAYMON -- "Supervisa/Resucita" --> TOOL_MGMT["Runtime nativo:<br/>resume/cancel/reap session"]
     end
 
     %% ==========================================
@@ -39,21 +39,21 @@ graph TD
     subgraph ENGINE ["⚙️ RALPHITO ENGINE (El Nuevo Motor Core)"]
         
         %% Componente: CLI Nativa
-        CLI_ENGINE["CLI del Motor<br/>(src/core/engine/cli.ts)<br/>Comandos: spawn-session, resume-session, status"]
+        CLI_ENGINE["CLI del Motor<br/>(src/core/engine/cli.ts)<br/>Comandos: poll-execution-jobs, launch-execution-job, run-loop, resume-session, poll-review-jobs"]
         
         %% Componente: Gestor de Worktrees
         WT_MANAGER["Worktree Manager<br/>(src/infrastructure/runtime/worktreeManager.ts)<br/>Crea y destruye entornos"]
         
         %% Componente: Bucle Autónomo
-        EXEC_LOOP["Executor Loop (El Bucle)<br/>(src/core/engine/executorLoop.ts)<br/>Bucle 'While' asíncrono"]
+        EXEC_LOOP["Session Loop (Monitor)<br/>(src/core/engine/sessionLoop.ts)<br/>Heartbeat + guardrails + cierre runtime"]
         
         %% Componente: Base de Datos
         SQLITE[("SQLite (Single Source of Truth)<br/>src/infrastructure/persistence/db/")]
         
         %% Conexiones dentro del motor
-        CLI_ENGINE -- "1. Escribe Estado" --> SQLITE
+        CLI_ENGINE -- "1. Reclama job / escribe estado" --> SQLITE
         CLI_ENGINE -- "2. Pide Worktree" --> WT_MANAGER
-        CLI_ENGINE -- "3. Lanza" --> EXEC_LOOP
+        CLI_ENGINE -- "3. Lanza runtime y monitor" --> EXEC_LOOP
         
         EXEC_LOOP -- "Lee/Actualiza estado" --> SQLITE
     end
@@ -84,9 +84,9 @@ graph TD
         
         BASH_EXEC["Ejecución Bash Real<br/>(child_process)"]
         
-        SCRIPT_BD["Guardarraíles Locales<br/>(scripts/bd.sh sync)"]
-        LINTER["npx tsc / npm test"]
-        GIT_PUSH["git commit / git push"]
+        SCRIPT_BD["Landing tools<br/>(finish_task / submit_for_review)"]
+        LINTER["npx tsc / npm test / review"]
+        GIT_PUSH["git commit / git push / execution_review"]
     end
 
     %% ==========================================
@@ -99,7 +99,7 @@ graph TD
     %% De las Bash Tools al Motor
     TOOL_SPAWN -- "Llama a" --> CLI_ENGINE
     TOOL_DIV -- "Llama 4 veces a" --> TOOL_SPAWN
-    TOOL_MGMT -- "Consulta" --> SQLITE
+    TOOL_MGMT -- "Consulta/limpia" --> SQLITE
     
     %% Del Motor al Gateway
     EXEC_LOOP -- "Envía Prompt + Tools" --> LLM

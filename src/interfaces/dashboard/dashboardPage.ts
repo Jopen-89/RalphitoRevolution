@@ -915,6 +915,18 @@ export function renderDashboardPage() {
       if (state.detail.agentConfig && state.detail.agentConfig.current) {
         contextItems.push('<div class="context-item"><strong>Registry now</strong><p>' + escapeHtml(formatAgentConfigSummary(state.detail.agentConfig.current)) + '</p></div>');
       }
+      if (state.detail.review) {
+        const review = state.detail.review;
+        const reviewSummary = [
+          review.status,
+          review.provider && review.model ? (review.provider + '/' + review.model) : null,
+          review.summary,
+          Array.isArray(review.findings) ? ('findings=' + review.findings.length) : null,
+          review.reworkTaskId ? ('rework=' + review.reworkTaskId) : null,
+          review.lastError ? ('flag=' + review.lastError) : null,
+        ].filter(Boolean).join(' · ');
+        contextItems.push('<div class="context-item"><strong>Review</strong><p>' + escapeHtml(reviewSummary) + '</p></div>');
+      }
       if (state.detail.agentConfig) {
         contextItems.push('<div class="context-item"><strong>Aplicacion</strong><p>Cambios config: sesiones nuevas. Vivas: snapshot.</p></div>');
       }

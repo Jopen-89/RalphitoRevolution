@@ -29,7 +29,7 @@ Este esquema representa la arquitectura del sistema post-refactor (Issue 56) uti
 │           │  Si Raymon decide que hay que "picar código", usa tools de runtime:          │
 │           v                                                                              │
 │ ┌───────────────────────────────┐ ┌──────────────────────────────────────────────────┐   │
-│ │ spawn-session <payload>       │ │ status / resume-session                           │   │
+│ │ spawn_session -> exec job     │ │ resume/cancel/reap session                       │   │
 │ └──────────────┬────────────────┘ └───────────────────────┬──────────────────────────┘   │
 └────────────────┼──────────────────────────────────────────┼──────────────────────────────┘
                  │                                          │
@@ -39,19 +39,21 @@ Este esquema representa la arquitectura del sistema post-refactor (Issue 56) uti
 │                 CAPA 3: RALPHITO ENGINE (El Nuevo Motor - Issue 56)                      │
 │                                                                                          │
 │ ┌──────────────────────────────────────────────────────────────────────────────────────┐ │
-│ │  CLI Interna (src/core/engine/cli.ts) [spawn-session, resume-session, status]         │ │
+│ │  CLI Interna (src/core/engine/cli.ts) [launch-execution-job, run-loop, resume-session, poll-execution-jobs, poll-review-jobs] │ │
 │ └──────────┬────────────────────────────┬─────────────────────────────┬────────────────┘ │
-│            │ 1. Crea Sesión             │ 2. Crea Carpeta             │ 3. Arranca       │
+│            │ 1. Reclama Job             │ 2. Crea Carpeta             │ 3. Arranca       │
 │            v                            v                             v                  │
 │ ┌──────────────────────┐    ┌─────────────────────────┐    ┌─────────────────────────┐   │
-│ │                      │    │                         │    │      EXECUTOR LOOP      │   │
-│ │  BASE DE DATOS       │<───┤    WORKTREE MANAGER     │    │   (executorLoop.ts)     │   │
-│ │  (SQLite)            │    │  (worktreeManager.ts)   │    │  (El Bucle del Peón)    │   │
+│ │                      │    │                         │    │       SESSION LOOP      │   │
+│ │  BASE DE DATOS       │<───┤    WORKTREE MANAGER     │    │    (sessionLoop.ts)     │   │
+│ │  (SQLite)            │    │  (worktreeManager.ts)   │    │   (Monitor detached)    │   │
 │ │                      │    │                         │    │                         │   │
-│ │ Tabla: agent_sessions│    │ + Crea ~/.ralphito/    │    │ Bucle while(!done) {    │   │
-│ │ - id: rr-1           │    │ + git worktree add      │    │   hablar_con_gateway(); │   │
-│ │ - status: working    │    │ + git worktree remove   │    │   ejecutar_tools();     │   │
-│ │ - error_log: null    │    │                         │    │ }                       │   │
+│ │ Tabla: execution_jobs│    │ + Crea ~/.ralphito/    │    │ Bucle monitor {         │   │
+│ │ + agent_sessions     │    │ + git worktree add      │    │   heartbeat();          │   │
+│ │ + execution_reviews  │    │ + git worktree remove   │    │   guardrails();         │   │
+│ │ - id: rr-1           │    │                         │    │ }                       │   │
+│ │ - status: running    │    │                         │    │                         │   │
+│ │ - review: pending    │    │                         │    │                         │   │
 │ │ - pid: 12345         │    └───────────┬─────────────┘    └───────┬────────┬────────┘   │
 │ └──────────^───────────┘                │                          │        │            │
 │            │ Actualiza estado           │                          │        │            │
@@ -85,16 +87,16 @@ Este esquema representa la arquitectura del sistema post-refactor (Issue 56) uti
 │            │              │ El Peón ejecuta:          │                                  │
 │            │              │ 1. ls, cat (Lee specs)    │                                  │
 │            │              │ 2. Escribe src/login.ts   │                                  │
-│            │              │ 3. npx tsc, npm test      │                                  │
-│            │              │ 4. ./scripts/bd.sh sync   │<── Guardarraíl final             │
+│            │              │ 3. finish_task            │                                  │
+│            │              │ 4. submit_for_review      │<── Guardarraíl final             │
 │            │              └─────────────┬─────────────┘                                  │
 │            │                            │                                                │
-│            │ Si bd.sh sync falla        │ Si bd.sh sync pasa                             │
+│            │ Si landing/review falla    │ Si landing/review pasa                         │
 │            └────────────────────────────┤                                                │
-│                 Guarda error_log        v                                                │
+│                 Guarda guardrail       v                                                │
 │                 Cambia status=failed  ┌───────────────────────────┐                      │
-│                                       │        GITHUB (PR)        │                      │
-│                                       │ PR: "Añadido sistema login"                      │
+│                                       │   REVIEW + GITHUB (PR)    │                      │
+│                                       │ PR + review persistidos   │                      │
 │ CAPA 5: LA FÁBRICA Y GITHUB           └───────────────────────────┘                      │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```

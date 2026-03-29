@@ -75,8 +75,8 @@ El payload estructurado de una sesion runtime acepta un objeto `qaConfig`.
 
 ## Integracion actual
 
-- `src/core/engine/cli.ts spawn-session <payload_file>` persiste `qaConfig` dentro de `.ralphito-session.json`.
-- Raymon puede propagar `qaConfig` al crear sesiones mediante el runtime nativo.
+- `spawn_session` propaga `qaConfig` al crear la `ExecutionJob`.
+- `Orchestrator.launchExecutionJob()` persiste `qaConfig` dentro de `.ralphito-session.json` al arrancar runtime desde la job reclamada.
 - `finish_task` usa esa metadata para lanzar a Miron.
 - `src/core/engine/cli.ts resume-session <runtime_session_id>` conserva `qaConfig` al reinyectar sesiones.
 - `src/app/e2e-qa.ts` ejecuta a Ricky leyendo la metadata persistida de la sesion.

@@ -16,4 +16,6 @@ test('renderDashboardPage includes agents operational panel', () => {
   assert.match(html, /fetch\('\/api\/agents\/' \+ encodeURIComponent\(agentId\)/);
   assert.match(html, /Allowed Tools/);
   assert.match(html, /sesiones nuevas/i);
+  assert.match(html, /Registry now/);
+  assert.match(html, /flag=/);
 });

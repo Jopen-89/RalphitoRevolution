@@ -49,6 +49,20 @@ interface AgentSessionRow {
   worktreePath: string | null;
 }
 
+interface ReviewRow {
+  id: string;
+  status: string;
+  summary: string | null;
+  findingsJson: string | null;
+  provider: string | null;
+  model: string | null;
+  reworkTaskId: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+}
+
 interface DashboardSessionMeta {
   thread: ThreadRow | null;
   task: TaskRow | null;
@@ -136,10 +150,32 @@ export interface UnifiedDashboardSessionDetail {
     payload: unknown;
     createdAt: string;
   }>;
+  review: {
+    id: string;
+    status: string;
+    summary: string | null;
+    findings: unknown[];
+    provider: string | null;
+    model: string | null;
+    reworkTaskId: string | null;
+    lastError: string | null;
+    createdAt: string;
+    updatedAt: string;
+    finishedAt: string | null;
+  } | null;
 }
 
 const MESSAGE_LIMIT = 20;
 const TIMELINE_LIMIT = 20;
+
+function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
 
 function truncateError(errorText: string) {
   const normalized = errorText.trim();
@@ -357,12 +393,54 @@ export async function getUnifiedDashboardSessionDetail(sessionId: string): Promi
           createdAt: event.createdAt,
         })))
     : [];
+  const review = session.activeTask
+    ? (() => {
+        const row = db
+          .prepare(
+            `
+              SELECT
+                id,
+                status,
+                summary,
+                findings_json AS findingsJson,
+                provider,
+                model,
+                rework_task_id AS reworkTaskId,
+                last_error AS lastError,
+                created_at AS createdAt,
+                updated_at AS updatedAt,
+                finished_at AS finishedAt
+              FROM execution_reviews
+              WHERE task_id = ?
+              ORDER BY created_at DESC, id DESC
+              LIMIT 1
+            `,
+          )
+          .get(session.activeTask.id) as ReviewRow | undefined;
+        if (!row) return null;
+
+        return {
+          id: row.id,
+          status: row.status,
+          summary: row.summary,
+          findings: safeJsonParse(row.findingsJson, [] as unknown[]),
+          provider: row.provider,
+          model: row.model,
+          reworkTaskId: row.reworkTaskId,
+          lastError: row.lastError,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          finishedAt: row.finishedAt,
+        };
+      })()
+    : null;
 
   return {
     session,
     agentConfig: buildDetailAgentConfig(session),
     messages,
     timeline,
+    review,
   };
 }
 

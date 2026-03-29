@@ -6,9 +6,9 @@ Este documento resume la investigación arquitectónica y el plan de acción par
 
 ### Componentes Core
 *   **Engine (`agentLoop.ts`)**: El "Cuerpo" o motor genérico. Ejecuta un bucle infinito de razonamiento (IA), gestiona el historial de mensajes y ejecuta herramientas. No tiene identidad propia.
-*   **CLI (`cli.ts`)**: El "Mecanismo de Disparo". Prepara el entorno físico (Git Worktrees), la base de datos y lanza el proceso persistente del agente en **TMUX**.
+*   **CLI (`cli.ts`)**: El "Mecanismo de Dispatch". Reclama `ExecutionJob`, prepara worktree/runtime y ejecuta schedulers (`poll-execution-jobs`, `poll-review-jobs`, `run-loop`) en **TMUX**.
 *   **LLM-Gateway**: El "Traductor y las Manos". Interfaz unificada para diferentes modelos (Gemini, OpenAI, etc.) y encargado de ejecutar las **Tools** (leer/escribir archivos, ejecutar bash).
-*   **Raymon (Planner IA)**: El "Mánager". Un agente VIP que corre sobre un `agentLoop` pero tiene herramientas especiales (`spawn_session`) para crear y supervisar a otros agentes basándose en el mapa de configuración.
+*   **Raymon (Planner IA)**: El "Mánager". Un agente VIP que corre sobre un `agentLoop` pero tiene tools especiales (`spawn_session`) para encolar `ExecutionJob` sobre tasks persistidas y supervisar sesiones/reviews.
 
 ### Identidad y Reglas
 *   **Roles (`src/core/prompt/roles/*.md`)**: El "Cerebro/Alma". Define la personalidad, especialidad y reglas específicas de cada agente (Moncho, Lola, Mapito, etc.).
@@ -53,8 +53,8 @@ El objetivo es que **todos los agentes tengan un `agentLoop` real**, puedan **co
 ## 4. Flujo de Trabajo Objetivo (Ejemplo)
 
 1.  **Usuario** pide una idea en Telegram.
-2.  **Raymon** lanza a **Moncho** (`spawn_session`).
+2.  **Raymon** encola a **Moncho** con `spawn_session`; el scheduler reclama la `ExecutionJob` y arranca el runtime real.
 3.  **Moncho** (en su `agentLoop`) escribe el PRD real en `docs/specs/` y pide feedback vía `ask_human`.
 4.  **Usuario** da el visto bueno en Telegram.
-5.  **Moncho** finaliza la tarea.
-6.  **Raymon** detecta el cierre y lanza a **Lola** para programar basándose en el archivo PRD creado por Moncho.
+5.  **Moncho** aterriza, pide review y deja resultado persistido.
+6.  **Raymon** detecta el cierre/review y lanza a **Lola** basándose en el archivo PRD creado por Moncho.
