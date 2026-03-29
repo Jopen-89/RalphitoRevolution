@@ -64,6 +64,7 @@ function withTempDb<T>(fn: (ctx: { repoRoot: string; worktreeRoot: string }) => 
 test('resolveEngineProjectConfig reads provider and model from agent_registry', async () => {
   await withTempDb(({ repoRoot, worktreeRoot }) => {
     AgentRegistryService.updateAgentConfig('default', {
+      execution_harness: 'codex',
       primary_provider: 'opencode',
       provider: 'opencode',
       model: 'minimax-m2.7',
@@ -73,13 +74,16 @@ test('resolveEngineProjectConfig reads provider and model from agent_registry', 
 
     assert.equal(config.id, 'backend-team');
     assert.equal(config.canonicalId, 'system');
-    assert.equal(config.agent, 'opencode');
+    assert.equal(config.agentConfigId, 'default');
+    assert.equal(config.agent, 'codex');
     assert.equal(config.provider, 'opencode');
     assert.equal(config.model, 'minimax-m2.7');
     assert.equal(config.path, repoRoot);
     assert.equal(config.worktreeRoot, worktreeRoot);
     assert.equal(config.defaultBranch, 'main');
     assert.equal(config.agentRulesFile, 'AGENTS.md');
+    assert.equal(config.toolMode, 'allowed');
+    assert.ok(config.allowedTools.includes('finish_task'));
   });
 });
 
@@ -95,6 +99,7 @@ test('resolveEngineProjectConfig reads direct role config from agent_registry', 
 
     assert.equal(config.id, 'poncho');
     assert.equal(config.name, 'Poncho');
+    assert.equal(config.agentConfigId, 'poncho');
     assert.equal(config.provider, 'openai');
     assert.equal(config.model, 'gpt-5.4');
     assert.equal(config.agentRulesFile, 'AGENTS.md');
@@ -108,6 +113,8 @@ test('resolveEngineProjectConfig includes provider profile from agent_registry',
       provider: 'codex',
       model: 'gpt-5.4',
       provider_profile: 'jopen',
+      execution_harness: 'codex',
+      execution_profile: 'martapa',
     });
 
     const config = resolveEngineProjectConfig('poncho');
@@ -115,5 +122,6 @@ test('resolveEngineProjectConfig includes provider profile from agent_registry',
     assert.equal(config.provider, 'codex');
     assert.equal(config.model, 'gpt-5.4');
     assert.equal(config.providerProfile, 'jopen');
+    assert.equal(config.executionProfile, 'martapa');
   });
 });

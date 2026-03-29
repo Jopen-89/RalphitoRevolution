@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import path from 'path';
-import type { Provider } from '../domain/gateway.types.js';
+import type { AgentFallbackRoute, ExecutionHarness, Provider, ToolMode } from '../domain/gateway.types.js';
 import {
   RUNTIME_BEAD_SNAPSHOT_FILE_NAME,
   RUNTIME_EXIT_CODE_FILE_NAME,
@@ -12,14 +12,29 @@ import {
 } from '../domain/constants.js';
 import { ProjectService } from '../services/ProjectService.js';
 
+export interface RuntimeAgentConfigSnapshot {
+  agentId?: string;
+  primaryProvider: Provider | null;
+  model: string | null;
+  providerProfile?: string | null;
+  executionHarness: ExecutionHarness;
+  executionProfile?: string | null;
+  toolMode: ToolMode;
+  allowedTools: string[];
+  fallbacks: AgentFallbackRoute[];
+  resolvedAt: string;
+}
+
 export interface RuntimeSessionFileRecord {
   runtimeSessionId: string;
   projectId: string;
   agentId: string;
+  agentConfigId?: string | null;
   agent: string;
   provider: Provider | null;
   model: string | null;
   providerProfile?: string | null;
+  executionProfile?: string | null;
   baseCommitHash: string;
   branchName: string;
   worktreePath: string;
@@ -28,12 +43,15 @@ export interface RuntimeSessionFileRecord {
   prompt: string;
   beadPath: string | null;
   beadSnapshotPath?: string | null;
+  taskId?: string | null;
+  executionJobId?: string | null;
   workItemKey: string | null;
   beadSpecHash: string | null;
   beadSpecVersion: string | null;
   qaConfig: unknown;
   originThreadId: number | null;
   notificationChatId: string | null;
+  agentConfigSnapshot?: RuntimeAgentConfigSnapshot;
   autoResumeAttempts?: Record<string, number>;
   maxSteps: number;
   maxWallTimeMs: number;
@@ -136,6 +154,16 @@ export function readRuntimeSessionFile(worktreePath: string) {
   const filePath = getRuntimeSessionFilePath(worktreePath);
   if (!existsSync(filePath)) return null;
   return JSON.parse(readFileSync(filePath, 'utf8')) as RuntimeSessionFileRecord;
+}
+
+export function resolveRuntimeTaskId(
+  input: Pick<RuntimeSessionFileRecord, 'taskId' | 'workItemKey'>,
+) {
+  const taskId = input.taskId?.trim();
+  if (taskId) return taskId;
+
+  const legacyTaskId = input.workItemKey?.trim();
+  return legacyTaskId || null;
 }
 
 export function writeRuntimeSessionFile(worktreePath: string, record: RuntimeSessionFileRecord) {

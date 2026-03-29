@@ -1,4 +1,4 @@
-import type { AgentFallbackRoute, Provider } from '../core/domain/gateway.types.js';
+import type { AgentFallbackRoute, ExecutionHarness, Provider } from '../core/domain/gateway.types.js';
 import { PROVIDER_MATRIX } from '../gateway/providers/providerCatalog.js';
 import { listConfiguredCodexProfiles } from '../gateway/providers/providerProfiles.js';
 import { createAllToolDefinitions } from '../gateway/tools/toolCatalog.js';
@@ -11,16 +11,33 @@ export interface AgentConfigApiError {
 }
 
 export function buildAgentConfigApiMetadata() {
+  const codexProfiles = listConfiguredCodexProfiles(process.env);
+
   return {
     providers: Object.keys(PROVIDER_MATRIX).sort() as Provider[],
+    executionHarnesses: ['opencode', 'codex'] as const satisfies readonly ExecutionHarness[],
     toolModes: ['none', 'allowed'] as const,
     toolNames: createAllToolDefinitions().map((tool) => tool.name).sort(),
     providerModels: Object.fromEntries(
       Object.entries(PROVIDER_MATRIX).map(([provider, entry]) => [provider, entry.officialModels]),
     ) as Record<Provider, string[]>,
     providerProfiles: {
-      codex: listConfiguredCodexProfiles(process.env),
+      codex: codexProfiles,
     },
+    executionProfiles: {
+      codex: codexProfiles,
+    },
+  };
+}
+
+export function validateExecutionHarness(harness: ExecutionHarness): AgentConfigApiError | null {
+  if (harness === 'opencode' || harness === 'codex') {
+    return null;
+  }
+
+  return {
+    field: 'executionHarness',
+    error: `Unknown executionHarness ${harness}`,
   };
 }
 
@@ -56,6 +73,28 @@ export function validateProviderProfile(provider: Provider, profile: string | nu
     return {
       field: 'providerProfile',
       error: `Unknown codex providerProfile ${profile}`,
+      details: `Configured profiles: ${configuredProfiles.join(', ')}`,
+    };
+  }
+
+  return null;
+}
+
+export function validateExecutionProfile(harness: ExecutionHarness, profile: string | null): AgentConfigApiError | null {
+  if (!profile) return null;
+
+  if (harness !== 'codex') {
+    return {
+      field: 'executionProfile',
+      error: `Execution harness ${harness} does not support executionProfile`,
+    };
+  }
+
+  const configuredProfiles = listConfiguredCodexProfiles(process.env);
+  if (configuredProfiles.length > 0 && !configuredProfiles.includes(profile)) {
+    return {
+      field: 'executionProfile',
+      error: `Unknown codex executionProfile ${profile}`,
       details: `Configured profiles: ${configuredProfiles.join(', ')}`,
     };
   }

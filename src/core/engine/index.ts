@@ -20,6 +20,14 @@ export {
   DEFAULT_ENGINE_NOTIFICATION_MAX_ATTEMPTS,
   DEFAULT_ENGINE_NOTIFICATION_POLL_INTERVAL_MS,
   DEFAULT_ENGINE_NOTIFICATION_RETRY_BASE_MS,
+  DEFAULT_EXECUTION_JOB_CLAIM_LEASE_MS,
+  DEFAULT_EXECUTION_JOB_MAX_ATTEMPTS,
+  DEFAULT_EXECUTION_JOB_POLL_INTERVAL_MS,
+  DEFAULT_EXECUTION_JOB_RETRY_BASE_MS,
+  DEFAULT_EXECUTION_REVIEW_CLAIM_LEASE_MS,
+  DEFAULT_EXECUTION_REVIEW_MAX_ATTEMPTS,
+  DEFAULT_EXECUTION_REVIEW_POLL_INTERVAL_MS,
+  DEFAULT_EXECUTION_REVIEW_RETRY_BASE_MS,
   DEFAULT_RUNTIME_HEARTBEAT_TTL_MS,
   DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_MS,
   DEFAULT_RUNTIME_LOCK_TTL_MS,
@@ -54,25 +62,41 @@ export { buildEnginePrompt } from './promptBuilder.js';
 export { CommandRunner, type RunCommandOptions, type RunCommandResult } from '../../infrastructure/runtime/commandRunner.js';
 export { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 export {
-  SessionSupervisor,
-  type SpawnRuntimeSessionInput,
-  type SpawnRuntimeSessionResult,
-} from '../services/SessionManager.js';
+  ExecutionJobScheduler,
+  type ExecutionJobSchedulerPollResult,
+} from '../services/ExecutionJobScheduler.js';
+export {
+  ReviewScheduler,
+  type ReviewSchedulerPollResult,
+} from '../services/ReviewScheduler.js';
 export {
   SessionLoop,
   type SessionLoopContext,
   type SessionLoopResult,
 } from './sessionLoop.js';
 export {
-  ExecutorLoop,
-  type ExecutorLoopContext,
-  type ExecutorLoopResult,
-} from './executorLoop.js';
-export {
   getEngineSessionsStatus,
   formatEngineSessionLine,
   type EngineStatusSession,
 } from './status.js';
+export {
+  Orchestrator,
+  getOrchestrator,
+  type GuardrailFailure,
+  type LaunchExecutionJobInput,
+  type OrchestratorDivergenceResult,
+  type OrchestratorResumeResult,
+  type OrchestratorSpawnInput,
+  type OrchestratorSpawnResult,
+  type OrchestratorStatusResult,
+} from './orchestrator.js';
+export {
+  RuntimeSessionLifecycleService,
+  DEFAULT_RUNTIME_CANCEL_REASON,
+  type CancelRuntimeSessionInput,
+  type CancelRuntimeSessionResult,
+  type ReapStaleRuntimeSessionsResult,
+} from '../services/RuntimeSessionLifecycleService.js';
 export {
   collapseRuntimeLockTargets,
   getRuntimePathCollisionRelation,

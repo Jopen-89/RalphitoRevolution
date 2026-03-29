@@ -1,4 +1,4 @@
-import { readRuntimeSessionFile } from './runtimeFiles.js';
+import { readRuntimeSessionFile, resolveRuntimeTaskId } from './runtimeFiles.js';
 import { getRuntimeSessionRepository, type RuntimeSessionRecord } from './runtimeSessionRepository.js';
 import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 
@@ -76,7 +76,10 @@ export async function getEngineSessionsStatus(input: GetEngineSessionsStatusInpu
 
       const summary =
         session.failureSummary ||
-        sessionFile?.workItemKey ||
+        resolveRuntimeTaskId({
+          taskId: sessionFile?.taskId ?? null,
+          workItemKey: sessionFile?.workItemKey ?? null,
+        }) ||
         sessionFile?.beadPath ||
         session.agentId;
 

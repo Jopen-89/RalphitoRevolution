@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ProviderFactory } from '../gateway/providers/provider.factory.js';
-import type { Provider, Message, AgentConfig, AgentFallbackRoute, GatewayConfig, ChatRequest, ChatResponse } from '../core/domain/gateway.types.js';
+import type { Provider, Message, AgentConfig, GatewayConfig, ChatRequest, ChatResponse } from '../core/domain/gateway.types.js';
 import { initializeRalphitoDatabase } from '../infrastructure/persistence/db/index.js';
 import { renderDashboardPage } from '../interfaces/dashboard/dashboardPage.js';
 import {
@@ -20,20 +20,21 @@ import type { IToolCallingProvider } from '../core/domain/gateway.types.js';
 import { RUNTIME_LLM_WAITING_FILE_NAME } from '../core/domain/constants.js';
 
 import { AgentRegistryService } from '../core/services/AgentRegistry.js';
-import type { AgentRegistryRecord } from '../core/services/AgentRegistry.js';
+import { ExecutionJobScheduler } from '../core/services/ExecutionJobScheduler.js';
+import { ReviewScheduler } from '../core/services/ReviewScheduler.js';
 import { buildProviderCapabilityHealth, getProviderCatalogStatus, PROVIDER_MATRIX } from '../gateway/providers/providerCatalog.js';
 import { createAttemptDiagnostic, formatAttemptSummary, toDiagnosticErrorMessage } from '../gateway/providers/providerDiagnostics.js';
 import { listConfiguredCodexProfiles } from '../gateway/providers/providerProfiles.js';
 import { buildToolCallingUnsupportedMessage, splitToolCallingAttempts } from '../gateway/providers/providerRouting.js';
 import { traceOutput } from '../core/services/outputTrace.js';
+import { buildAgentConfigApiMetadata } from './agentConfigValidation.js';
 import {
-  buildAgentConfigApiMetadata,
-  validateAllowedTools,
-  validateFallbacks as validateFallbackRoutes,
-  validateProviderModel,
-  validateProviderProfile,
-} from './agentConfigValidation.js';
+  buildAgentConfigUpdates,
+  DEFAULT_MODEL_BY_PROVIDER,
+  serializeAgentRecord,
+} from './agentConfigService.js';
 import { assertRequiredToolCalls, resolveRequiredToolNames } from './chatToolRequirements.js';
+import { resolveRuntimeAgentConfig } from './runtimeAgentConfig.js';
 import { validateManagedWorktreeHeader } from './worktreeHeaderValidation.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -42,6 +43,8 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 initializeRalphitoDatabase();
 AgentRegistryService.sync();
+const executionJobScheduler = new ExecutionJobScheduler();
+const reviewScheduler = new ReviewScheduler();
 
 const app = express();
 app.use(express.json());
@@ -64,13 +67,6 @@ app.use((req, res, next) => {
 // Variable global para mantener el cliente OAuth autenticado
 let googleAuthClient: any = null;
 
-const DEFAULT_MODEL_BY_PROVIDER: Record<Provider, string> = {
-  gemini: 'gemini-3.1-pro-preview',
-  openai: 'gpt-5.4',
-  opencode: 'minimax-m2.7',
-  codex: 'gpt-5.4',
-};
-
 const AGENT_ALIASES: Record<string, string[]> = {
   default: ['default', 'ralphito'],
   raymon: ['raymon', 'ramon', 'raimon', 'ray mond', 'rei mon'],
@@ -88,7 +84,6 @@ const AGENT_ALIASES: Record<string, string[]> = {
 };
 
 const VALID_PROVIDERS = new Set<Provider>(['gemini', 'openai', 'opencode', 'codex']);
-const VALID_TOOL_MODES = new Set(['none', 'allowed']);
 
 function normalizeAgentId(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -119,35 +114,6 @@ function buildProviderAuth() {
   };
 }
 
-function parseJsonArray<T>(raw: string | null, fallback: T[]): T[] {
-  if (!raw) return fallback;
-  try {
-    const parsed = JSON.parse(raw) as T[];
-    return Array.isArray(parsed) ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function serializeAgentRecord(record: AgentRegistryRecord) {
-  const primaryProvider = (record.primary_provider || record.provider || DEFAULT_MODEL_BY_PROVIDER.gemini) as Provider;
-  return {
-    agentId: record.agent_id,
-    name: record.name,
-    roleFilePath: record.role_file_path,
-    aliases: AGENT_ALIASES[record.agent_id] || [record.agent_id],
-    isActive: Boolean(record.is_active),
-    primaryProvider,
-    model: record.model || DEFAULT_MODEL_BY_PROVIDER[primaryProvider],
-    providerProfile: record.provider_profile,
-    toolMode: record.tool_mode || 'none',
-    allowedTools: parseJsonArray<string>(record.allowed_tools_json, []),
-    fallbacks: parseJsonArray<AgentFallbackRoute>(record.fallbacks_json, []),
-    createdAt: record.created_at,
-    updatedAt: record.updated_at,
-  };
-}
-
 function parseProviderProfile(value: unknown) {
   if (value === null) return null;
   if (typeof value !== 'string') return null;
@@ -174,28 +140,6 @@ function extractHandoffAgentId(toolCalls: ChatResponse['toolCalls'], toolResults
 
 function parseProvider(value: unknown): Provider | null {
   return typeof value === 'string' && VALID_PROVIDERS.has(value as Provider) ? (value as Provider) : null;
-}
-
-function parseToolMode(value: unknown): 'none' | 'allowed' | null {
-  return typeof value === 'string' && VALID_TOOL_MODES.has(value) ? (value as 'none' | 'allowed') : null;
-}
-
-function parseFallbacks(value: unknown) {
-  if (!Array.isArray(value)) return null;
-
-  const fallbacks: AgentFallbackRoute[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== 'object') return null;
-    const entry = item as Record<string, unknown>;
-    const provider = parseProvider(entry.provider);
-    const modelValue = entry.model;
-    const model = typeof modelValue === 'string' ? modelValue.trim() : '';
-    const providerProfile = 'providerProfile' in entry ? parseProviderProfile(entry.providerProfile) : undefined;
-    if (!provider || !model) return null;
-    fallbacks.push({ provider, model, ...(providerProfile ? { providerProfile } : {}) });
-  }
-
-  return fallbacks;
 }
 
 function buildSmokePrompt(provider: Provider, model: string) {
@@ -351,134 +295,155 @@ app.post('/v1/chat', async (req, res) => {
       return res.status(400).json({ error: 'Faltan parámetros messages (debe ser un array)' });
     }
 
-  const { agentConfig, resolvedAgentId, requestedId } = resolveAgentConfigFromDb(agentId);
+    const runtimeAgentConfig = worktreePath ? resolveRuntimeAgentConfig(worktreePath) : null;
+    if (runtimeAgentConfig) {
+      console.log(
+        `[Gateway] Runtime snapshot activa para ${runtimeAgentConfig.resolvedAgentId} resolvedAt=${runtimeAgentConfig.resolvedAt || 'unknown'}`,
+      );
+    }
+    const { agentConfig, resolvedAgentId, requestedId } = runtimeAgentConfig
+      ? {
+          agentConfig: runtimeAgentConfig.agentConfig,
+          resolvedAgentId: runtimeAgentConfig.resolvedAgentId,
+          requestedId: agentId,
+        }
+      : resolveAgentConfigFromDb(agentId);
 
-  if (!agentConfig && !provider) {
-    return res.status(404).json({
-      error: 'AGENT_CONFIG_NOT_FOUND',
-      message: `No encuentro configuración para el agente '${agentId}'.`,
-      requestedAgentId: agentId,
-      normalizedAgentId: requestedId,
-    });
-  }
-
-  const attempts = provider
-    ? [{ provider, model: model || DEFAULT_MODEL_BY_PROVIDER[provider], ...(providerProfile ? { providerProfile } : {}) }]
-    : [
-        {
-          provider: agentConfig!.primaryProvider,
-          model: agentConfig!.model || DEFAULT_MODEL_BY_PROVIDER[agentConfig!.primaryProvider],
-          ...(agentConfig!.providerProfile ? { providerProfile: agentConfig!.providerProfile } : {}),
-        },
-        ...agentConfig!.fallbacks.map((fallback) => ({
-          provider: fallback.provider,
-          model: fallback.model || DEFAULT_MODEL_BY_PROVIDER[fallback.provider],
-          ...(fallback.providerProfile ? { providerProfile: fallback.providerProfile } : {}),
-        })),
-      ];
-
-  const { allowed: allowedToolDefinitions, unknownNames } = resolveAllowedToolDefinitions(agentConfig);
-  console.log(`[Gateway] Tools permitidas para "${resolvedAgentId}":`, allowedToolDefinitions.map(d => d.name));
-  const requiredToolNames = resolveRequiredToolNames({
-    agentId: resolvedAgentId,
-    messages,
-    allowedToolNames: allowedToolDefinitions.map((definition) => definition.name),
-  });
-  const useToolCalling = allowedToolDefinitions.length > 0;
-  if (useToolCalling) {
-    const { supported: toolCallingAttempts, unsupported: unsupportedToolCallingAttempts } = splitToolCallingAttempts(attempts);
-    const failedAttempts = unsupportedToolCallingAttempts.map((attempt) => ({
-      provider: attempt.provider,
-      model: attempt.model,
-      capability: 'tool-calling' as const,
-      success: false,
-      reason: 'tool-calling unsupported for configured provider',
-    })) as Array<ReturnType<typeof createAttemptDiagnostic>>;
-
-    if (toolCallingAttempts.length === 0) {
-      return res.status(400).json({
-        error: 'TOOL_CALLING_UNSUPPORTED',
-        message: buildToolCallingUnsupportedMessage(unsupportedToolCallingAttempts),
-        attempts: failedAttempts,
-        details: formatAttemptSummary(failedAttempts),
+    if (!agentConfig && !provider) {
+      return res.status(404).json({
+        error: 'AGENT_CONFIG_NOT_FOUND',
+        message: `No encuentro configuración para el agente '${agentId}'.`,
+        requestedAgentId: agentId,
+        normalizedAgentId: requestedId,
       });
     }
 
-    if (unknownNames.length > 0) {
-      console.warn(`[Gateway] Tools desconocidas para '${resolvedAgentId}': ${unknownNames.join(', ')}`);
-    }
-    if (unsupportedToolCallingAttempts.length > 0) {
-      console.warn(
-        `[Gateway] Omitiendo providers sin tool-calling para '${resolvedAgentId}': ${unsupportedToolCallingAttempts.map((attempt) => `${attempt.provider} (${attempt.model})`).join(', ')}`,
-      );
-    }
-    const allTools = createAllToolImplementations({
-      ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
-      ...(typeof originChatId === 'string' && originChatId.trim() ? { notificationChatId: originChatId } : {}),
-      ...(worktreePath ? { worktreePath } : {}),
-      ...(resolvedAgentId ? { currentAgentId: resolvedAgentId } : {}),
-    });
-    let lastToolCallingError: unknown = null;
-
-    for (const attempt of toolCallingAttempts) {
-      try {
-        console.log(`[Gateway] Tool-calling con ${attempt.provider} (${attempt.model})...`);
-
-        const llmProvider = ProviderFactory.create(
-          attempt.provider,
-          attempt.model,
-          buildProviderAuth(),
-          attempt.providerProfile,
-        ) as IToolCallingProvider;
-
-        const { text, toolCalls, toolResults } = await executeToolCallLoop(
-          messages,
-          allowedToolDefinitions,
-          allTools,
-          llmProvider,
+    const attempts = provider
+      ? [{ provider, model: model || DEFAULT_MODEL_BY_PROVIDER[provider], ...(providerProfile ? { providerProfile } : {}) }]
+      : [
           {
-            ...(worktreePath ? { worktreePath } : {}),
-            ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+            provider: agentConfig!.primaryProvider,
+            model: agentConfig!.model || DEFAULT_MODEL_BY_PROVIDER[agentConfig!.primaryProvider],
+            ...(agentConfig!.providerProfile ? { providerProfile: agentConfig!.providerProfile } : {}),
           },
-        );
-        assertRequiredToolCalls(requiredToolNames, toolCalls);
+          ...agentConfig!.fallbacks.map((fallback) => ({
+            provider: fallback.provider,
+            model: fallback.model || DEFAULT_MODEL_BY_PROVIDER[fallback.provider],
+            ...(fallback.providerProfile ? { providerProfile: fallback.providerProfile } : {}),
+          })),
+        ];
 
-        const handoffAgentId = extractHandoffAgentId(toolCalls, toolResults);
-        traceOutput({
-          stage: 'gateway.response.toolCalling',
-          text,
-          provider: attempt.provider,
-          model: attempt.model,
-          ...(resolvedAgentId ? { agentId: resolvedAgentId } : {}),
-          ...(handoffAgentId ? { handoffAgentId } : {}),
-          toolCallCount: toolCalls.length,
-        });
-        const successResponse: ChatResponse = {
-          response: text,
-          providerUsed: attempt.provider,
-          modelUsed: attempt.model,
-          ...(handoffAgentId ? { handoffAgentId } : {}),
-          toolCalls,
-          toolResults,
-        };
-
-        return res.json(successResponse);
-      } catch (error) {
-        const details = toDiagnosticErrorMessage(error);
-        console.warn(`⚠️ Falló tool-calling con ${attempt.provider}:`, details);
-        failedAttempts.push(createAttemptDiagnostic(attempt.provider, attempt.model, 'tool-calling', error));
-        lastToolCallingError = error;
-        continue;
-      }
-    }
-
-    return res.status(502).json({
-      error: 'TOOL_CALLING_FAILED',
-      message: 'Todos los providers con soporte de tool-calling fallaron.',
-      ...(lastToolCallingError ? { details: formatAttemptSummary(failedAttempts) } : {}),
-      attempts: failedAttempts,
+    const { allowed: allowedToolDefinitions, unknownNames } = resolveAllowedToolDefinitions(agentConfig);
+    console.log(`[Gateway] Tools permitidas para "${resolvedAgentId}":`, allowedToolDefinitions.map(d => d.name));
+    const requiredToolNames = resolveRequiredToolNames({
+      agentId: resolvedAgentId,
+      messages,
+      allowedToolNames: allowedToolDefinitions.map((definition) => definition.name),
     });
-  }
+    const useToolCalling = allowedToolDefinitions.length > 0;
+    if (useToolCalling) {
+      const {
+        supported: toolCallingAttempts,
+        unsupported: unsupportedToolCallingAttempts,
+        rerouted: reroutedToolCallingAttempts,
+      } = splitToolCallingAttempts(attempts);
+      const failedAttempts = unsupportedToolCallingAttempts.map((attempt) => ({
+        provider: attempt.provider,
+        model: attempt.model,
+        capability: 'tool-calling' as const,
+        success: false,
+        reason: 'tool-calling unsupported for configured provider',
+      })) as Array<ReturnType<typeof createAttemptDiagnostic>>;
+
+      if (toolCallingAttempts.length === 0) {
+        return res.status(400).json({
+          error: 'TOOL_CALLING_UNSUPPORTED',
+          message: buildToolCallingUnsupportedMessage(unsupportedToolCallingAttempts),
+          attempts: failedAttempts,
+          details: formatAttemptSummary(failedAttempts),
+        });
+      }
+
+      if (unknownNames.length > 0) {
+        console.warn(`[Gateway] Tools desconocidas para '${resolvedAgentId}': ${unknownNames.join(', ')}`);
+      }
+      if (unsupportedToolCallingAttempts.length > 0) {
+        console.warn(
+          `[Gateway] Omitiendo providers sin tool-calling para '${resolvedAgentId}': ${unsupportedToolCallingAttempts.map((attempt) => `${attempt.provider} (${attempt.model})`).join(', ')}`,
+        );
+      }
+      if (reroutedToolCallingAttempts.length > 0) {
+        console.warn(
+          `[Gateway] Rerouting tool-calling para '${resolvedAgentId}': ${reroutedToolCallingAttempts.map((route) => `${route.from.provider} (${route.from.model}) -> ${route.to.provider} (${route.to.model})`).join(', ')}`,
+        );
+      }
+      const allTools = createAllToolImplementations({
+        ...(typeof originThreadId === 'number' ? { originThreadId } : {}),
+        ...(typeof originChatId === 'string' && originChatId.trim() ? { notificationChatId: originChatId } : {}),
+        ...(worktreePath ? { worktreePath } : {}),
+        ...(resolvedAgentId ? { currentAgentId: resolvedAgentId } : {}),
+      });
+      let lastToolCallingError: unknown = null;
+
+      for (const attempt of toolCallingAttempts) {
+        try {
+          console.log(`[Gateway] Tool-calling con ${attempt.provider} (${attempt.model})...`);
+
+          const llmProvider = ProviderFactory.create(
+            attempt.provider,
+            attempt.model,
+            buildProviderAuth(),
+            attempt.providerProfile,
+          ) as IToolCallingProvider;
+
+          const { text, toolCalls, toolResults } = await executeToolCallLoop(
+            messages,
+            allowedToolDefinitions,
+            allTools,
+            llmProvider,
+            {
+              ...(worktreePath ? { worktreePath } : {}),
+              ...(requiredToolNames.length > 0 ? { requiredToolNames } : {}),
+            },
+          );
+          assertRequiredToolCalls(requiredToolNames, toolCalls);
+
+          const handoffAgentId = extractHandoffAgentId(toolCalls, toolResults);
+          traceOutput({
+            stage: 'gateway.response.toolCalling',
+            text,
+            provider: attempt.provider,
+            model: attempt.model,
+            ...(resolvedAgentId ? { agentId: resolvedAgentId } : {}),
+            ...(handoffAgentId ? { handoffAgentId } : {}),
+            toolCallCount: toolCalls.length,
+          });
+          const successResponse: ChatResponse = {
+            response: text,
+            providerUsed: attempt.provider,
+            modelUsed: attempt.model,
+            ...(handoffAgentId ? { handoffAgentId } : {}),
+            toolCalls,
+            toolResults,
+          };
+
+          return res.json(successResponse);
+        } catch (error) {
+          const details = toDiagnosticErrorMessage(error);
+          console.warn(`⚠️ Falló tool-calling con ${attempt.provider}:`, details);
+          failedAttempts.push(createAttemptDiagnostic(attempt.provider, attempt.model, 'tool-calling', error));
+          lastToolCallingError = error;
+          continue;
+        }
+      }
+
+      return res.status(502).json({
+        error: 'TOOL_CALLING_FAILED',
+        message: 'Todos los providers con soporte de tool-calling fallaron.',
+        ...(lastToolCallingError ? { details: formatAttemptSummary(failedAttempts) } : {}),
+        attempts: failedAttempts,
+      });
+    }
 
   let lastError: unknown = null;
   const failedAttempts = [] as Array<ReturnType<typeof createAttemptDiagnostic>>;
@@ -701,7 +666,7 @@ app.get('/api/agents', (_req, res) => {
   const agents = AgentRegistryService.getAllActive()
     .filter((record) => record.agent_id !== 'default')
     .sort((a, b) => a.agent_id.localeCompare(b.agent_id))
-    .map(serializeAgentRecord);
+    .map((record) => serializeAgentRecord(record, AGENT_ALIASES[record.agent_id] || [record.agent_id]));
 
   res.json({ agents, defaults: DEFAULT_MODEL_BY_PROVIDER, meta: buildAgentConfigApiMetadata() });
 });
@@ -713,7 +678,7 @@ app.get('/api/agents/:id', (req, res) => {
     return;
   }
 
-  res.json({ agent: serializeAgentRecord(record) });
+  res.json({ agent: serializeAgentRecord(record, AGENT_ALIASES[record.agent_id] || [record.agent_id]) });
 });
 
 app.patch('/api/agents/:id', (req, res) => {
@@ -724,111 +689,24 @@ app.patch('/api/agents/:id', (req, res) => {
   }
 
   const body = (req.body || {}) as Record<string, unknown>;
-  const updates: Partial<AgentRegistryRecord> = {};
-
-  if ('primaryProvider' in body) {
-    const provider = parseProvider(body.primaryProvider);
-    if (!provider) {
-      res.status(400).json({ error: 'Invalid primaryProvider' });
-      return;
-    }
-    updates.primary_provider = provider;
-    updates.provider = provider;
-  }
-
-  if ('providerProfile' in body) {
-    if (body.providerProfile !== null && typeof body.providerProfile !== 'string') {
-      res.status(400).json({ error: 'Invalid providerProfile' });
-      return;
-    }
-    updates.provider_profile = parseProviderProfile(body.providerProfile);
-  }
-
-  if ('model' in body) {
-    const model = typeof body.model === 'string' ? body.model.trim() : '';
-    if (!model) {
-      res.status(400).json({ error: 'Invalid model' });
-      return;
-    }
-    updates.model = model;
-  }
-
-  if ('toolMode' in body) {
-    const toolMode = parseToolMode(body.toolMode);
-    if (!toolMode) {
-      res.status(400).json({ error: 'Invalid toolMode' });
-      return;
-    }
-    updates.tool_mode = toolMode;
-  }
-
-  if ('allowedTools' in body) {
-    if (!Array.isArray(body.allowedTools) || body.allowedTools.some((tool) => typeof tool !== 'string')) {
-      res.status(400).json({ field: 'allowedTools', error: 'Invalid allowedTools' });
-      return;
-    }
-    const allowedTools = body.allowedTools.map((tool) => String(tool));
-    const toolError = validateAllowedTools(req.params.id, allowedTools);
-    if (toolError) {
-      res.status(400).json(toolError);
-      return;
-    }
-    updates.allowed_tools_json = JSON.stringify(allowedTools);
-  }
-
-  if ('fallbacks' in body) {
-    const fallbacks = parseFallbacks(body.fallbacks);
-    if (!fallbacks) {
-      res.status(400).json({ field: 'fallbacks', error: 'Invalid fallbacks' });
-      return;
-    }
-    const fallbackError = validateFallbackRoutes(fallbacks);
-    if (fallbackError) {
-      res.status(400).json(fallbackError);
-      return;
-    }
-    updates.fallbacks_json = JSON.stringify(fallbacks);
-  }
-
-  if ('isActive' in body) {
-    if (typeof body.isActive !== 'boolean') {
-      res.status(400).json({ error: 'Invalid isActive' });
-      return;
-    }
-    updates.is_active = body.isActive ? 1 : 0;
-  }
-
-  if (Object.keys(updates).length === 0) {
-    res.status(400).json({ error: 'No valid agent fields provided' });
+  const result = buildAgentConfigUpdates(req.params.id, existing, body);
+  if ('error' in result) {
+    res.status(400).json(result.error);
     return;
   }
 
-  const effectiveProvider = (updates.primary_provider || existing.primary_provider || existing.provider || DEFAULT_MODEL_BY_PROVIDER.gemini) as Provider;
-  const effectiveModel = updates.model || existing.model || DEFAULT_MODEL_BY_PROVIDER[effectiveProvider];
-  const effectiveProviderProfile = 'provider_profile' in updates
-    ? updates.provider_profile || null
-    : existing.provider_profile || null;
-
-  const modelError = validateProviderModel(effectiveProvider, effectiveModel);
-  if (modelError) {
-    res.status(400).json(modelError);
-    return;
-  }
-
-  const profileError = validateProviderProfile(effectiveProvider, effectiveProviderProfile);
-  if (profileError) {
-    res.status(400).json(profileError);
-    return;
-  }
-
-  AgentRegistryService.updateAgentConfig(req.params.id, updates);
+  AgentRegistryService.updateAgentConfig(req.params.id, result.updates);
   const refreshed = AgentRegistryService.getById(req.params.id);
   if (!refreshed) {
     res.status(404).json({ error: 'Agent not found after update' });
     return;
   }
 
-  res.json({ success: true, agent: serializeAgentRecord(refreshed) });
+  res.json({
+    success: true,
+    appliesTo: 'new_sessions_only',
+    agent: serializeAgentRecord(refreshed, AGENT_ALIASES[refreshed.agent_id] || [refreshed.agent_id]),
+  });
 });
 
 app.post('/api/ops/backup', async (_req, res) => {
@@ -847,6 +725,8 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3006;
 
 function bootstrap() {
   console.log('🔄 Iniciando secuencia de arranque del Gateway...');
+  executionJobScheduler.start();
+  reviewScheduler.start();
 
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 LLM Gateway escuchando en http://0.0.0.0:${PORT}`);
@@ -867,8 +747,21 @@ function bootstrap() {
   });
 
   server.on('error', (error) => {
+    executionJobScheduler.stop();
+    reviewScheduler.stop();
     console.error('❌ Error fatal en el socket del servidor Gateway:', error instanceof Error ? error.message : String(error));
     process.exit(1);
+  });
+
+  process.once('SIGINT', () => {
+    executionJobScheduler.stop();
+    reviewScheduler.stop();
+    server.close();
+  });
+  process.once('SIGTERM', () => {
+    executionJobScheduler.stop();
+    reviewScheduler.stop();
+    server.close();
   });
 }
 

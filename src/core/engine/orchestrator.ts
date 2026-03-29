@@ -1,19 +1,24 @@
 import path from 'path';
 import { existsSync, readFileSync, unlinkSync } from 'fs';
 import type { Provider } from '../domain/gateway.types.js';
+import { resolveEngineProjectConfig } from './config.js';
 import { getRuntimeLockRepository } from './runtimeLockRepository.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
-import { SessionSupervisor, type SpawnRuntimeSessionInput } from '../services/SessionManager.js';
 import { getEngineSessionsStatus, type EngineStatusSession } from './status.js';
+import type { RuntimeAgentConfigSnapshot } from './runtimeFiles.js';
 import { resumeRuntimeSession } from './resume.js';
 import { RUNTIME_GUARDRAIL_LOG_NAME } from '../domain/constants.js';
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
+import { getRalphitoRepositories, type ExecutionJobRecord } from '../../infrastructure/persistence/db/index.js';
+import { ExecutionPipelineService, resolveExecutionTask } from '../services/ExecutionPipelineService.js';
+import { SessionSupervisor, type SpawnRuntimeSessionResult } from '../services/SessionManager.js';
 
 export interface OrchestratorSpawnInput {
-  project: string;
-  prompt: string;
-  beadPath?: string;
+  project?: string;
+  prompt?: string;
+  taskId?: string;
   workItemKey?: string;
+  beadPath?: string;
   provider?: Provider;
   model?: string;
   beadSpecHash?: string;
@@ -24,14 +29,20 @@ export interface OrchestratorSpawnInput {
 }
 
 export interface OrchestratorSpawnResult {
-  runtimeSessionId: string;
-  baseCommitHash: string;
-  worktreePath: string;
-  branchName: string;
+  taskId: string;
+  executionJobId: string;
+  status: 'pending';
+}
+
+export interface LaunchExecutionJobInput {
+  executionJobId: string;
+  claimToken: string;
+  workerId?: string;
 }
 
 export interface OrchestratorResumeResult {
   success: boolean;
+  runtimeSessionId: string;
   message: string;
 }
 
@@ -56,44 +67,89 @@ export interface OrchestratorDivergenceResult {
 export class Orchestrator {
   constructor(
     private readonly sessionSupervisor = new SessionSupervisor(),
+    private readonly executionPipeline = new ExecutionPipelineService(),
+    private readonly lockRepository = getRuntimeLockRepository(),
     private readonly repoRoot = process.cwd(),
   ) {}
 
   async spawn(input: OrchestratorSpawnInput): Promise<OrchestratorSpawnResult> {
-    const lockRepository = getRuntimeLockRepository();
-    const project = input.project;
-    const prompt = input.prompt;
-    let beadPath = input.beadPath;
+    const beadPath = input.beadPath || this.extractBeadPathFromPrompt(input.prompt || '');
+    const task = resolveExecutionTask({
+      taskId: input.taskId || input.workItemKey || null,
+      ...(beadPath ? { beadPath } : {}),
+      ...(input.project ? { projectId: input.project } : {}),
+    });
+    const targetProjectId = input.project || task.assignedAgent || task.projectId || 'system';
+    const projectConfig = resolveEngineProjectConfig(targetProjectId);
+    const prompt = input.prompt?.trim() || `Implementa la task ${task.id}: ${task.title}`;
 
-    if (!beadPath) {
-      beadPath = this.extractBeadPathFromPrompt(prompt);
+    const executionJob = this.executionPipeline.createJob({
+      task,
+      executorAgentId: projectConfig.id,
+      agentConfigId: projectConfig.agentConfigId,
+      executionHarness: projectConfig.agent,
+      executionProfile: projectConfig.executionProfile || null,
+      provider: input.provider || projectConfig.provider,
+      model: input.model || projectConfig.model,
+      providerProfile: projectConfig.providerProfile || null,
+      toolMode: projectConfig.toolMode,
+      allowedTools: [...projectConfig.allowedTools],
+      fallbacks: [...projectConfig.fallbacks],
+      prompt,
+      requestedByAgentId: 'raymon',
+      originThreadId: input.originThreadId ?? null,
+      notificationChatId: input.notificationChatId || null,
+    });
+    return {
+      taskId: task.id,
+      executionJobId: executionJob.id,
+      status: 'pending',
+    };
+  }
+
+  async launchExecutionJob(input: LaunchExecutionJobInput): Promise<SpawnRuntimeSessionResult> {
+    const job = getRalphitoRepositories().executionJobs.getById(input.executionJobId);
+    if (!job) {
+      throw new Error(`Execution job missing: ${input.executionJobId}`);
+    }
+    if (job.status !== 'claimed') {
+      throw new Error(`Execution job ${input.executionJobId} no está claimed.`);
+    }
+    if (job.claimToken !== input.claimToken) {
+      throw new Error(`Execution job claim mismatch: ${input.executionJobId}`);
+    }
+    if (job.claimExpiresAt && job.claimExpiresAt <= new Date().toISOString()) {
+      throw new Error(`Execution job claim expired: ${input.executionJobId}`);
     }
 
-    const resolvedBeadPath = this.resolveBeadPath(beadPath);
-
+    const project = resolveEngineProjectConfig(job.projectId || job.agentId);
+    const resolvedBeadPath = this.resolveBeadPath(job.beadPath, project.path);
     if (resolvedBeadPath) {
-      const targets = resolveWriteScopeTargetsFromBeadFile(resolvedBeadPath, this.repoRoot);
-      const conflict = lockRepository.findActiveConflict(targets);
+      const targets = resolveWriteScopeTargetsFromBeadFile(resolvedBeadPath, project.path);
+      const conflict = this.lockRepository.findActiveConflict(targets);
       if (conflict) {
-        throw new Error(`LOCK_CONFLICT: ${conflict.relation} lock on ${conflict.requestedPath} blocked by ${conflict.blockingLock.path} (session ${conflict.blockingLock.runtimeSessionId})`);
+        throw new Error(`LOCK_CONFLICT: ${conflict.relation} ${conflict.requestedPath}`);
       }
     }
 
-    const spawnInput: SpawnRuntimeSessionInput = {
-      project,
-      prompt,
-      ...(resolvedBeadPath ? { beadPath: path.relative(this.repoRoot, resolvedBeadPath) } : {}),
-      ...(input.workItemKey ? { workItemKey: input.workItemKey } : {}),
-      ...(input.provider ? { provider: input.provider } : {}),
-      ...(input.model ? { model: input.model } : {}),
-      ...(input.beadSpecHash ? { beadSpecHash: input.beadSpecHash } : {}),
-      ...(input.beadSpecVersion ? { beadSpecVersion: input.beadSpecVersion } : {}),
-      ...(input.qaConfig ? { qaConfig: input.qaConfig } : {}),
-      ...(input.originThreadId ? { originThreadId: input.originThreadId } : {}),
-      ...(input.notificationChatId ? { notificationChatId: input.notificationChatId } : {}),
-    };
+    const runtimeAgentConfigSnapshot = this.buildRuntimeAgentConfigSnapshot(job, project);
+    const prompt = job.prompt?.trim() || `Implementa la task ${job.taskId}`;
 
-    return this.sessionSupervisor.spawn(spawnInput);
+    return this.sessionSupervisor.spawn({
+      project: project.id,
+      prompt,
+      taskId: job.taskId,
+      executionJobId: job.id,
+      executionClaimToken: input.claimToken,
+      ...(job.beadPath ? { beadPath: job.beadPath } : {}),
+      workItemKey: job.taskId,
+      ...(runtimeAgentConfigSnapshot.primaryProvider ? { provider: runtimeAgentConfigSnapshot.primaryProvider } : {}),
+      ...(runtimeAgentConfigSnapshot.model ? { model: runtimeAgentConfigSnapshot.model } : {}),
+      agentConfigId: job.agentConfigId || runtimeAgentConfigSnapshot.agentId || project.agentConfigId,
+      agentConfigSnapshot: runtimeAgentConfigSnapshot,
+      ...(typeof job.originThreadId === 'number' ? { originThreadId: job.originThreadId } : {}),
+      ...(job.notificationChatId ? { notificationChatId: job.notificationChatId } : {}),
+    });
   }
 
   async resume(runtimeSessionId: string): Promise<OrchestratorResumeResult> {
@@ -106,10 +162,14 @@ export class Orchestrator {
           unlinkSync(guardrailLogPath);
         }
       }
-      return { success: true, message: 'Ralphito resucitado. Error inyectado en su contexto.' };
+      return {
+        success: true,
+        runtimeSessionId,
+        message: 'Ralphito resucitado. Error inyectado en su contexto.',
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { success: false, message };
+      return { success: false, runtimeSessionId, message };
     }
   }
 
@@ -132,11 +192,44 @@ export class Orchestrator {
     return match?.[0];
   }
 
-  private resolveBeadPath(beadPath: string | undefined): string | null {
-    if (!beadPath) return null;
-    if (existsSync(beadPath)) return beadPath;
-    const relative = path.join(this.repoRoot, beadPath);
-    if (existsSync(relative)) return relative;
+  private buildRuntimeAgentConfigSnapshot(
+    job: ExecutionJobRecord,
+    project: ReturnType<typeof resolveEngineProjectConfig>,
+  ): RuntimeAgentConfigSnapshot {
+    const primaryProvider = this.optionalProvider(job.provider) || project.provider || null;
+
+    return {
+      agentId: job.agentConfigId || project.agentConfigId,
+      primaryProvider,
+      model: job.model || project.model || null,
+      providerProfile: job.providerProfile || project.providerProfile || null,
+      executionHarness: job.executionHarness === 'codex' ? 'codex' : 'opencode',
+      executionProfile: job.executionProfile || project.executionProfile || null,
+      toolMode: job.toolMode,
+      allowedTools: [...job.allowedTools],
+      fallbacks: [...job.fallbacks],
+      resolvedAt: job.createdAt,
+    };
+  }
+
+  private optionalProvider(value: string | null): Provider | null {
+    if (value === 'gemini' || value === 'openai' || value === 'opencode' || value === 'codex') {
+      return value;
+    }
+    return null;
+  }
+
+  private resolveBeadPath(beadPath: string | null, projectPath: string) {
+    const normalized = beadPath?.trim();
+    if (!normalized) return null;
+    if (path.isAbsolute(normalized) && existsSync(normalized)) return normalized;
+
+    const projectRelative = path.join(projectPath, normalized);
+    if (existsSync(projectRelative)) return projectRelative;
+
+    const repoRelative = path.join(this.repoRoot, normalized);
+    if (existsSync(repoRelative)) return repoRelative;
+
     return null;
   }
 
@@ -159,7 +252,6 @@ export class Orchestrator {
         errorSnippet: snippet,
       });
     }
-
     return failures;
   }
 }
@@ -168,7 +260,7 @@ let orchestrator: Orchestrator | null = null;
 
 export function getOrchestrator(repoRoot = process.cwd()): Orchestrator {
   if (!orchestrator || orchestrator['repoRoot'] !== repoRoot) {
-    orchestrator = new Orchestrator(new SessionSupervisor(), repoRoot);
+    orchestrator = new Orchestrator(new SessionSupervisor(), new ExecutionPipelineService(), getRuntimeLockRepository(), repoRoot);
   }
   return orchestrator;
 }

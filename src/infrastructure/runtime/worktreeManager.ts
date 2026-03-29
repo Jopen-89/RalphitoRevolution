@@ -1,5 +1,5 @@
 import { execFile } from 'child_process';
-import { existsSync, mkdirSync, realpathSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, realpathSync, rmSync, symlinkSync } from 'fs';
 import path from 'path';
 import * as util from 'util';
 import { ProjectService } from '../../core/services/ProjectService.js';
@@ -39,6 +39,17 @@ export class WorktreeManager {
     return isNestedPath(this.worktreeRootPath, resolvedPath);
   }
 
+  private linkRuntimeDependencies(workspacePath: string) {
+    const repoNodeModulesPath = path.join(this.repoRoot, 'node_modules');
+    const workspaceNodeModulesPath = path.join(workspacePath, 'node_modules');
+
+    if (!existsSync(repoNodeModulesPath) || existsSync(workspaceNodeModulesPath)) {
+      return;
+    }
+
+    symlinkSync(repoNodeModulesPath, workspaceNodeModulesPath, 'dir');
+  }
+
   async createWorkspace(runtimeSessionId: string, baseCommit: string, branchName?: string) {
     mkdirSync(this.worktreeRootPath, { recursive: true });
 
@@ -56,6 +67,8 @@ export class WorktreeManager {
         cwd: this.repoRoot,
       });
     }
+
+    this.linkRuntimeDependencies(workspacePath);
 
     return workspacePath;
   }

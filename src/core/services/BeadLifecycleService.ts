@@ -11,6 +11,7 @@ export interface CreateLifecycleTaskInput {
   title: string;
   projectId: string;
   projectKey?: string;
+  parentTaskId?: string | null;
   beadPath?: string | null;
   sourceSpecPath?: string | null;
   componentPath?: string | null;
@@ -38,6 +39,7 @@ export interface LifecycleTaskRecord {
   projectId: string | null;
   projectKey: string | null;
   title: string;
+  parentTaskId: string | null;
   sourceSpecPath: string | null;
   beadPath: string | null;
   componentPath: string | null;
@@ -71,6 +73,7 @@ function mapLifecycleTask(row: Record<string, unknown> | undefined): LifecycleTa
     projectId: row.projectId ? String(row.projectId) : null,
     projectKey: row.projectKey ? String(row.projectKey) : null,
     title: String(row.title),
+    parentTaskId: row.parentTaskId ? String(row.parentTaskId) : null,
     sourceSpecPath: row.sourceSpecPath ? String(row.sourceSpecPath) : null,
     beadPath: row.beadPath ? String(row.beadPath) : null,
     componentPath: row.componentPath ? String(row.componentPath) : null,
@@ -106,6 +109,7 @@ export class BeadLifecycleService {
             project_id AS projectId,
             project_key AS projectKey,
             title,
+            parent_task_id AS parentTaskId,
             source_spec_path AS sourceSpecPath,
             bead_path AS beadPath,
             component_path AS componentPath,
@@ -167,6 +171,7 @@ export class BeadLifecycleService {
             project_id AS projectId,
             project_key AS projectKey,
             title,
+            parent_task_id AS parentTaskId,
             source_spec_path AS sourceSpecPath,
             bead_path AS beadPath,
             component_path AS componentPath,
@@ -223,6 +228,7 @@ export class BeadLifecycleService {
         SET project_key = ?,
             project_id = ?,
             title = ?,
+            parent_task_id = COALESCE(?, parent_task_id),
             source_spec_path = ?,
             bead_path = ?,
             component_path = ?,
@@ -233,6 +239,7 @@ export class BeadLifecycleService {
       input.projectKey || projectId,
       projectId,
       input.title,
+      input.parentTaskId || null,
       sourceSpecPath || null,
       beadPath || null,
       input.componentPath || existing.componentPath || null,
@@ -246,6 +253,7 @@ export class BeadLifecycleService {
       payloadJson: JSON.stringify({
         projectId,
         projectKey: input.projectKey || projectId,
+        parentTaskId: input.parentTaskId || existing.parentTaskId || null,
         beadPath,
         sourceSpecPath,
         status,
@@ -269,6 +277,7 @@ export class BeadLifecycleService {
       projectKey: input.projectKey || projectId,
       projectId,
       title: input.title,
+      ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
       status,
       ...(sourceSpecPath ? { sourceSpecPath } : {}),
       ...(beadPath ? { beadPath } : {}),
@@ -284,6 +293,7 @@ export class BeadLifecycleService {
       payloadJson: JSON.stringify({
         projectId,
         projectKey: input.projectKey || projectId,
+        parentTaskId: input.parentTaskId || null,
         beadPath,
         sourceSpecPath,
         status,
@@ -307,6 +317,7 @@ export class BeadLifecycleService {
             project_id AS projectId,
             project_key AS projectKey,
             title,
+            parent_task_id AS parentTaskId,
             source_spec_path AS sourceSpecPath,
             bead_path AS beadPath,
             component_path AS componentPath,
@@ -343,6 +354,7 @@ export class BeadLifecycleService {
               project_id AS projectId,
               project_key AS projectKey,
               title,
+              parent_task_id AS parentTaskId,
               source_spec_path AS sourceSpecPath,
               bead_path AS beadPath,
               component_path AS componentPath,
@@ -375,6 +387,7 @@ export class BeadLifecycleService {
             project_id AS projectId,
             project_key AS projectKey,
             title,
+            parent_task_id AS parentTaskId,
             source_spec_path AS sourceSpecPath,
             bead_path AS beadPath,
             component_path AS componentPath,

@@ -8,11 +8,10 @@ import {
 import { getRuntimeSessionRepository } from './runtimeSessionRepository.js';
 import { resolveWriteScopeTargetsFromBeadFile } from './writeScope.js';
 import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js';
-import { SessionSupervisor } from '../services/SessionManager.js';
 import { SessionLoop } from './sessionLoop.js';
 import { agentLoop } from './agentLoop.js';
 import { getEngineSessionsStatus, formatEngineSessionLine } from './status.js';
-import { resumeRuntimeSession } from './resume.js';
+import { getOrchestrator } from './orchestrator.js';
 import {
   clearRuntimeFailureRecord,
   readRuntimeSessionFile,
@@ -24,6 +23,8 @@ import {
 } from '../services/EventBus.js';
 import { EngineNotificationDispatcher } from '../../interfaces/telegram/engineNotificationDispatcher.js';
 import type { Provider } from '../domain/gateway.types.js';
+import { ExecutionJobScheduler } from '../services/ExecutionJobScheduler.js';
+import { ReviewScheduler } from '../services/ReviewScheduler.js';
 import { RuntimeSessionLifecycleService } from '../services/RuntimeSessionLifecycleService.js';
 
 function printJson(payload: unknown) {
@@ -81,24 +82,34 @@ async function main() {
 
   switch (command) {
     case 'spawn-session': {
-      const payloadFile = args[0];
-      if (!payloadFile) {
-        throw new Error('Uso: cli.ts spawn-session <payload_file>');
+      throw new Error(
+        'cli.ts spawn-session retirado. Usa Raymon spawn_session para encolar y launch-execution-job/poll-execution-jobs para arrancar claims.',
+      );
+    }
+
+    case 'launch-execution-job': {
+      const executionJobId = args[0];
+      const claimToken = args[1];
+      const workerId = args[2];
+      if (!executionJobId || !claimToken) {
+        throw new Error('Uso: cli.ts launch-execution-job <execution_job_id> <claim_token> [worker_id]');
       }
 
-      const supervisor = new SessionSupervisor();
-      const payload = JSON.parse(readFileSync(payloadFile, 'utf8')) as Parameters<SessionSupervisor['spawn']>[0];
-      const result = await supervisor.spawn(payload);
-
-        printJson({
-          status: 'success',
-          session_id: result.runtimeSessionId,
-          base_commit_hash: result.baseCommitHash,
-          worktree_path: result.worktreePath,
-          branch_name: result.branchName,
-          message: 'Ralphito Engine inició la sesión y lanzó el session loop.',
-        });
-        return;
+      const result = await getOrchestrator().launchExecutionJob({
+        executionJobId,
+        claimToken,
+        ...(workerId ? { workerId } : {}),
+      });
+      printJson({
+        status: 'ok',
+        taskId: result.taskId,
+        executionJobId: result.executionJobId,
+        runtimeSessionId: result.runtimeSessionId,
+        baseCommitHash: result.baseCommitHash,
+        worktreePath: result.worktreePath,
+        branchName: result.branchName,
+      });
+      return;
     }
 
     case 'run-loop': {
@@ -368,8 +379,8 @@ async function main() {
         throw new Error('Uso: cli.ts resume-session <runtime_session_id>');
       }
 
-      await resumeRuntimeSession(runtimeSessionId);
-      printJson({ status: 'ok', runtimeSessionId });
+      const result = await getOrchestrator().resume(runtimeSessionId);
+      printJson({ status: 'ok', ...result });
       return;
     }
 
@@ -404,6 +415,32 @@ async function main() {
 
       const dispatcher = new EngineNotificationDispatcher();
       const result = await dispatcher.pollOnce(limit);
+      printJson({ status: 'ok', ...result });
+      return;
+    }
+
+    case 'poll-execution-jobs': {
+      const limitArg = args[0];
+      const limit = limitArg ? Number.parseInt(limitArg, 10) : 4;
+      if (Number.isNaN(limit) || limit <= 0) {
+        throw new Error('Uso: cli.ts poll-execution-jobs [limit_positivo]');
+      }
+
+      const scheduler = new ExecutionJobScheduler();
+      const result = await scheduler.pollOnce(limit);
+      printJson({ status: 'ok', ...result });
+      return;
+    }
+
+    case 'poll-review-jobs': {
+      const limitArg = args[0];
+      const limit = limitArg ? Number.parseInt(limitArg, 10) : 4;
+      if (Number.isNaN(limit) || limit <= 0) {
+        throw new Error('Uso: cli.ts poll-review-jobs [limit_positivo]');
+      }
+
+      const scheduler = new ReviewScheduler();
+      const result = await scheduler.pollOnce(limit);
       printJson({ status: 'ok', ...result });
       return;
     }
@@ -458,7 +495,7 @@ async function main() {
       throw new Error(
         [
           'Uso:',
-          'cli.ts spawn-session <payload_file>',
+          'cli.ts launch-execution-job <execution_job_id> <claim_token> [worker_id]',
           'cli.ts run-loop <runtime_session_id>',
           'cli.ts agent-loop <runtime_session_id>',
           'cli.ts resolve-write-scope <bead_path>',
@@ -477,6 +514,8 @@ async function main() {
           'cli.ts resume-session <runtime_session_id>',
           'cli.ts enqueue-notification <runtime_session_id|-> <event_type> <payload_json> [target_chat_id]',
           'cli.ts deliver-notifications [limit_positivo]',
+          'cli.ts poll-execution-jobs [limit_positivo]',
+          'cli.ts poll-review-jobs [limit_positivo]',
           'cli.ts notification-status [summary|json] [limit_positivo]',
           'cli.ts status [table|json|active-count]',
         ].join('\n'),

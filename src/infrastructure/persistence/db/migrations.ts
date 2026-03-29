@@ -495,4 +495,246 @@ export const ralphitoMigrations: RalphitoMigration[] = [
         WHERE bead_path IS NOT NULL;
     `,
   },
+  {
+    id: 20,
+    name: 'agent_registry_execution_harness_and_tool_calling_mode',
+    sql: `
+      ALTER TABLE agent_registry ADD COLUMN execution_harness TEXT DEFAULT 'opencode';
+      ALTER TABLE agent_registry ADD COLUMN tool_calling_mode TEXT DEFAULT 'none';
+
+      UPDATE agent_registry
+      SET execution_harness = COALESCE(NULLIF(TRIM(execution_harness), ''), 'opencode');
+
+      UPDATE agent_registry
+      SET tool_calling_mode = COALESCE(
+        NULLIF(TRIM(tool_calling_mode), ''),
+        NULLIF(TRIM(tool_mode), ''),
+        'none'
+      );
+    `,
+  },
+  {
+    id: 21,
+    name: 'agent_registry_execution_profile',
+    sql: `
+      ALTER TABLE agent_registry ADD COLUMN execution_profile TEXT;
+
+      UPDATE agent_registry
+      SET execution_profile = provider_profile
+      WHERE execution_harness = 'codex'
+        AND execution_profile IS NULL
+        AND provider_profile IS NOT NULL
+        AND TRIM(provider_profile) <> '';
+    `,
+  },
+  {
+    id: 22,
+    name: 'execution_pipeline_contract',
+    sql: `
+      CREATE TABLE IF NOT EXISTS execution_jobs (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        execution_harness TEXT NOT NULL,
+        execution_profile TEXT,
+        provider TEXT,
+        model TEXT,
+        provider_profile TEXT,
+        status TEXT NOT NULL,
+        prompt TEXT,
+        bead_path TEXT,
+        requested_by_agent_id TEXT,
+        origin_thread_id INTEGER,
+        notification_chat_id TEXT,
+        runtime_session_id TEXT,
+        branch_name TEXT,
+        base_commit_hash TEXT,
+        failure_reason TEXT,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (runtime_session_id) REFERENCES agent_sessions(runtime_session_id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_execution_jobs_task_created_at
+        ON execution_jobs(task_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_execution_jobs_status_created_at
+        ON execution_jobs(status, created_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_jobs_runtime_session_id
+        ON execution_jobs(runtime_session_id)
+        WHERE runtime_session_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS execution_results (
+        id TEXT PRIMARY KEY,
+        execution_job_id TEXT NOT NULL UNIQUE,
+        task_id TEXT NOT NULL,
+        runtime_session_id TEXT,
+        status TEXT NOT NULL,
+        summary TEXT,
+        reason TEXT,
+        branch_name TEXT,
+        base_commit_hash TEXT,
+        payload_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (execution_job_id) REFERENCES execution_jobs(id) ON DELETE CASCADE,
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (runtime_session_id) REFERENCES agent_sessions(runtime_session_id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_execution_results_task_created_at
+        ON execution_results(task_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_execution_results_runtime_session_id
+        ON execution_results(runtime_session_id);
+    `,
+  },
+  {
+    id: 23,
+    name: 'execution_jobs_queue_scheduler',
+    sql: `
+      ALTER TABLE execution_jobs ADD COLUMN claim_token TEXT;
+      ALTER TABLE execution_jobs ADD COLUMN claimed_by TEXT;
+      ALTER TABLE execution_jobs ADD COLUMN claimed_at TEXT;
+      ALTER TABLE execution_jobs ADD COLUMN claim_expires_at TEXT;
+      ALTER TABLE execution_jobs ADD COLUMN attempt_count INTEGER;
+      ALTER TABLE execution_jobs ADD COLUMN max_attempts INTEGER;
+      ALTER TABLE execution_jobs ADD COLUMN next_attempt_at TEXT;
+      ALTER TABLE execution_jobs ADD COLUMN last_heartbeat_at TEXT;
+      ALTER TABLE execution_jobs ADD COLUMN last_error_code TEXT;
+      ALTER TABLE execution_jobs ADD COLUMN last_error_summary TEXT;
+
+      UPDATE execution_jobs
+      SET status = 'failed'
+      WHERE status = 'cancelled';
+
+      UPDATE execution_results
+      SET status = 'failed'
+      WHERE status = 'cancelled';
+
+      UPDATE execution_jobs
+      SET attempt_count = COALESCE(attempt_count, 0),
+          max_attempts = COALESCE(max_attempts, 3),
+          next_attempt_at = COALESCE(next_attempt_at, created_at),
+          last_heartbeat_at = COALESCE(last_heartbeat_at, started_at)
+      WHERE attempt_count IS NULL
+         OR max_attempts IS NULL
+         OR next_attempt_at IS NULL
+         OR (last_heartbeat_at IS NULL AND started_at IS NOT NULL);
+
+      CREATE INDEX IF NOT EXISTS idx_execution_jobs_status_next_attempt_at
+        ON execution_jobs(status, next_attempt_at, created_at);
+
+      CREATE INDEX IF NOT EXISTS idx_execution_jobs_claim_expires_at
+        ON execution_jobs(claim_expires_at);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_jobs_task_active
+        ON execution_jobs(task_id)
+        WHERE status IN ('pending', 'claimed', 'running', 'review');
+    `,
+  },
+  {
+    id: 24,
+    name: 'execution_jobs_agent_config_snapshot',
+    sql: `
+      ALTER TABLE execution_jobs ADD COLUMN agent_config_id TEXT;
+      ALTER TABLE execution_jobs ADD COLUMN tool_calling_mode TEXT DEFAULT 'none';
+      ALTER TABLE execution_jobs ADD COLUMN allowed_tools_json TEXT;
+      ALTER TABLE execution_jobs ADD COLUMN fallbacks_json TEXT;
+
+      UPDATE execution_jobs
+      SET agent_config_id = COALESCE(
+            (SELECT agent_id FROM agent_registry WHERE agent_id = execution_jobs.agent_id LIMIT 1),
+            (SELECT agent_id FROM agent_registry WHERE agent_id = execution_jobs.project_id LIMIT 1),
+            (SELECT agent_id FROM agent_registry WHERE agent_id = 'default' LIMIT 1),
+            execution_jobs.agent_id
+          ),
+          tool_calling_mode = COALESCE(
+            (SELECT COALESCE(NULLIF(TRIM(tool_calling_mode), ''), NULLIF(TRIM(tool_mode), ''), 'none') FROM agent_registry WHERE agent_id = execution_jobs.agent_id LIMIT 1),
+            (SELECT COALESCE(NULLIF(TRIM(tool_calling_mode), ''), NULLIF(TRIM(tool_mode), ''), 'none') FROM agent_registry WHERE agent_id = execution_jobs.project_id LIMIT 1),
+            (SELECT COALESCE(NULLIF(TRIM(tool_calling_mode), ''), NULLIF(TRIM(tool_mode), ''), 'none') FROM agent_registry WHERE agent_id = 'default' LIMIT 1),
+            'none'
+          ),
+          allowed_tools_json = COALESCE(
+            (SELECT allowed_tools_json FROM agent_registry WHERE agent_id = execution_jobs.agent_id LIMIT 1),
+            (SELECT allowed_tools_json FROM agent_registry WHERE agent_id = execution_jobs.project_id LIMIT 1),
+            (SELECT allowed_tools_json FROM agent_registry WHERE agent_id = 'default' LIMIT 1),
+            '[]'
+          ),
+          fallbacks_json = COALESCE(
+            (SELECT fallbacks_json FROM agent_registry WHERE agent_id = execution_jobs.agent_id LIMIT 1),
+            (SELECT fallbacks_json FROM agent_registry WHERE agent_id = execution_jobs.project_id LIMIT 1),
+            (SELECT fallbacks_json FROM agent_registry WHERE agent_id = 'default' LIMIT 1),
+            '[]'
+          )
+      WHERE agent_config_id IS NULL
+         OR tool_calling_mode IS NULL
+         OR allowed_tools_json IS NULL
+         OR fallbacks_json IS NULL;
+
+      UPDATE execution_jobs
+      SET tool_calling_mode = COALESCE(NULLIF(TRIM(tool_calling_mode), ''), 'none'),
+          allowed_tools_json = COALESCE(NULLIF(allowed_tools_json, ''), '[]'),
+          fallbacks_json = COALESCE(NULLIF(fallbacks_json, ''), '[]')
+      WHERE tool_calling_mode IS NULL
+         OR TRIM(tool_calling_mode) = ''
+         OR allowed_tools_json IS NULL
+         OR fallbacks_json IS NULL;
+    `,
+  },
+  {
+    id: 25,
+    name: 'execution_reviews_and_task_parent',
+    sql: `
+      ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id
+        ON tasks(parent_task_id);
+
+      CREATE TABLE IF NOT EXISTS execution_reviews (
+        id TEXT PRIMARY KEY,
+        execution_job_id TEXT NOT NULL UNIQUE,
+        task_id TEXT NOT NULL,
+        runtime_session_id TEXT,
+        reviewer_agent_id TEXT NOT NULL,
+        provider TEXT,
+        model TEXT,
+        status TEXT NOT NULL,
+        summary TEXT,
+        findings_json TEXT,
+        input_json TEXT,
+        rework_task_id TEXT,
+        claim_token TEXT,
+        claimed_by TEXT,
+        claimed_at TEXT,
+        claim_expires_at TEXT,
+        attempt_count INTEGER NOT NULL,
+        max_attempts INTEGER NOT NULL,
+        next_attempt_at TEXT,
+        last_error TEXT,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        finished_at TEXT,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (execution_job_id) REFERENCES execution_jobs(id) ON DELETE CASCADE,
+        FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (runtime_session_id) REFERENCES agent_sessions(runtime_session_id) ON DELETE SET NULL,
+        FOREIGN KEY (rework_task_id) REFERENCES tasks(id) ON DELETE SET NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_execution_reviews_task_created_at
+        ON execution_reviews(task_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_execution_reviews_status_next_attempt_at
+        ON execution_reviews(status, next_attempt_at, created_at);
+
+      CREATE INDEX IF NOT EXISTS idx_execution_reviews_claim_expires_at
+        ON execution_reviews(claim_expires_at);
+    `,
+  },
 ];

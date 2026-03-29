@@ -18,6 +18,7 @@ import {
   updateRuntimeSessionFile,
   writeRuntimeSessionFile,
   writeRuntimeFailureRecord,
+  type RuntimeAgentConfigSnapshot,
   type RuntimeSessionFileRecord,
 } from '../engine/runtimeFiles.js';
 import { getRuntimeLockRepository } from '../engine/runtimeLockRepository.js';
@@ -33,10 +34,16 @@ import { WorktreeManager } from '../../infrastructure/runtime/worktreeManager.js
 import { resolveWriteScopeTargetsFromBeadFile } from '../engine/writeScope.js';
 import { RuntimeReaper } from '../engine/runtimeReaper.js';
 import { WorktreeProvisioningService } from './WorktreeProvisioningService.js';
+import { ExecutionPipelineService } from './ExecutionPipelineService.js';
 
 export interface SpawnRuntimeSessionInput {
   project: string;
   prompt: string;
+  taskId?: string;
+  executionJobId?: string;
+  executionClaimToken?: string;
+  agentConfigId?: string | null;
+  agentConfigSnapshot?: RuntimeAgentConfigSnapshot;
   beadPath?: string;
   workItemKey?: string;
   provider?: Provider;
@@ -49,6 +56,8 @@ export interface SpawnRuntimeSessionInput {
 }
 
 export interface SpawnRuntimeSessionResult {
+  taskId: string;
+  executionJobId: string;
   runtimeSessionId: string;
   baseCommitHash: string;
   worktreePath: string;
@@ -59,6 +68,25 @@ function resolveBeadPath(repoRoot: string, beadPath: string | undefined) {
   if (!beadPath) return null;
   const candidate = path.isAbsolute(beadPath) ? beadPath : path.join(repoRoot, beadPath);
   return candidate;
+}
+
+function buildRuntimeAgentConfigSnapshot(
+  snapshot: RuntimeAgentConfigSnapshot | undefined,
+  project: EngineProjectConfig,
+  resolvedAt: string,
+): RuntimeAgentConfigSnapshot {
+  return {
+    agentId: snapshot?.agentId || project.agentConfigId,
+    primaryProvider: snapshot?.primaryProvider ?? project.provider ?? null,
+    model: snapshot?.model ?? project.model ?? null,
+    providerProfile: snapshot?.providerProfile ?? project.providerProfile ?? null,
+    executionHarness: snapshot?.executionHarness || project.agent,
+    executionProfile: snapshot?.executionProfile ?? project.executionProfile ?? null,
+    toolMode: snapshot?.toolMode || project.toolMode,
+    allowedTools: [...(snapshot?.allowedTools || project.allowedTools)],
+    fallbacks: [...(snapshot?.fallbacks || project.fallbacks)],
+    resolvedAt: snapshot?.resolvedAt || resolvedAt,
+  };
 }
 
 function ensureRuntimeThread(runtimeSessionId: string) {
@@ -114,10 +142,21 @@ export class SessionSupervisor {
       tmux: TmuxRuntime,
     ) => new RuntimeReaper(sessionRepo, lockRepo, wtManager, tmux),
     private readonly worktreeProvisioningService = new WorktreeProvisioningService(commandRunner),
+    private readonly executionPipeline = new ExecutionPipelineService(),
   ) {}
 
   async spawn(input: SpawnRuntimeSessionInput) {
     const project = resolveEngineProjectConfig(input.project);
+    const taskId = input.taskId || input.workItemKey || null;
+    if (!taskId) {
+      throw new Error('SessionSupervisor.spawn requiere taskId persistida.');
+    }
+    if (!input.executionJobId) {
+      throw new Error('SessionSupervisor.spawn requiere executionJobId persistida.');
+    }
+    if (!input.executionClaimToken) {
+      throw new Error('SessionSupervisor.spawn requiere executionClaimToken activa.');
+    }
     const sessionRepository = getRuntimeSessionRepository();
     const lockRepository = getRuntimeLockRepository();
     const worktreeManager = this.worktreeManagerFactory(project);
@@ -132,8 +171,6 @@ export class SessionSupervisor {
     await reaper.reap();
 
     const beadPath = resolveBeadPath(project.path, input.beadPath);
-    const provider = input.provider || project.provider;
-    const model = input.model || (input.provider && project.agent === 'opencode' ? null : project.model);
     const maxSteps = DEFAULT_RUNTIME_MAX_STEPS;
     const maxWallTimeMs = DEFAULT_RUNTIME_MAX_WALL_TIME_MS;
     const maxCommandTimeMs = DEFAULT_RUNTIME_MAX_COMMAND_TIME_MS;
@@ -153,6 +190,15 @@ export class SessionSupervisor {
       baseCommitHash = provisioned.baseCommitHash;
       worktreePath = provisioned.worktreePath;
       const createdAt = new Date().toISOString();
+      const agentConfigSnapshot = buildRuntimeAgentConfigSnapshot(input.agentConfigSnapshot, project, createdAt);
+      const executionHarness = agentConfigSnapshot.executionHarness;
+      const provider = input.provider ?? agentConfigSnapshot.primaryProvider ?? project.provider;
+      const model = input.model
+        ?? agentConfigSnapshot.model
+        ?? (input.provider && executionHarness === 'opencode' ? null : project.model);
+      const providerProfile = agentConfigSnapshot.providerProfile || null;
+      const executionProfile = agentConfigSnapshot.executionProfile || null;
+      const agentConfigId = input.agentConfigId || agentConfigSnapshot.agentId || project.agentConfigId;
 
       const beadSnapshot = beadPath ? freezeRuntimeBeadSpec(beadPath, worktreePath) : null;
       const beadContent = beadSnapshot?.content.trim() || (beadPath ? readFileSync(beadPath, 'utf8').trim() : undefined);
@@ -163,10 +209,12 @@ export class SessionSupervisor {
         runtimeSessionId,
         projectId: project.id,
         agentId: project.id,
-        agent: project.agent,
+        agentConfigId,
+        agent: executionHarness,
         provider,
         model,
-        providerProfile: project.providerProfile || null,
+        providerProfile,
+        executionProfile,
         baseCommitHash,
         branchName,
         worktreePath,
@@ -175,12 +223,15 @@ export class SessionSupervisor {
         prompt: input.prompt,
         beadPath: input.beadPath || null,
         beadSnapshotPath: beadSnapshot?.snapshotPath || null,
+        taskId,
+        executionJobId: input.executionJobId,
         workItemKey: input.workItemKey || null,
         beadSpecHash: beadSnapshot?.hash || input.beadSpecHash || null,
         beadSpecVersion: beadSnapshot?.version || input.beadSpecVersion || null,
         qaConfig: input.qaConfig || null,
         originThreadId: input.originThreadId ?? null,
         notificationChatId: input.notificationChatId || null,
+        agentConfigSnapshot,
         maxSteps,
         maxWallTimeMs,
         maxCommandTimeMs,
@@ -205,14 +256,6 @@ export class SessionSupervisor {
       });
 
       writeRuntimeSessionFile(worktreePath, sessionFile);
-      syncRuntimeTaskLink({
-        runtimeSessionId,
-        projectId: project.id,
-        workItemKey: input.workItemKey || null,
-        beadPath: beadPath || null,
-        assignedAgent: project.id,
-        status: 'in_progress',
-      });
 
       if (beadPath) {
         const targets = resolveWriteScopeTargetsFromBeadFile(beadSnapshot?.snapshotPath || beadPath, project.path);
@@ -225,16 +268,19 @@ export class SessionSupervisor {
       await this.tmuxRuntime.createSession(
         runtimeSessionId,
         worktreePath,
-        buildRuntimeLaunchCommand(project.agent, model),
+        buildRuntimeLaunchCommand(executionHarness, model),
         buildRuntimeEnvironment({
           runtimeSessionId,
           worktreePath,
+          repoRoot: project.path,
           projectId: project.id,
+          executionHarness,
+          executionProfile,
           systemPrompt: enginePrompt.systemPrompt,
           instruction: enginePrompt.userTask,
           provider,
           model,
-          providerProfile: project.providerProfile || null,
+          providerProfile,
         }),
       );
       tmuxCreated = true;
@@ -259,6 +305,22 @@ export class SessionSupervisor {
       }
 
       spawnRuntimeLoop(project.path, runtimeSessionId, this.commandRunner);
+      this.executionPipeline.markJobRunning({
+        executionJobId: input.executionJobId,
+        claimToken: input.executionClaimToken,
+        runtimeSessionId,
+        branchName,
+        baseCommitHash,
+        startedAt: createdAt,
+      });
+      syncRuntimeTaskLink({
+        runtimeSessionId,
+        projectId: project.id,
+        workItemKey: taskId,
+        beadPath: beadPath || null,
+        assignedAgent: project.id,
+        status: 'in_progress',
+      });
 
       enqueueEngineNotification({
         runtimeSessionId,
@@ -273,6 +335,8 @@ export class SessionSupervisor {
       });
 
       return {
+        taskId,
+        executionJobId: input.executionJobId,
         runtimeSessionId,
         baseCommitHash,
         worktreePath,
@@ -325,15 +389,6 @@ export class SessionSupervisor {
           failureSummary: message,
         });
       }
-      syncRuntimeTaskLink({
-        runtimeSessionId,
-        projectId: project.id,
-        workItemKey: input.workItemKey || null,
-        beadPath: beadPath || null,
-        assignedAgent: project.id,
-        status: 'failed',
-        failureReason: message,
-      });
 
       throw error;
     }

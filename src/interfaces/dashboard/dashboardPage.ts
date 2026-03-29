@@ -340,6 +340,7 @@ export function renderDashboardPage() {
       </div>
       <div>
         <div class="muted" style="margin-bottom:10px">Agentes</div>
+        <div class="muted" style="margin-bottom:10px">Cambios solo para sesiones nuevas. Las vivas siguen snapshot.</div>
         <div class="session-list" id="agent-list"></div>
       </div>
     </aside>
@@ -386,10 +387,12 @@ export function renderDashboardPage() {
       agentMeta: {
         defaults: {},
         providers: [],
+        executionHarnesses: [],
         toolModes: [],
         toolNames: [],
         providerModels: {},
         providerProfiles: {},
+        executionProfiles: {},
       },
     };
 
@@ -438,6 +441,8 @@ export function renderDashboardPage() {
         primaryProvider: agent.primaryProvider || 'gemini',
         model: agent.model || '',
         providerProfile: agent.providerProfile || '',
+        executionHarness: agent.executionHarness || 'opencode',
+        executionProfile: agent.executionProfile || '',
         toolMode: agent.toolMode || 'none',
         allowedTools: formatAllowedToolsValue(agent.allowedTools),
         fallbacks: formatFallbackDraftValue(agent.fallbacks),
@@ -504,6 +509,21 @@ export function renderDashboardPage() {
         .join(' -> ');
     }
 
+    function formatAgentConfigSummary(config) {
+      if (!config) return 'sin config';
+      const profile = config.providerProfile ? ('/' + config.providerProfile) : '';
+      const executionProfile = config.executionProfile ? ('/' + config.executionProfile) : '';
+      const tools = Array.isArray(config.allowedTools) ? config.allowedTools.length : 0;
+      return [
+        config.agentId || 'sin agent',
+        (config.primaryProvider || 'sin provider') + profile,
+        config.model || 'sin model',
+        (config.executionHarness || 'sin harness') + executionProfile,
+        config.toolMode || 'sin toolMode',
+        tools + ' tools',
+      ].join(' · ');
+    }
+
     async function loadAgents() {
       const response = await fetch('/api/agents');
       const body = await response.json();
@@ -511,10 +531,12 @@ export function renderDashboardPage() {
       state.agentMeta = {
         defaults: body.defaults || {},
         providers: body.meta && Array.isArray(body.meta.providers) ? body.meta.providers : [],
+        executionHarnesses: body.meta && Array.isArray(body.meta.executionHarnesses) ? body.meta.executionHarnesses : ['opencode', 'codex'],
         toolModes: body.meta && Array.isArray(body.meta.toolModes) ? body.meta.toolModes : ['none', 'allowed'],
         toolNames: body.meta && Array.isArray(body.meta.toolNames) ? body.meta.toolNames : [],
         providerModels: body.meta && body.meta.providerModels ? body.meta.providerModels : {},
         providerProfiles: body.meta && body.meta.providerProfiles ? body.meta.providerProfiles : {},
+        executionProfiles: body.meta && body.meta.executionProfiles ? body.meta.executionProfiles : {},
       };
       if (!state.selectedAgentId && state.agents.length > 0) {
         state.selectedAgentId = state.agents[0].agentId;
@@ -547,15 +569,20 @@ export function renderDashboardPage() {
         ? state.agents.map((agent) => {
             const draft = ensureAgentDraft(agent);
             const providerProfile = agent.providerProfile || 'default';
+            const executionProfile = agent.executionProfile || 'default';
             const message = state.agentMessages[agent.agentId];
             const isSelected = state.selectedAgentId === agent.agentId;
             const providerOptions = state.agentMeta.providers.map((provider) => {
               return '<option value="' + escapeHtml(provider) + '"' + (draft.primaryProvider === provider ? ' selected' : '') + '>' + escapeHtml(provider) + '</option>';
             }).join('');
+            const executionHarnessOptions = state.agentMeta.executionHarnesses.map((harness) => {
+              return '<option value="' + escapeHtml(harness) + '"' + (draft.executionHarness === harness ? ' selected' : '') + '>' + escapeHtml(harness) + '</option>';
+            }).join('');
             const toolModeOptions = state.agentMeta.toolModes.map((toolMode) => {
               return '<option value="' + escapeHtml(toolMode) + '"' + (draft.toolMode === toolMode ? ' selected' : '') + '>' + escapeHtml(toolMode) + '</option>';
             }).join('');
             const codexProfiles = (state.agentMeta.providerProfiles.codex || []).map((profile) => '<code>' + escapeHtml(profile) + '</code>').join(', ');
+            const executionProfiles = (state.agentMeta.executionProfiles.codex || []).map((profile) => '<code>' + escapeHtml(profile) + '</code>').join(', ');
             const form = isSelected
               ? '<div class="agent-form">' +
                   '<div class="form-grid">' +
@@ -567,19 +594,33 @@ export function renderDashboardPage() {
                     '<div class="field">' +
                       '<label>Model</label>' +
                       '<input data-agent-field="model" data-agent-id="' + agent.agentId + '" value="' + escapeHtml(draft.model) + '" placeholder="' + escapeHtml((state.agentMeta.defaults[draft.primaryProvider] || 'modelo')) + '" />' +
-                      '<small>Defaults API: ' + escapeHtml(state.agentMeta.defaults[draft.primaryProvider] || 'sin default') + '</small>' +
+                      '<small>' + (draft.executionHarness === 'codex'
+                        ? 'Codex harness exige gpt-5.4.'
+                        : ('Defaults API: ' + escapeHtml(state.agentMeta.defaults[draft.primaryProvider] || 'sin default'))) + '</small>' +
                     '</div>' +
                     '<div class="field">' +
                       '<label>Provider Profile</label>' +
                       '<input data-agent-field="providerProfile" data-agent-id="' + agent.agentId + '" value="' + escapeHtml(draft.providerProfile) + '" placeholder="solo codex" />' +
                       '<small>' + (draft.primaryProvider === 'codex'
-                        ? ('Perfiles codex: ' + (codexProfiles || 'sin perfiles configurados'))
-                        : 'Deja vacio para providers sin profile.') + '</small>' +
+                        ? ('Solo chat codex. Perfiles: ' + (codexProfiles || 'sin perfiles configurados'))
+                        : 'Deja vacio; tools con gpt-5.4 van por OpenAI.') + '</small>' +
                     '</div>' +
                     '<div class="field">' +
                       '<label>Tool Mode</label>' +
                       '<select data-agent-field="toolMode" data-agent-id="' + agent.agentId + '">' + toolModeOptions + '</select>' +
-                      '<small><code>allowed</code> usa la lista de tools declarada abajo.</small>' +
+                      '<small><code>allowed</code> usa Gateway; Codex no es tool-calling nativo.</small>' +
+                    '</div>' +
+                    '<div class="field">' +
+                      '<label>Execution Harness</label>' +
+                      '<select data-agent-field="executionHarness" data-agent-id="' + agent.agentId + '">' + executionHarnessOptions + '</select>' +
+                      '<small>Solo sesiones nuevas. Codex aqui = CLI executor.</small>' +
+                    '</div>' +
+                    '<div class="field">' +
+                      '<label>Execution Profile</label>' +
+                      '<input data-agent-field="executionProfile" data-agent-id="' + agent.agentId + '" value="' + escapeHtml(draft.executionProfile) + '" placeholder="solo harness codex" />' +
+                      '<small>' + (draft.executionHarness === 'codex'
+                        ? ('Perfiles Codex runtime: ' + (executionProfiles || 'sin perfiles configurados'))
+                        : 'Deja vacio fuera de harness codex.') + '</small>' +
                     '</div>' +
                     '<div class="field full">' +
                       '<label>Allowed Tools</label>' +
@@ -604,6 +645,7 @@ export function renderDashboardPage() {
               '<div class="chips">' +
                 chip((agent.primaryProvider || 'gemini') + '/' + providerProfile) +
                 chip(agent.model || 'sin modelo') +
+                chip((agent.executionHarness || 'opencode') + '/' + executionProfile) +
                 chip(agent.toolMode || 'none') +
               '</div>' +
               '<p class="muted">fallbacks: ' + formatFallbacks(agent.fallbacks) + '</p>' +
@@ -632,6 +674,14 @@ export function renderDashboardPage() {
             const profileDraft = state.agentDrafts[agentId].providerProfile;
             if (target.value !== 'codex' && profileDraft) {
               state.agentDrafts[agentId].providerProfile = '';
+            }
+            renderAgentList();
+            return;
+          }
+          if (field === 'executionHarness') {
+            const profileDraft = state.agentDrafts[agentId].executionProfile;
+            if (target.value !== 'codex' && profileDraft) {
+              state.agentDrafts[agentId].executionProfile = '';
             }
             renderAgentList();
           }
@@ -675,6 +725,8 @@ export function renderDashboardPage() {
         primaryProvider: draft.primaryProvider,
         model: draft.model,
         providerProfile: draft.providerProfile.trim() || null,
+        executionHarness: draft.executionHarness,
+        executionProfile: draft.executionProfile.trim() || null,
         toolMode: draft.toolMode,
         allowedTools: parseMultilineList(draft.allowedTools),
         fallbacks: fallbackParse.fallbacks,
@@ -698,7 +750,7 @@ export function renderDashboardPage() {
 
         state.agents = state.agents.map((entry) => entry.agentId === agentId ? body.agent : entry);
         state.agentDrafts[agentId] = buildAgentDraft(body.agent);
-        state.agentMessages[agentId] = { type: 'ok', text: 'Configuracion guardada y persistida en agent_registry.' };
+        state.agentMessages[agentId] = { type: 'ok', text: 'Guardado en agent_registry. Solo sesiones nuevas.' };
       } catch (error) {
         state.agentMessages[agentId] = { type: 'error', text: error.message || String(error) };
       } finally {
@@ -854,6 +906,29 @@ export function renderDashboardPage() {
       }
       if (session.lastActivityAt || session.lastActivityLabel) {
         contextItems.push('<div class="context-item"><strong>Actividad</strong><p>' + (session.lastActivityAt || session.lastActivityLabel) + '</p></div>');
+      }
+      if (state.detail.agentConfig && state.detail.agentConfig.snapshot) {
+        const snapshot = state.detail.agentConfig.snapshot;
+        const resolvedAt = snapshot.resolvedAt ? ('<br><span class="muted">' + escapeHtml(snapshot.resolvedAt) + '</span>') : '';
+        contextItems.push('<div class="context-item"><strong>Snapshot</strong><p>' + escapeHtml(formatAgentConfigSummary(snapshot)) + resolvedAt + '</p></div>');
+      }
+      if (state.detail.agentConfig && state.detail.agentConfig.current) {
+        contextItems.push('<div class="context-item"><strong>Registry now</strong><p>' + escapeHtml(formatAgentConfigSummary(state.detail.agentConfig.current)) + '</p></div>');
+      }
+      if (state.detail.review) {
+        const review = state.detail.review;
+        const reviewSummary = [
+          review.status,
+          review.provider && review.model ? (review.provider + '/' + review.model) : null,
+          review.summary,
+          Array.isArray(review.findings) ? ('findings=' + review.findings.length) : null,
+          review.reworkTaskId ? ('rework=' + review.reworkTaskId) : null,
+          review.lastError ? ('flag=' + review.lastError) : null,
+        ].filter(Boolean).join(' · ');
+        contextItems.push('<div class="context-item"><strong>Review</strong><p>' + escapeHtml(reviewSummary) + '</p></div>');
+      }
+      if (state.detail.agentConfig) {
+        contextItems.push('<div class="context-item"><strong>Aplicacion</strong><p>Cambios config: sesiones nuevas. Vivas: snapshot.</p></div>');
       }
 
       el.contextGrid.innerHTML = contextItems.length ? contextItems.join('') : '<div class="muted">Sin metadata contextual enlazada.</div>';

@@ -5,11 +5,13 @@ import os from 'os';
 import path from 'path';
 import {
   closeRalphitoDatabase,
+  getRalphitoRepositories,
   initializeRalphitoDatabase,
   resetRalphitoRepositories,
 } from '../../infrastructure/persistence/db/index.js';
 import { BeadLifecycleService } from './BeadLifecycleService.js';
 import { getEngineNotificationRepository, resetEngineNotificationRepository } from './EventBus.js';
+import { ExecutionPipelineService } from './ExecutionPipelineService.js';
 import { writeRuntimeSessionFile } from '../engine/runtimeFiles.js';
 import { getRuntimeLockRepository, resetRuntimeLockRepository } from '../engine/runtimeLockRepository.js';
 import { getRuntimeSessionRepository, resetRuntimeSessionRepository } from '../engine/runtimeSessionRepository.js';
@@ -84,7 +86,7 @@ test('RuntimeSessionLifecycleService cancel unifica cancel/task/outbox/cleanup',
     mkdirSync(path.dirname(beadPath), { recursive: true });
     writeFileSync(beadPath, '# bead\n', 'utf8');
 
-    BeadLifecycleService.createTask({
+    const task = BeadLifecycleService.createTask({
       taskId: 'task-lifecycle-cancel',
       projectId: 'system',
       title: 'Lifecycle cancel',
@@ -92,6 +94,26 @@ test('RuntimeSessionLifecycleService cancel unifica cancel/task/outbox/cleanup',
       status: 'in_progress',
       assignedAgent: 'system',
     });
+    const executionPipeline = new ExecutionPipelineService();
+    const job = executionPipeline.createJob({
+      task: task!,
+      executorAgentId: 'system',
+      agentConfigId: 'default',
+      executionHarness: 'opencode',
+      executionProfile: null,
+      provider: 'opencode',
+      model: 'minimax-m2.7',
+      toolMode: 'none',
+      allowedTools: ['finish_task'],
+      prompt: 'Cancela lifecycle',
+      requestedByAgentId: 'raymon',
+    });
+    const claim = executionPipeline.claimJob({
+      executionJobId: job.id,
+      workerId: 'test-worker',
+      claimedAt: job.createdAt,
+    });
+    assert.ok(claim);
 
     getRuntimeSessionRepository().create({
       threadId: insertRuntimeThread(runtimeSessionId, now),
@@ -119,6 +141,8 @@ test('RuntimeSessionLifecycleService cancel unifica cancel/task/outbox/cleanup',
       tmuxSessionId: runtimeSessionId,
       pid: 123,
       prompt: 'Cancela lifecycle',
+      taskId: 'task-lifecycle-cancel',
+      executionJobId: job.id,
       beadPath,
       workItemKey: 'task-lifecycle-cancel',
       beadSpecHash: null,
@@ -131,6 +155,14 @@ test('RuntimeSessionLifecycleService cancel unifica cancel/task/outbox/cleanup',
       maxCommandTimeMs: 60_000,
       createdAt: now,
       updatedAt: now,
+    });
+    executionPipeline.markJobRunning({
+      executionJobId: job.id,
+      claimToken: claim.claimToken,
+      runtimeSessionId,
+      branchName: 'jopen/sy-lifecycle-cancel',
+      baseCommitHash: 'abc123',
+      startedAt: job.createdAt,
     });
 
     getRuntimeLockRepository().acquireForSession({
@@ -158,8 +190,10 @@ test('RuntimeSessionLifecycleService cancel unifica cancel/task/outbox/cleanup',
     });
 
     const session = getRuntimeSessionRepository().getByRuntimeSessionId(runtimeSessionId);
-    const task = BeadLifecycleService.getTaskById('task-lifecycle-cancel');
+    const persistedTask = BeadLifecycleService.getTaskById('task-lifecycle-cancel');
     const notification = getEngineNotificationRepository().listAll()[0];
+    const storedJob = getRalphitoRepositories().executionJobs.getById(job.id);
+    const storedResult = getRalphitoRepositories().executionResults.getByExecutionJobId(job.id);
 
     assert.equal(result.statusChanged, true);
     assert.equal(result.notificationQueued, true);
@@ -168,7 +202,10 @@ test('RuntimeSessionLifecycleService cancel unifica cancel/task/outbox/cleanup',
     assert.equal(result.locksReleased, 1);
     assert.equal(result.worktreeRemoved, true);
     assert.equal(session?.status, 'cancelled');
-    assert.equal(task?.status, 'cancelled');
+    assert.equal(persistedTask?.status, 'cancelled');
+    assert.equal(storedJob?.status, 'failed');
+    assert.equal(storedResult?.status, 'failed');
+    assert.equal(storedResult?.reason, 'cancelled');
     assert.equal(notification?.eventType, 'session.cancelled');
     assert.equal(notification?.targetChatId, 'chat-lifecycle');
     assert.equal(existsSync(worktreePath), false);

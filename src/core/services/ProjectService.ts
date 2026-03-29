@@ -1,6 +1,6 @@
 import os from 'os';
 import path from 'path';
-import type { Provider } from '../domain/gateway.types.js';
+import type { AgentFallbackRoute, ExecutionHarness, Provider, ToolMode } from '../domain/gateway.types.js';
 import { DEFAULT_RALPHITO_HOME_DIRNAME, ENGINE_WORKTREE_ROOT } from '../domain/constants.js';
 import { AgentRegistryService } from './AgentRegistry.js';
 import { getRalphitoRepositories } from '../../infrastructure/persistence/db/index.js';
@@ -27,16 +27,21 @@ export interface EngineProjectConfig {
   id: string;
   name: string;
   canonicalId: string;
+  agentConfigId: string;
   aliases: string[];
   sessionPrefix: string;
   path: string;
   worktreeRoot: string;
   defaultBranch: string;
   agentRulesFile: string | null;
-  agent: string;
+  agent: ExecutionHarness;
   provider: Provider | null;
   model: string | null;
   providerProfile?: string;
+  executionProfile?: string;
+  toolMode: ToolMode;
+  allowedTools: string[];
+  fallbacks: AgentFallbackRoute[];
 }
 
 function normalizeProjectId(projectId: string) {
@@ -87,23 +92,33 @@ function safeResolveAgentRow(agentConfigId: string) {
   }
 }
 
+function safeResolveAgentConfig(agentConfigId: string) {
+  try {
+    return AgentRegistryService.getAgentConfig(agentConfigId);
+  } catch {
+    return null;
+  }
+}
+
 export class ProjectService {
   static resolve(projectId: string): EngineProjectConfig {
     const normalizedId = normalizeProjectId(projectId);
     const canonicalId = PROJECT_ALIASES[normalizedId] || normalizedId;
     const agentConfigId = PROJECT_AGENT_ALIASES[normalizedId] || canonicalId;
     const project = safeResolveProjectRow(canonicalId);
-    const agent = safeResolveAgentRow(agentConfigId);
+    const agentRecord = safeResolveAgentRow(agentConfigId);
+    const agentConfig = safeResolveAgentConfig(agentConfigId);
     const repoRoot = project?.repoPath || resolveRepoRoot();
     const worktreeRoot = project?.worktreeRoot || resolveBaseWorktreeRoot();
     const defaultBranch = project?.defaultBranch || DEFAULT_BRANCH;
     const agentRulesFile = project?.agentRulesFile || DEFAULT_RULES_FILE;
 
-    if (!agent) {
+    if (!agentRecord || !agentConfig) {
       return {
         id: normalizedId,
         name: project?.name || projectId,
         canonicalId,
+        agentConfigId,
         aliases: listAliasesFor(canonicalId),
         sessionPrefix: deriveSessionPrefix(normalizedId),
         path: repoRoot,
@@ -113,23 +128,31 @@ export class ProjectService {
         agent: DEFAULT_EXECUTION_AGENT,
         provider: FALLBACK_PROVIDER,
         model: FALLBACK_MODEL,
+        toolMode: 'none',
+        allowedTools: [],
+        fallbacks: [],
       };
     }
 
     return {
       id: normalizedId,
-      name: normalizedId === canonicalId ? (project?.name || agent.name) : projectId,
+      name: normalizedId === canonicalId ? (project?.name || agentRecord.name) : projectId,
       canonicalId,
+      agentConfigId,
       aliases: listAliasesFor(canonicalId),
-      sessionPrefix: agent.session_prefix || deriveSessionPrefix(canonicalId),
+      sessionPrefix: agentRecord.session_prefix || deriveSessionPrefix(canonicalId),
       path: repoRoot,
       worktreeRoot,
       defaultBranch,
       agentRulesFile,
-      agent: DEFAULT_EXECUTION_AGENT,
-      provider: (agent.primary_provider as Provider) || (agent.provider as Provider) || FALLBACK_PROVIDER,
-      model: agent.model || FALLBACK_MODEL,
-      ...(agent.provider_profile ? { providerProfile: agent.provider_profile } : {}),
+      agent: agentConfig.executionHarness || DEFAULT_EXECUTION_AGENT,
+      provider: agentConfig.primaryProvider || FALLBACK_PROVIDER,
+      model: agentConfig.model || FALLBACK_MODEL,
+      ...(agentConfig.providerProfile ? { providerProfile: agentConfig.providerProfile } : {}),
+      ...(agentConfig.executionProfile ? { executionProfile: agentConfig.executionProfile } : {}),
+      toolMode: agentConfig.toolMode || 'none',
+      allowedTools: agentConfig.allowedTools || [],
+      fallbacks: agentConfig.fallbacks || [],
     };
   }
 

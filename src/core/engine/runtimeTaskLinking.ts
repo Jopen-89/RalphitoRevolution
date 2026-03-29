@@ -6,6 +6,7 @@ import { BeadLifecycleService, type LifecycleTaskRecord } from '../services/Bead
 export interface RuntimeTaskLinkInput {
   runtimeSessionId: string;
   projectId?: string | null;
+  taskId?: string | null;
   workItemKey?: string | null;
   beadPath?: string | null;
   assignedAgent?: string | null;
@@ -53,6 +54,11 @@ export function findRuntimeTaskLink(input: RuntimeTaskLinkInput): RuntimeTaskLin
   const linkedTask = mapTaskRow(BeadLifecycleService.resolveTask({ runtimeSessionId: input.runtimeSessionId }));
 
   if (linkedTask) return linkedTask;
+
+  if (input.taskId) {
+    const directTask = mapTaskRow(BeadLifecycleService.resolveTask({ taskId: input.taskId }));
+    if (directTask) return directTask;
+  }
 
   if (input.workItemKey) {
     const workItemTask = mapTaskRow(BeadLifecycleService.resolveTask({ taskId: input.workItemKey }));

@@ -1,7 +1,9 @@
 import { readFileSync } from 'fs';
 import { getEngineSessionsStatus, type EngineStatusSession } from '../../core/engine/status.js';
-import { getGuardrailLogPath } from '../../core/engine/runtimeFiles.js';
+import type { AgentFallbackRoute } from '../../core/domain/gateway.types.js';
+import { getGuardrailLogPath, readRuntimeSessionFile } from '../../core/engine/runtimeFiles.js';
 import { getRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
+import { ProjectService } from '../../core/services/ProjectService.js';
 import { updateTaskStatus, type RalphitoTaskStatus } from '../../core/services/taskStateService.js';
 
 interface ThreadRow {
@@ -45,6 +47,20 @@ interface AgentSessionRow {
   status: string;
   updatedAt: string;
   worktreePath: string | null;
+}
+
+interface ReviewRow {
+  id: string;
+  status: string;
+  summary: string | null;
+  findingsJson: string | null;
+  provider: string | null;
+  model: string | null;
+  reworkTaskId: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
 }
 
 interface DashboardSessionMeta {
@@ -93,6 +109,33 @@ export interface UnifiedDashboardSession {
 
 export interface UnifiedDashboardSessionDetail {
   session: UnifiedDashboardSession;
+  agentConfig: {
+    appliesTo: 'new_sessions_only';
+    current: {
+      agentId: string;
+      primaryProvider: string | null;
+      model: string | null;
+      providerProfile: string | null;
+      executionHarness: string;
+      executionProfile: string | null;
+      toolMode: string;
+      allowedTools: string[];
+      fallbacks: AgentFallbackRoute[];
+      resolvedAt: string | null;
+    } | null;
+    snapshot: {
+      agentId: string;
+      primaryProvider: string | null;
+      model: string | null;
+      providerProfile: string | null;
+      executionHarness: string;
+      executionProfile: string | null;
+      toolMode: string;
+      allowedTools: string[];
+      fallbacks: AgentFallbackRoute[];
+      resolvedAt: string | null;
+    } | null;
+  };
   messages: Array<{
     id: number;
     senderName: string | null;
@@ -107,10 +150,32 @@ export interface UnifiedDashboardSessionDetail {
     payload: unknown;
     createdAt: string;
   }>;
+  review: {
+    id: string;
+    status: string;
+    summary: string | null;
+    findings: unknown[];
+    provider: string | null;
+    model: string | null;
+    reworkTaskId: string | null;
+    lastError: string | null;
+    createdAt: string;
+    updatedAt: string;
+    finishedAt: string | null;
+  } | null;
 }
 
 const MESSAGE_LIMIT = 20;
 const TIMELINE_LIMIT = 20;
+
+function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
 
 function truncateError(errorText: string) {
   const normalized = errorText.trim();
@@ -233,6 +298,46 @@ function toUnifiedSession(session: EngineStatusSession, meta: DashboardSessionMe
   };
 }
 
+function buildDetailAgentConfig(session: UnifiedDashboardSession) {
+  const sessionFile = session.worktreePath ? readRuntimeSessionFile(session.worktreePath) : null;
+  const projectId = sessionFile?.projectId || session.projectId;
+  const project = projectId ? ProjectService.resolve(projectId) : null;
+  const current = project
+    ? {
+        agentId: project.agentConfigId,
+        primaryProvider: project.provider,
+        model: project.model,
+        providerProfile: project.providerProfile || null,
+        executionHarness: project.agent,
+        executionProfile: project.executionProfile || null,
+        toolMode: project.toolMode,
+        allowedTools: [...project.allowedTools],
+        fallbacks: [...project.fallbacks],
+        resolvedAt: null,
+      }
+    : null;
+  const snapshot = sessionFile?.agentConfigSnapshot
+    ? {
+        agentId: sessionFile.agentConfigSnapshot.agentId || sessionFile.agentConfigId || project?.agentConfigId || sessionFile.agentId,
+        primaryProvider: sessionFile.agentConfigSnapshot.primaryProvider,
+        model: sessionFile.agentConfigSnapshot.model,
+        providerProfile: sessionFile.agentConfigSnapshot.providerProfile || null,
+        executionHarness: sessionFile.agentConfigSnapshot.executionHarness,
+        executionProfile: sessionFile.agentConfigSnapshot.executionProfile || null,
+        toolMode: sessionFile.agentConfigSnapshot.toolMode,
+        allowedTools: [...sessionFile.agentConfigSnapshot.allowedTools],
+        fallbacks: [...sessionFile.agentConfigSnapshot.fallbacks],
+        resolvedAt: sessionFile.agentConfigSnapshot.resolvedAt || null,
+      }
+    : null;
+
+  return {
+    appliesTo: 'new_sessions_only' as const,
+    current,
+    snapshot,
+  };
+}
+
 export async function getUnifiedDashboardSessions() {
   const sessions = await getEngineSessionsStatus();
 
@@ -288,11 +393,54 @@ export async function getUnifiedDashboardSessionDetail(sessionId: string): Promi
           createdAt: event.createdAt,
         })))
     : [];
+  const review = session.activeTask
+    ? (() => {
+        const row = db
+          .prepare(
+            `
+              SELECT
+                id,
+                status,
+                summary,
+                findings_json AS findingsJson,
+                provider,
+                model,
+                rework_task_id AS reworkTaskId,
+                last_error AS lastError,
+                created_at AS createdAt,
+                updated_at AS updatedAt,
+                finished_at AS finishedAt
+              FROM execution_reviews
+              WHERE task_id = ?
+              ORDER BY created_at DESC, id DESC
+              LIMIT 1
+            `,
+          )
+          .get(session.activeTask.id) as ReviewRow | undefined;
+        if (!row) return null;
+
+        return {
+          id: row.id,
+          status: row.status,
+          summary: row.summary,
+          findings: safeJsonParse(row.findingsJson, [] as unknown[]),
+          provider: row.provider,
+          model: row.model,
+          reworkTaskId: row.reworkTaskId,
+          lastError: row.lastError,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          finishedAt: row.finishedAt,
+        };
+      })()
+    : null;
 
   return {
     session,
+    agentConfig: buildDetailAgentConfig(session),
     messages,
     timeline,
+    review,
   };
 }
 

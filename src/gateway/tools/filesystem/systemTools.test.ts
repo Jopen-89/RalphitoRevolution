@@ -34,7 +34,12 @@ async function createTrackedRepo(rootPath: string) {
   await runGit(repoPath, ['config', 'user.name', 'Ralphito Test']);
   await runGit(repoPath, ['config', 'user.email', 'ralphito@example.com']);
   await fs.promises.writeFile(path.join(repoPath, 'README.md'), 'base\n', 'utf8');
-  await runGit(repoPath, ['add', 'README.md']);
+  await fs.promises.writeFile(
+    path.join(repoPath, '.gitignore'),
+    ['node_modules/', '.agent-loop.log', '.ralphito-*'].join('\n'),
+    'utf8',
+  );
+  await runGit(repoPath, ['add', 'README.md', '.gitignore']);
   await runGit(repoPath, ['commit', '-m', 'init']);
   await runGit(repoPath, ['remote', 'add', 'origin', remotePath]);
   await runGit(repoPath, ['push', '-u', 'origin', 'master']);
@@ -137,6 +142,26 @@ test('finish_task returns success on clean worktree', async () => {
 test('finish_task commits changes when there are staged changes', async () => {
   const repoRoot = path.join(worktreePath, 'dirty-repo');
   const { repoPath, remotePath } = await createTrackedRepo(repoRoot);
+  await fs.promises.writeFile(path.join(repoPath, 'another.txt'), 'change', 'utf-8');
+  await runGit(repoPath, ['add', 'another.txt']);
+
+  const result = await finishTask(repoPath);
+  assert.equal(result.success, true);
+  assert.ok(result.commitHash);
+
+  const remoteBranch = await execFileAsync('git', ['--git-dir', remotePath, 'rev-parse', 'feat/native-tools']);
+  assert.ok(remoteBranch.stdout.trim().length > 0);
+});
+
+test('finish_task ignores runtime artifacts and node_modules symlink in worktree', async () => {
+  const repoRoot = path.join(worktreePath, 'runtime-artifacts-repo');
+  const { repoPath, remotePath } = await createTrackedRepo(repoRoot);
+  const sharedNodeModules = path.join(repoRoot, 'shared-node_modules');
+
+  await fs.promises.mkdir(sharedNodeModules, { recursive: true });
+  await fs.promises.symlink(sharedNodeModules, path.join(repoPath, 'node_modules'), 'dir');
+  await fs.promises.writeFile(path.join(repoPath, '.agent-loop.log'), 'log\n', 'utf8');
+  await fs.promises.writeFile(path.join(repoPath, '.ralphito-session.json'), '{}\n', 'utf8');
   await fs.promises.writeFile(path.join(repoPath, 'another.txt'), 'change', 'utf-8');
   await runGit(repoPath, ['add', 'another.txt']);
 
