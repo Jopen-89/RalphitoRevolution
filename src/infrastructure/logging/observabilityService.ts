@@ -6,7 +6,13 @@ import {
 } from '../../core/services/EventBus.js';
 import { getEngineSessionsStatus, type EngineStatusSession } from '../../core/engine/status.js';
 import type { RuntimeSessionStatus } from '../../core/engine/runtimeSessionRepository.js';
+import {
+  DEFAULT_EXECUTION_REVIEW_STALE_GRACE_MS,
+  DEFAULT_ORPHAN_TASK_MAX_AGE_HOURS,
+  DEFAULT_RUNTIME_ORPHAN_JOB_GRACE_MS,
+} from '../../core/domain/constants.js';
 import { getRalphitoDatabase, getRalphitoDatabasePath } from '../persistence/db/index.js';
+import type { ExecutionGuardrailKind, ExecutionGuardrailRecord } from '../../core/services/guardrails.js';
 
 interface EventCountRow {
   count: number;
@@ -30,6 +36,25 @@ interface StuckTaskRow {
   updatedAt: string;
   assignedAgent: string | null;
   runtimeSessionId: string | null;
+}
+
+interface OrphanJobRow {
+  id: string;
+  taskId: string;
+  status: string;
+  runtimeSessionId: string | null;
+  lastHeartbeatAt: string | null;
+  updatedAt: string;
+}
+
+interface StaleReviewRow {
+  id: string;
+  executionJobId: string;
+  taskId: string;
+  status: string;
+  claimExpiresAt: string | null;
+  nextAttemptAt: string | null;
+  updatedAt: string;
 }
 
 export interface OperationalRecentEvent {
@@ -65,6 +90,11 @@ export interface OperationalHistoricalDebt {
   orphanSessions: number | null;
   stuckTaskCount: number;
   stuckTasks: StuckTaskRow[];
+  orphanTaskCount: number;
+  orphanJobCount: number;
+  staleReviewCount: number;
+  recentGuardrails: ExecutionGuardrailRecord[];
+  recentGuardrailCounts: Partial<Record<ExecutionGuardrailKind, number>>;
   notificationOutbox: OperationalHistoricalNotificationOutbox | null;
 }
 
@@ -91,7 +121,6 @@ export interface OperationalStatus {
 }
 
 const BACKUP_DIR = path.join(process.cwd(), 'ops', 'runtime', 'backups', 'ralphito');
-const STUCK_TASK_MAX_AGE_HOURS = 6;
 const ACTIVE_RUNTIME_SESSION_STATUSES = ['queued', 'running', 'suspended_human_input'] as const satisfies RuntimeSessionStatus[];
 
 export function recordSystemEvent(eventType: string, status: 'ok' | 'warn' | 'error', payload: Record<string, unknown>) {
@@ -212,7 +241,7 @@ async function getOrphanSessionCount(runtimeSessions: EngineStatusSession[]) {
 
 function getStuckTasks() {
   const db = getRalphitoDatabase();
-  const threshold = new Date(Date.now() - STUCK_TASK_MAX_AGE_HOURS * 60 * 60 * 1000).toISOString();
+  const threshold = new Date(Date.now() - DEFAULT_ORPHAN_TASK_MAX_AGE_HOURS * 60 * 60 * 1000).toISOString();
   return db
     .prepare(
       `
@@ -224,6 +253,128 @@ function getStuckTasks() {
       `,
     )
     .all(threshold) as StuckTaskRow[];
+}
+
+function getOrphanTasks(runtimeSessions: EngineStatusSession[]) {
+  const db = getRalphitoDatabase();
+  const threshold = new Date(Date.now() - DEFAULT_ORPHAN_TASK_MAX_AGE_HOURS * 60 * 60 * 1000).toISOString();
+  const aliveSessionIds = new Set(runtimeSessions.filter((session) => session.alive).map((session) => session.id));
+  const rows = db
+    .prepare(
+      `
+        SELECT
+          tasks.id AS id,
+          tasks.status AS status,
+          tasks.updated_at AS updatedAt,
+          tasks.assigned_agent AS assignedAgent,
+          tasks.runtime_session_id AS runtimeSessionId
+        FROM tasks
+        LEFT JOIN execution_jobs
+          ON execution_jobs.task_id = tasks.id
+         AND execution_jobs.status IN ('pending', 'claimed', 'running', 'review')
+        WHERE tasks.status IN ('pending', 'in_progress', 'blocked')
+          AND tasks.updated_at < ?
+          AND tasks.assigned_agent IS NOT NULL
+          AND execution_jobs.id IS NULL
+        ORDER BY tasks.updated_at ASC, tasks.id ASC
+        LIMIT 20
+      `,
+    )
+    .all(threshold) as StuckTaskRow[];
+
+  return rows.filter((row) => !row.runtimeSessionId || !aliveSessionIds.has(row.runtimeSessionId));
+}
+
+function getOrphanJobs(runtimeSessions: EngineStatusSession[]) {
+  const db = getRalphitoDatabase();
+  const aliveSessionIds = new Set(runtimeSessions.filter((session) => session.alive).map((session) => session.id));
+  const threshold = new Date(Date.now() - DEFAULT_RUNTIME_ORPHAN_JOB_GRACE_MS).toISOString();
+  const rows = db
+    .prepare(
+      `
+        SELECT
+          id,
+          task_id AS taskId,
+          status,
+          runtime_session_id AS runtimeSessionId,
+          last_heartbeat_at AS lastHeartbeatAt,
+          updated_at AS updatedAt
+        FROM execution_jobs
+        WHERE status = 'running'
+        ORDER BY updated_at ASC, id ASC
+        LIMIT 20
+      `,
+    )
+    .all() as OrphanJobRow[];
+
+  return rows.filter((row) => {
+    if (!row.runtimeSessionId) return true;
+    if (!aliveSessionIds.has(row.runtimeSessionId)) return true;
+    return (row.lastHeartbeatAt || row.updatedAt) < threshold;
+  });
+}
+
+function getStaleReviews() {
+  const db = getRalphitoDatabase();
+  const threshold = new Date(Date.now() - DEFAULT_EXECUTION_REVIEW_STALE_GRACE_MS).toISOString();
+  return db
+    .prepare(
+      `
+        SELECT
+          execution_reviews.id AS id,
+          execution_reviews.execution_job_id AS executionJobId,
+          execution_reviews.task_id AS taskId,
+          execution_reviews.status AS status,
+          execution_reviews.claim_expires_at AS claimExpiresAt,
+          execution_reviews.next_attempt_at AS nextAttemptAt,
+          execution_reviews.updated_at AS updatedAt
+        FROM execution_reviews
+        INNER JOIN execution_jobs ON execution_jobs.id = execution_reviews.execution_job_id
+        WHERE execution_jobs.status = 'review'
+          AND execution_reviews.status IN ('pending', 'claimed')
+          AND COALESCE(
+            execution_reviews.claim_expires_at,
+            execution_reviews.next_attempt_at,
+            execution_reviews.updated_at,
+            execution_reviews.created_at
+          ) < ?
+        ORDER BY execution_reviews.updated_at ASC, execution_reviews.id ASC
+        LIMIT 20
+      `,
+    )
+    .all(threshold) as StaleReviewRow[];
+}
+
+function getRecentGuardrails() {
+  const db = getRalphitoDatabase();
+  const rows = db
+    .prepare(
+      `
+        SELECT payload_json AS payloadJson
+        FROM system_events
+        WHERE event_type = 'guardrail_detected'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 15
+      `,
+    )
+    .all() as Array<{ payloadJson: string }>;
+
+  return rows
+    .map((row) => {
+      try {
+        return JSON.parse(row.payloadJson) as ExecutionGuardrailRecord;
+      } catch {
+        return null;
+      }
+    })
+    .filter((row): row is ExecutionGuardrailRecord => row !== null);
+}
+
+function getRecentGuardrailCounts(recentGuardrails: ExecutionGuardrailRecord[]) {
+  return recentGuardrails.reduce<Partial<Record<ExecutionGuardrailKind, number>>>((counts, guardrail) => {
+    counts[guardrail.kind] = (counts[guardrail.kind] || 0) + 1;
+    return counts;
+  }, {});
 }
 
 function getRecentEvents() {
@@ -288,6 +439,11 @@ export async function getOperationalStatus() {
           orphanSessions: null,
           stuckTaskCount: 0,
           stuckTasks: [],
+          orphanTaskCount: 0,
+          orphanJobCount: 0,
+          staleReviewCount: 0,
+          recentGuardrails: [],
+          recentGuardrailCounts: {},
           notificationOutbox: null,
         },
         recentEvents: [],
@@ -308,6 +464,10 @@ export async function getOperationalStatus() {
     .catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
 
   const stuckTasks = getStuckTasks();
+  const orphanTasks = runtimeSessions ? getOrphanTasks(runtimeSessions) : [];
+  const orphanJobs = runtimeSessions ? getOrphanJobs(runtimeSessions) : [];
+  const staleReviews = getStaleReviews();
+  const recentGuardrails = getRecentGuardrails();
   const notificationSummary = getEngineNotificationRepository().getSummary();
   const orphanSessions = runtimeSessions ? await getOrphanSessionCount(runtimeSessions) : null;
 
@@ -333,6 +493,11 @@ export async function getOperationalStatus() {
         orphanSessions,
         stuckTaskCount: stuckTasks.length,
         stuckTasks,
+        orphanTaskCount: orphanTasks.length,
+        orphanJobCount: orphanJobs.length,
+        staleReviewCount: staleReviews.length,
+        recentGuardrails,
+        recentGuardrailCounts: getRecentGuardrailCounts(recentGuardrails),
         notificationOutbox: getHistoricalNotificationOutbox(notificationSummary),
       },
       recentEvents: getRecentEvents(),

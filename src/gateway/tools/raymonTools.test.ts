@@ -6,17 +6,20 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { createRaymonTools } from './raymonTools.js';
 import {
   closeRalphitoDatabase,
+  getRalphitoRepositories,
   initializeRalphitoDatabase,
   resetRalphitoRepositories,
 } from '../../infrastructure/persistence/db/index.js';
-import { getRuntimeLockRepository } from '../../core/engine/runtimeLockRepository.js';
-import { getRuntimeSessionRepository } from '../../core/engine/runtimeSessionRepository.js';
+import { getRuntimeLockRepository, resetRuntimeLockRepository } from '../../core/engine/runtimeLockRepository.js';
+import { getRuntimeSessionRepository, resetRuntimeSessionRepository } from '../../core/engine/runtimeSessionRepository.js';
 import { writeRuntimeSessionFile } from '../../core/engine/runtimeFiles.js';
+import { Orchestrator } from '../../core/engine/orchestrator.js';
 import { BeadLifecycleService } from '../../core/services/BeadLifecycleService.js';
 import {
   getEngineNotificationRepository,
   resetEngineNotificationRepository,
 } from '../../core/services/EventBus.js';
+import { ExecutionPipelineService } from '../../core/services/ExecutionPipelineService.js';
 import { TmuxRuntime } from '../../infrastructure/runtime/tmuxRuntime.js';
 
 function createTempDirectory(prefix: string) {
@@ -35,6 +38,8 @@ function withTempDb<T>(fn: () => Promise<T> | T) {
 
   closeRalphitoDatabase();
   resetRalphitoRepositories();
+  resetRuntimeLockRepository();
+  resetRuntimeSessionRepository();
   resetEngineNotificationRepository();
   initializeRalphitoDatabase();
 
@@ -43,6 +48,8 @@ function withTempDb<T>(fn: () => Promise<T> | T) {
     .finally(() => {
       closeRalphitoDatabase();
       resetRalphitoRepositories();
+      resetRuntimeLockRepository();
+      resetRuntimeSessionRepository();
       resetEngineNotificationRepository();
       if (previousDbPath) process.env.RALPHITO_DB_PATH = previousDbPath;
       else delete process.env.RALPHITO_DB_PATH;
@@ -58,6 +65,20 @@ function getTool(name: string, currentAgentId?: string) {
   const tool = createRaymonTools(currentAgentId ? { currentAgentId } : {}).find((entry) => entry.name === name);
   assert.ok(tool, `${name} tool missing`);
   return tool;
+}
+
+function insertRuntimeThread(runtimeSessionId: string, createdAt: string) {
+  const db = initializeRalphitoDatabase();
+  return Number(
+    db
+      .prepare(
+        `
+          INSERT INTO threads (channel, external_chat_id, title, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      )
+      .run('runtime', runtimeSessionId, runtimeSessionId, createdAt, createdAt).lastInsertRowid,
+  );
 }
 
 test('summon_agent_to_chat rejects non-Raymon callers at runtime', async () => {
@@ -85,6 +106,110 @@ test('spawn_session rejects free prompt without persisted task reference', async
     () => tool.execute({ prompt: 'hazlo ya' }),
     /taskId|beadPath.*ya no está permitida/i,
   );
+});
+
+test('spawn_session encola execution job pending', async () => {
+  await withTempDb(async () => {
+    BeadLifecycleService.createTask({
+      taskId: 'task-spawn-pending',
+      projectId: 'system',
+      title: 'Spawn async',
+      beadPath: 'docs/specs/projects/system/bead-spawn-pending.md',
+    });
+
+    const tool = getTool('spawn_session', 'raymon');
+    const result = await tool.execute({ taskId: 'task-spawn-pending', project: 'system' }) as {
+      taskId: string;
+      executionJobId: string;
+      status: string;
+      message: string;
+    };
+    const job = getRalphitoRepositories().executionJobs.getById(result.executionJobId);
+
+    assert.equal(result.taskId, 'task-spawn-pending');
+    assert.equal(result.status, 'pending');
+    assert.match(result.message, /encolada/i);
+    assert.equal(job?.status, 'pending');
+    assert.equal(job?.taskId, 'task-spawn-pending');
+  });
+});
+
+test('resume_session devuelve ids canon del pipeline', async () => {
+  await withTempDb(async () => {
+    BeadLifecycleService.createTask({
+      taskId: 'task-resume-pipeline',
+      projectId: 'system',
+      title: 'Resume pipeline',
+      beadPath: 'docs/specs/projects/system/bead-resume-pipeline.md',
+    });
+
+    const executionPipeline = new ExecutionPipelineService();
+    const job = executionPipeline.createJob({
+      task: BeadLifecycleService.getTaskById('task-resume-pipeline')!,
+      executorAgentId: 'system',
+      agentConfigId: 'default',
+      executionHarness: 'opencode',
+      executionProfile: null,
+      provider: 'opencode',
+      model: 'minimax-m2.7',
+      toolMode: 'none',
+      allowedTools: ['finish_task'],
+      prompt: 'Resume pipeline',
+      requestedByAgentId: 'raymon',
+    });
+    const claim = executionPipeline.claimJob({
+      executionJobId: job.id,
+      workerId: 'test-worker',
+      claimedAt: job.createdAt,
+    });
+    assert.ok(claim);
+    getRuntimeSessionRepository().create({
+      threadId: insertRuntimeThread('rt-resume-pipeline', job.createdAt),
+      agentId: 'system',
+      runtimeSessionId: 'rt-resume-pipeline',
+      status: 'queued',
+      startedAt: job.createdAt,
+      heartbeatAt: job.createdAt,
+      createdAt: job.createdAt,
+      updatedAt: job.createdAt,
+    });
+    executionPipeline.markJobRunning({
+      executionJobId: job.id,
+      claimToken: claim.claimToken,
+      runtimeSessionId: 'rt-resume-pipeline',
+      branchName: 'jopen/rt-resume-pipeline',
+      baseCommitHash: 'abc123',
+      startedAt: job.createdAt,
+    });
+
+    const originalResume = Orchestrator.prototype.resume;
+    Orchestrator.prototype.resume = async (runtimeSessionId: string) => ({
+      success: true,
+      runtimeSessionId,
+      message: 'resumed',
+    });
+
+    try {
+      const tool = getTool('resume_session', 'raymon');
+      const result = await tool.execute({ sessionId: 'rt-resume-pipeline' }) as {
+        success: boolean;
+        runtimeSessionId: string;
+        sessionId: string;
+        taskId: string | null;
+        executionJobId: string | null;
+        message: string;
+      };
+
+      assert.equal(result.success, true);
+      assert.equal(result.runtimeSessionId, 'rt-resume-pipeline');
+      assert.equal(result.sessionId, 'rt-resume-pipeline');
+      assert.equal(result.taskId, 'task-resume-pipeline');
+      assert.equal(result.executionJobId, job.id);
+      assert.equal(result.message, 'resumed');
+    } finally {
+      Orchestrator.prototype.resume = originalResume;
+    }
+  });
 });
 
 test('Raymon exposes Stage 4 session-centric orchestration tools', () => {

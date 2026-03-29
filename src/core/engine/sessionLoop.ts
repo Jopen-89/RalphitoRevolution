@@ -7,6 +7,7 @@ import {
   DEFAULT_RUNTIME_MAX_COMMAND_TIME_MS,
   DEFAULT_RUNTIME_MAX_WALL_TIME_MS,
   DEFAULT_RUNTIME_OUTPUT_LINES,
+  DEFAULT_RUNTIME_REPEATED_OUTPUT_POLLS,
 } from '../domain/constants.js';
 import {
   clearRuntimeExitCode,
@@ -38,6 +39,12 @@ import { resumeRuntimeSession } from './resume.js';
 import { syncRuntimeTaskLink } from './runtimeTaskLinking.js';
 import type { RalphitoTaskStatus } from '../services/taskStateService.js';
 import { ExecutionPipelineService } from '../services/ExecutionPipelineService.js';
+import { getRalphitoRepositories } from '../../infrastructure/persistence/db/index.js';
+import {
+  createGuardrailRecord,
+  recordGuardrailEvent,
+  type ExecutionGuardrailRecord,
+} from '../services/guardrails.js';
 
 export interface SessionLoopContext {
   runtimeSessionId: string;
@@ -47,6 +54,7 @@ export interface SessionLoopContext {
 export interface SessionLoopResult {
   terminalStatus: 'done' | 'failed' | 'stuck' | 'cancelled';
   reason: string;
+  guardrail?: ExecutionGuardrailRecord | null;
 }
 
 interface LandingVerificationResult {
@@ -92,6 +100,10 @@ function formatGuardrailLabel(failureKind: string) {
       return 'Tests';
     case 'rebase_failed':
       return 'Rebase';
+    case 'empty_or_repeated_loop':
+      return 'Loop vacio/repetido';
+    case 'no_work_produced':
+      return 'No work produced';
     default:
       return failureKind;
   }
@@ -162,6 +174,21 @@ function summarizeGitStatusLines(lines: string[], maxLines = 2) {
   const remainder = lines.length - visibleLines.length;
   const suffix = remainder > 0 ? `; +${remainder} mas` : '';
   return `${visibleLines.join('; ')}${suffix}`;
+}
+
+function getSessionReferences(session: RuntimeSessionRecord) {
+  const sessionFile = session.worktreePath ? readRuntimeSessionFile(session.worktreePath) : null;
+  const executionJobId = sessionFile?.executionJobId || null;
+  const taskId = resolveRuntimeTaskId({
+    taskId: sessionFile?.taskId ?? null,
+    workItemKey: sessionFile?.workItemKey ?? null,
+  });
+
+  return {
+    sessionFile,
+    executionJobId,
+    taskId,
+  };
 }
 
 export class SessionLoop {
@@ -264,6 +291,85 @@ export class SessionLoop {
     }
   }
 
+  private createRuntimeGuardrail(
+    session: RuntimeSessionRecord,
+    input: {
+      kind: 'no_work_produced' | 'empty_or_repeated_loop';
+      summary: string;
+      reasonCode?: string | null;
+      detectedAt: string;
+      metadata?: Record<string, unknown> | null;
+    },
+  ) {
+    const refs = getSessionReferences(session);
+    return createGuardrailRecord({
+      kind: input.kind,
+      scope: 'runtime_session',
+      summary: input.summary,
+      reasonCode: input.reasonCode || null,
+      detectedAt: input.detectedAt,
+      taskId: refs.taskId,
+      executionJobId: refs.executionJobId,
+      runtimeSessionId: session.runtimeSessionId,
+      metadata: input.metadata || null,
+    });
+  }
+
+  private async inspectWorkProduction(
+    session: RuntimeSessionRecord,
+    output: string | null,
+  ) {
+    const hasMeaningfulOutput = Boolean(tailOutput(output, 8));
+    if (!session.worktreePath) {
+      return {
+        hasMeaningfulOutput,
+        hasRelevantDiff: false,
+        hasNewCommit: false,
+      };
+    }
+
+    try {
+      const [{ stdout: currentHead }, { stdout: statusOutput }] = await Promise.all([
+        this.commandRunner.run('git', ['rev-parse', 'HEAD'], { cwd: session.worktreePath }),
+        this.commandRunner.run('git', ['status', '--short'], { cwd: session.worktreePath }),
+      ]);
+      const relevantStatusLines = filterRelevantGitStatusLines(statusOutput);
+      return {
+        hasMeaningfulOutput,
+        hasRelevantDiff: relevantStatusLines.length > 0,
+        hasNewCommit: Boolean(session.baseCommitHash && currentHead.trim() !== session.baseCommitHash),
+      };
+    } catch {
+      return {
+        hasMeaningfulOutput,
+        hasRelevantDiff: false,
+        hasNewCommit: false,
+      };
+    }
+  }
+
+  private async detectNoWorkProduced(
+    session: RuntimeSessionRecord,
+    output: string | null,
+    detectedAt: string,
+    processExitCode: number | null,
+  ) {
+    const evidence = await this.inspectWorkProduction(session, output);
+    if (evidence.hasMeaningfulOutput || evidence.hasRelevantDiff || evidence.hasNewCommit) {
+      return null;
+    }
+
+    return this.createRuntimeGuardrail(session, {
+      kind: 'no_work_produced',
+      summary: 'La sesion terminó sin diff, commit nuevo ni evidencia util de trabajo.',
+      reasonCode: processExitCode === null ? 'missing_exit_code' : `exit_code_${processExitCode}`,
+      detectedAt,
+      metadata: {
+        processExitCode,
+      },
+    });
+  }
+
   private syncTaskStatus(session: RuntimeSessionRecord, status: RalphitoTaskStatus, failureReason?: string | null) {
     const sessionFile = session.worktreePath ? readRuntimeSessionFile(session.worktreePath) : null;
     syncRuntimeTaskLink({
@@ -281,15 +387,19 @@ export class SessionLoop {
     });
   }
 
+  private shouldMarkTaskDone(runtimeSessionId: string) {
+    const job = getRalphitoRepositories().executionJobs.getByRuntimeSessionId(runtimeSessionId);
+    return job?.status !== 'review';
+  }
+
   private async recordTerminalExecutionResult(runtimeSessionId: string, result: SessionLoopResult) {
     const session = this.sessionRepository.getByRuntimeSessionId(runtimeSessionId);
     const status = result.terminalStatus === 'done'
       ? 'done'
-      : result.terminalStatus === 'cancelled'
-        ? 'cancelled'
-        : 'failed';
+      : 'failed';
     const summary =
       session?.failureSummary ||
+      result.guardrail?.summary ||
       (status === 'done' ? 'Execution completed.' : result.reason);
 
     await this.executionPipeline.recordTerminalResultByRuntimeSessionId({
@@ -303,6 +413,7 @@ export class SessionLoop {
         failureKind: session?.failureKind || null,
         failureReasonCode: session?.failureReasonCode || null,
       },
+      guardrail: result.guardrail || null,
     });
   }
 
@@ -408,7 +519,9 @@ export class SessionLoop {
       heartbeatAt: nowIso,
       finishedAt: nowIso,
     });
-    this.syncTaskStatus(session, 'done');
+    if (this.shouldMarkTaskDone(input.runtimeSessionId)) {
+      this.syncTaskStatus(session, 'done');
+    }
     enqueueEngineNotification({
       runtimeSessionId: input.runtimeSessionId,
       eventType: 'session.synced',
@@ -495,9 +608,10 @@ export class SessionLoop {
     }
   }
 
-  async run(input: SessionLoopContext) {
+  async run(input: SessionLoopContext): Promise<SessionLoopResult> {
     console.log(`[SessionLoop:${input.runtimeSessionId}] Started`);
     let lastOutput = '';
+    let repeatedOutputPolls = 0;
     let lastProgressAt = Date.now();
     let lastStatus: string | null = null;
     let blockingDaemonDetectedAt: number | null = null;
@@ -567,17 +681,27 @@ export class SessionLoop {
         });
       }
 
+      const waitingForLlm = Boolean(
+        session.status === 'running' && session.worktreePath && isWaitingForLlm(session.worktreePath),
+      );
+
       if (session.status === 'running' && normalizedOutput && normalizedOutput !== lastOutput) {
         console.log(`[SessionLoop:${input.runtimeSessionId}] New output detected, updating progress timer`);
         lastOutput = normalizedOutput;
+        repeatedOutputPolls = 0;
         lastProgressAt = nowMs;
         this.sessionRepository.incrementStepCount({
           runtimeSessionId: input.runtimeSessionId,
           heartbeatAt: nowIso,
         });
-      } else if (session.status === 'running' && session.worktreePath && isWaitingForLlm(session.worktreePath)) {
+      } else if (session.status === 'running' && normalizedOutput && normalizedOutput === lastOutput && !waitingForLlm) {
+        repeatedOutputPolls += 1;
+      } else if (waitingForLlm) {
         console.log(`[SessionLoop:${input.runtimeSessionId}] Waiting for LLM detected via marker file, resetting progress timer`);
+        repeatedOutputPolls = 0;
         lastProgressAt = nowMs;
+      } else if (session.status === 'running') {
+        repeatedOutputPolls = 0;
       }
 
       const refreshedSession = this.sessionRepository.getByRuntimeSessionId(input.runtimeSessionId);
@@ -622,6 +746,63 @@ export class SessionLoop {
         ));
       }
 
+      if (
+        refreshedSession.status === 'running' &&
+        normalizedOutput &&
+        repeatedOutputPolls >= DEFAULT_RUNTIME_REPEATED_OUTPUT_POLLS - 1
+      ) {
+        const summary = `Loop repetido detectado sin progreso: ${findMatchingTerminalLine(normalizedOutput, [/.+/]) || 'sin salida util'}`;
+        const guardrail = recordGuardrailEvent(this.createRuntimeGuardrail(refreshedSession, {
+          kind: 'empty_or_repeated_loop',
+          summary,
+          reasonCode: 'repeated_output',
+          detectedAt: nowIso,
+          metadata: {
+            repeatedOutputPolls,
+          },
+        }));
+        const failureLogTail = tailOutput(normalizedOutput);
+
+        if (refreshedSession.worktreePath) {
+          writeRuntimeFailureRecord(refreshedSession.worktreePath, {
+            runtimeSessionId: input.runtimeSessionId,
+            kind: 'empty_or_repeated_loop',
+            summary,
+            reasonCode: guardrail.reasonCode,
+            logTail: failureLogTail,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          });
+        }
+
+        this.sessionRepository.fail({
+          runtimeSessionId: input.runtimeSessionId,
+          failureKind: 'empty_or_repeated_loop',
+          failureSummary: summary,
+          failureReasonCode: guardrail.reasonCode,
+          ...(failureLogTail ? { failureLogTail } : {}),
+          heartbeatAt: nowIso,
+          finishedAt: nowIso,
+        });
+        this.syncTaskStatus(refreshedSession, 'failed', summary);
+        this.notifyTerminalGuardrailFailure(refreshedSession, {
+          runtimeSessionId: input.runtimeSessionId,
+          kind: 'empty_or_repeated_loop',
+          summary,
+          reasonCode: guardrail.reasonCode,
+          logTail: failureLogTail,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+        await this.tmuxRuntime.killSession(input.runtimeSessionId);
+        await this.cleanupTerminalSession(input.runtimeSessionId, refreshedSession.worktreePath, true);
+        return finalize({
+          terminalStatus: 'failed',
+          reason: 'empty_or_repeated_loop',
+          guardrail,
+        } satisfies SessionLoopResult);
+      }
+
       const promptMatch: PromptMatch | null =
         refreshedSession.status === 'running' || refreshedSession.status === 'suspended_human_input'
           ? findMatchingPrompt(normalizedOutput)
@@ -632,6 +813,7 @@ export class SessionLoop {
           console.log(`[SessionLoop:${input.runtimeSessionId}] Suspended but prompt gone, auto-resuming`);
           this.sessionRepository.resume({ runtimeSessionId: input.runtimeSessionId, heartbeatAt: nowIso });
           promptRetryCount = 0;
+          repeatedOutputPolls = 0;
           lastPromptMatch = null;
         } else {
           const suspendedAt = refreshedSession.suspendedAt ? new Date(refreshedSession.suspendedAt) : null;
@@ -662,6 +844,7 @@ export class SessionLoop {
             await this.tmuxRuntime.sendLiteral(input.runtimeSessionId, envCredential);
             lastProgressAt = nowMs;
             promptRetryCount = 0;
+            repeatedOutputPolls = 0;
           } else {
             console.log(`[SessionLoop:${input.runtimeSessionId}] Credential prompt requires human input, suspending`);
             this.sessionRepository.suspend({
@@ -934,6 +1117,7 @@ export class SessionLoop {
           if (await this.tryAutoResumeFailure(input, refreshedSession, failure)) {
             console.log(`[SessionLoop:${input.runtimeSessionId}] Auto-resume triggered for failure=${failure.kind}`);
             lastOutput = '';
+            repeatedOutputPolls = 0;
             lastProgressAt = nowMs;
             lastStatus = 'running';
             blockingDaemonDetectedAt = null;
@@ -972,6 +1156,12 @@ export class SessionLoop {
           }
 
           if (typeof processExitCode === 'number') {
+            const noWorkGuardrail = await this.detectNoWorkProduced(
+              refreshedSession,
+              normalizedOutput,
+              nowIso,
+              processExitCode,
+            );
             const summary = `Proceso terminó con exit_code=${processExitCode} sin failure record`;
             if (refreshedSession.worktreePath) {
               writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -985,6 +1175,9 @@ export class SessionLoop {
               });
               clearRuntimeExitCode(refreshedSession.worktreePath);
             }
+            if (noWorkGuardrail) {
+              recordGuardrailEvent(noWorkGuardrail, 'error');
+            }
             this.sessionRepository.fail({
               runtimeSessionId: input.runtimeSessionId,
               failureKind: 'process_exit_nonzero',
@@ -993,10 +1186,20 @@ export class SessionLoop {
               finishedAt: nowIso,
             });
             this.syncTaskStatus(refreshedSession, 'failed', summary);
-            return finalize({ terminalStatus: 'failed', reason: 'process_exit_nonzero' } satisfies SessionLoopResult);
+            return finalize({
+              terminalStatus: 'failed',
+              reason: 'process_exit_nonzero',
+              guardrail: noWorkGuardrail,
+            } satisfies SessionLoopResult);
           }
 
           console.log(`[SessionLoop:${input.runtimeSessionId}] Silent exit detected`);
+          const noWorkGuardrail = await this.detectNoWorkProduced(
+            refreshedSession,
+            normalizedOutput,
+            nowIso,
+            null,
+          );
           const summary = `Sesión marcada running pero tmux murió sin failure record`;
           if (refreshedSession.worktreePath) {
             writeRuntimeFailureRecord(refreshedSession.worktreePath, {
@@ -1006,8 +1209,11 @@ export class SessionLoop {
               reasonCode: null,
               logTail: tailOutput(normalizedOutput),
               createdAt: nowIso,
-              updatedAt: nowIso,
-            });
+                updatedAt: nowIso,
+              });
+            }
+          if (noWorkGuardrail) {
+            recordGuardrailEvent(noWorkGuardrail, 'error');
           }
           this.sessionRepository.markStuck({
             runtimeSessionId: input.runtimeSessionId,
@@ -1017,7 +1223,11 @@ export class SessionLoop {
             finishedAt: nowIso,
           });
           this.syncTaskStatus(refreshedSession, 'failed', summary);
-          return finalize({ terminalStatus: 'stuck', reason: 'silent_exit' } satisfies SessionLoopResult);
+          return finalize({
+            terminalStatus: 'stuck',
+            reason: 'silent_exit',
+            guardrail: noWorkGuardrail,
+          } satisfies SessionLoopResult);
         }
 
         console.log(`[SessionLoop:${input.runtimeSessionId}] Clean exit`);
@@ -1031,7 +1241,9 @@ export class SessionLoop {
           heartbeatAt: nowIso,
           finishedAt: nowIso,
         });
-        this.syncTaskStatus(refreshedSession, 'done');
+        if (this.shouldMarkTaskDone(input.runtimeSessionId)) {
+          this.syncTaskStatus(refreshedSession, 'done');
+        }
         return finalize({ terminalStatus: 'done', reason: 'process_exited' } satisfies SessionLoopResult);
       }
 

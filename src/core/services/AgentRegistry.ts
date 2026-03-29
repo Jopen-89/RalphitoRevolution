@@ -171,8 +171,8 @@ const AGENT_SEED_PROFILES: Record<string, Omit<AgentSeedProfile, 'name' | 'roleF
     primaryProvider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
     executionHarness: DEFAULT_EXECUTION_HARNESS,
-    toolMode: 'none',
-    allowedTools: [],
+    toolMode: 'allowed',
+    allowedTools: ['git_diff', 'read_workspace_file'],
     fallbacks: [],
   },
   tracker: {

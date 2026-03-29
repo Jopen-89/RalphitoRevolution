@@ -121,6 +121,38 @@ test('getOperationalStatus separa salud viva del historico y deuda operativa', a
 
     db.prepare(
       `
+        INSERT INTO tasks (
+          id,
+          project_key,
+          title,
+          source_spec_path,
+          component_path,
+          status,
+          assigned_agent,
+          runtime_session_id,
+          priority,
+          created_at,
+          updated_at,
+          completed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    ).run(
+      'task-review-stale',
+      'backend',
+      'Task review vieja',
+      null,
+      'src/infrastructure/review',
+      'in_progress',
+      'backend-team',
+      null,
+      'medium',
+      '2026-03-29T10:00:00.000Z',
+      '2026-03-29T10:00:00.000Z',
+      null,
+    );
+
+    db.prepare(
+      `
         INSERT INTO session_summaries (scope_type, scope_id, summary, created_at)
         VALUES (?, ?, ?, ?)
       `,
@@ -140,6 +172,249 @@ test('getOperationalStatus separa salud viva del historico y deuda operativa', a
       'ok',
       JSON.stringify({ durationMs: 20, snippetCount: 2 }),
       '2026-03-24T10:08:00.000Z',
+    );
+
+    db.prepare(
+      `
+        INSERT INTO execution_jobs (
+          id,
+          task_id,
+          project_id,
+          agent_id,
+          agent_config_id,
+          execution_harness,
+          execution_profile,
+          provider,
+          model,
+          provider_profile,
+          tool_calling_mode,
+          allowed_tools_json,
+          fallbacks_json,
+          status,
+          prompt,
+          bead_path,
+          requested_by_agent_id,
+          origin_thread_id,
+          notification_chat_id,
+          runtime_session_id,
+          branch_name,
+          base_commit_hash,
+          failure_reason,
+          claim_token,
+          claimed_by,
+          claimed_at,
+          claim_expires_at,
+          attempt_count,
+          max_attempts,
+          next_attempt_at,
+          last_heartbeat_at,
+          last_error_code,
+          last_error_summary,
+          created_at,
+          started_at,
+          finished_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    ).run(
+      'job-orphan',
+      'task-stale',
+      'backend',
+      'backend-team',
+      'default',
+      'codex',
+      null,
+      'openai',
+      'gpt-5.4',
+      null,
+      'allowed',
+      '[]',
+      '[]',
+      'running',
+      'orphaned run',
+      null,
+      'raymon',
+      null,
+      null,
+      null,
+      'jopen/job-orphan',
+      'abc123',
+      null,
+      null,
+      null,
+      null,
+      null,
+      0,
+      3,
+      '2026-03-24T09:00:00.000Z',
+      '2026-03-24T09:00:00.000Z',
+      null,
+      null,
+      '2026-03-24T09:00:00.000Z',
+      '2026-03-24T09:00:00.000Z',
+      null,
+      '2026-03-24T09:00:00.000Z',
+    );
+
+    db.prepare(
+      `
+        INSERT INTO execution_jobs (
+          id,
+          task_id,
+          project_id,
+          agent_id,
+          agent_config_id,
+          execution_harness,
+          execution_profile,
+          provider,
+          model,
+          provider_profile,
+          tool_calling_mode,
+          allowed_tools_json,
+          fallbacks_json,
+          status,
+          prompt,
+          bead_path,
+          requested_by_agent_id,
+          origin_thread_id,
+          notification_chat_id,
+          runtime_session_id,
+          branch_name,
+          base_commit_hash,
+          failure_reason,
+          claim_token,
+          claimed_by,
+          claimed_at,
+          claim_expires_at,
+          attempt_count,
+          max_attempts,
+          next_attempt_at,
+          last_heartbeat_at,
+          last_error_code,
+          last_error_summary,
+          created_at,
+          started_at,
+          finished_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    ).run(
+      'job-review-stale',
+      'task-review-stale',
+      'backend',
+      'backend-team',
+      'default',
+      'codex',
+      null,
+      'openai',
+      'gpt-5.4',
+      null,
+      'allowed',
+      '[]',
+      '[]',
+      'review',
+      'review run',
+      null,
+      'raymon',
+      null,
+      null,
+      null,
+      'jopen/job-review-stale',
+      'abc124',
+      null,
+      null,
+      null,
+      null,
+      null,
+      0,
+      3,
+      '2026-03-24T08:00:00.000Z',
+      '2026-03-24T08:00:00.000Z',
+      null,
+      null,
+      '2026-03-24T08:00:00.000Z',
+      '2026-03-24T08:00:00.000Z',
+      null,
+      '2026-03-24T08:00:00.000Z',
+    );
+
+    db.prepare(
+      `
+        INSERT INTO execution_reviews (
+          id,
+          execution_job_id,
+          task_id,
+          runtime_session_id,
+          reviewer_agent_id,
+          provider,
+          model,
+          status,
+          summary,
+          findings_json,
+          input_json,
+          rework_task_id,
+          claim_token,
+          claimed_by,
+          claimed_at,
+          claim_expires_at,
+          attempt_count,
+          max_attempts,
+          next_attempt_at,
+          last_error,
+          created_at,
+          started_at,
+          finished_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    ).run(
+      'review-stale',
+      'job-review-stale',
+      'task-review-stale',
+      null,
+      'juez',
+      'openai',
+      'gpt-5.4',
+      'claimed',
+      null,
+      null,
+      '{}',
+      null,
+      'claim-review-stale',
+      'review-worker',
+      '2026-03-24T08:00:00.000Z',
+      '2026-03-24T08:30:00.000Z',
+      1,
+      3,
+      '2026-03-24T08:00:00.000Z',
+      null,
+      '2026-03-24T08:00:00.000Z',
+      '2026-03-24T08:00:00.000Z',
+      null,
+      '2026-03-24T08:00:00.000Z',
+    );
+
+    db.prepare(
+      `
+        INSERT INTO system_events (event_type, status, payload_json, created_at)
+        VALUES (?, ?, ?, ?)
+      `,
+    ).run(
+      'guardrail_detected',
+      'warn',
+      JSON.stringify({
+        kind: 'stale_review',
+        scope: 'execution_review',
+        summary: 'Review colgada',
+        reasonCode: 'claim_expired',
+        detectedAt: '2026-03-24T10:14:00.000Z',
+        taskId: 'task-review-stale',
+        executionJobId: 'job-review-stale',
+        runtimeSessionId: null,
+        reviewId: 'review-stale',
+        metadata: null,
+      }),
+      '2026-03-24T10:14:00.000Z',
     );
 
     enqueueEngineNotification({
@@ -219,12 +494,18 @@ test('getOperationalStatus separa salud viva del historico y deuda operativa', a
     assert.equal(status.historical.counters?.summaries, 1);
 
     assert.equal(status.historical.debt.orphanSessions, 1);
-    assert.equal(status.historical.debt.stuckTaskCount, 1);
+    assert.equal(status.historical.debt.stuckTaskCount, 2);
     assert.equal(status.historical.debt.stuckTasks[0]?.id, 'task-stale');
+    assert.equal(status.historical.debt.orphanTaskCount, 0);
+    assert.equal(status.historical.debt.orphanJobCount, 1);
+    assert.equal(status.historical.debt.staleReviewCount, 1);
+    assert.equal(status.historical.debt.recentGuardrails[0]?.kind, 'stale_review');
+    assert.equal(status.historical.debt.recentGuardrailCounts.stale_review, 1);
     assert.equal(status.historical.debt.notificationOutbox?.total, 3);
     assert.equal(status.historical.debt.notificationOutbox?.delivered, 1);
     assert.equal(status.historical.debt.notificationOutbox?.failed, 1);
-    assert.equal(status.historical.recentEvents[0]?.eventType, 'context_loader');
-    assert.equal(status.historical.recentEvents[1]?.eventType, 'search_query');
+    assert.equal(status.historical.recentEvents[0]?.eventType, 'guardrail_detected');
+    assert.equal(status.historical.recentEvents[1]?.eventType, 'context_loader');
+    assert.equal(status.historical.recentEvents[2]?.eventType, 'search_query');
   });
 });

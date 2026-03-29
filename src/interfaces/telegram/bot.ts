@@ -5,6 +5,8 @@ import * as convStore from './conversationStore.js';
 import { initializeRalphitoDatabase } from '../../infrastructure/persistence/db/index.js';
 import { EngineNotificationDispatcher } from './engineNotificationDispatcher.js';
 import { AgentRegistryService } from '../../core/services/AgentRegistry.js';
+import { ExecutionJobScheduler } from '../../core/services/ExecutionJobScheduler.js';
+import { ReviewScheduler } from '../../core/services/ReviewScheduler.js';
 import { ACTIVE_AGENT_WINDOW_MS, resolveTelegramRouting } from './routing.js';
 import { invokeAgentInChatThread } from './agentInvocationService.js';
 import { replaceTelegramMessage, sendTelegramMessage } from './telegramSender.js';
@@ -33,6 +35,8 @@ const bot = new Telegraf(token);
 const DUPLICATE_MESSAGE_WINDOW_MS = 8 * 1000;
 const processingChats = new Set<string>();
 const notificationDispatcher = new EngineNotificationDispatcher();
+const executionJobScheduler = new ExecutionJobScheduler();
+const reviewScheduler = new ReviewScheduler();
 
 function getAgents() {
     return loadAgentRegistry();
@@ -254,12 +258,16 @@ bot.catch((err, ctx) => {
 
 async function startTelegramBot() {
     notificationDispatcher.start();
+    executionJobScheduler.start();
+    reviewScheduler.start();
 
     try {
         await bot.launch();
         console.log('✅ Bot de Telegram iniciado correctamente.');
     } catch (err) {
         notificationDispatcher.stop();
+        executionJobScheduler.stop();
+        reviewScheduler.stop();
         throw err;
     }
 }
@@ -269,9 +277,13 @@ void startTelegramBot().catch((err) => {
 });
 process.once('SIGINT', () => {
     notificationDispatcher.stop();
+    executionJobScheduler.stop();
+    reviewScheduler.stop();
     bot.stop('SIGINT');
 });
 process.once('SIGTERM', () => {
     notificationDispatcher.stop();
+    executionJobScheduler.stop();
+    reviewScheduler.stop();
     bot.stop('SIGTERM');
 });

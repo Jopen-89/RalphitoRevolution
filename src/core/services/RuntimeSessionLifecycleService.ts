@@ -91,7 +91,7 @@ export class RuntimeSessionLifecycleService {
       });
       this.executionPipeline.recordTerminalResultByRuntimeSessionId({
         runtimeSessionId: input.runtimeSessionId,
-        status: 'cancelled',
+        status: 'failed',
         summary: reason,
         reason: 'cancelled',
         payload: {

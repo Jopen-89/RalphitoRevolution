@@ -159,7 +159,8 @@ test('SessionSupervisor liga task existente al spawn por beadPath', async () => 
           },
         }) as never,
     );
-    const executionJob = new ExecutionPipelineService().createJob({
+    const executionPipeline = new ExecutionPipelineService();
+    const executionJob = executionPipeline.createJob({
       task: BeadLifecycleService.getTaskById('task-spawn-link')!,
       executorAgentId: 'backend-team',
       executionHarness: 'opencode',
@@ -168,11 +169,17 @@ test('SessionSupervisor liga task existente al spawn por beadPath', async () => 
       prompt: 'Ejecuta el bead 02',
       requestedByAgentId: 'raymon',
     });
+    const claim = executionPipeline.claimJob({
+      executionJobId: executionJob!.id,
+      workerId: 'test-worker',
+    });
+    assert.ok(claim);
 
     const result = await supervisor.spawn({
       project: 'backend-team',
       taskId: 'task-spawn-link',
       executionJobId: executionJob!.id,
+      executionClaimToken: claim!.claimToken,
       prompt: 'Ejecuta el bead 02',
       beadPath: 'docs/specs/projects/test-engine/bead-02-fake-test.md',
     });
@@ -218,7 +225,8 @@ test('ExecutorLoop marca done la task ligada cuando el landing cierra bien', asy
     const worktreePath = createTempDirectory('rr-executor-done-worktree-');
     const beadPath = path.join(process.cwd(), 'docs/specs/projects/test-engine/bead-02-fake-test.md');
     const now = new Date().toISOString();
-    const executionJobId = new ExecutionPipelineService().createJob({
+    const executionPipeline = new ExecutionPipelineService();
+    const executionJobId = executionPipeline.createJob({
       task: BeadLifecycleService.createTask({
         taskId: 'task-done-link',
         projectId: 'backend-team',
@@ -234,6 +242,11 @@ test('ExecutorLoop marca done la task ligada cuando el landing cierra bien', asy
       prompt: 'Ejecuta el bead 02',
       requestedByAgentId: 'raymon',
     })!.id;
+    const claim = executionPipeline.claimJob({
+      executionJobId,
+      workerId: 'test-worker',
+    });
+    assert.ok(claim);
 
     mkdirSync(worktreePath, { recursive: true });
     writeFileSync(path.join(worktreePath, '.ralphito-runtime-exit-code'), '0\n', 'utf8');
@@ -283,8 +296,9 @@ test('ExecutorLoop marca done la task ligada cuando el landing cierra bien', asy
       createdAt: now,
       updatedAt: now,
     });
-    new ExecutionPipelineService().markJobRunning({
+    executionPipeline.markJobRunning({
       executionJobId,
+      claimToken: claim!.claimToken,
       runtimeSessionId,
       branchName: `jopen/${runtimeSessionId}`,
       baseCommitHash: 'base-commit',

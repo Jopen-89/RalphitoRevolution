@@ -6,6 +6,7 @@ import type { Message, ToolDefinition, ToolCall, ToolResult, ToolResultPayload }
 import type { IToolCallingProvider } from '../../core/domain/gateway.types.js';
 import type { Tool } from './toolRegistry.js';
 import { traceOutput } from '../../core/services/outputTrace.js';
+import { ExecutionReviewService } from '../../core/services/ExecutionReviewService.js';
 import { RUNTIME_SESSION_FILE_NAME } from '../../core/domain/constants.js';
 import { resolveRuntimeBeadPath } from '../../core/engine/runtimeFiles.js';
 
@@ -142,6 +143,20 @@ function runVerificationFromWorktree(worktreePath: string): VerificationResult {
   }
 }
 
+function readRuntimeSessionIdFromWorktree(worktreePath: string) {
+  const sessionFilePath = path.join(worktreePath, RUNTIME_SESSION_FILE_NAME);
+  if (!existsSync(sessionFilePath)) return null;
+
+  try {
+    const sessionData = JSON.parse(readFileSync(sessionFilePath, 'utf8')) as { runtimeSessionId?: unknown };
+    return typeof sessionData.runtimeSessionId === 'string' && sessionData.runtimeSessionId.trim()
+      ? sessionData.runtimeSessionId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function executeToolCallLoop(
   messages: Message[],
   toolDefinitions: ToolDefinition[],
@@ -246,13 +261,26 @@ export async function executeToolCallLoop(
           console.log(`[submit_for_review] notes: ${notes}`);
         }
         const verificationResult = runVerificationFromWorktree(context.worktreePath);
+        if (verificationResult.ok) {
+          const runtimeSessionId = readRuntimeSessionIdFromWorktree(context.worktreePath);
+          if (runtimeSessionId) {
+            await new ExecutionReviewService().requestReviewForRuntimeSession({
+              runtimeSessionId,
+              worktreePath: context.worktreePath,
+              verificationSummary: verificationResult.content,
+            });
+          }
+        }
+        const reviewMessage = verificationResult.ok
+          ? `${verificationResult.content}\n\nREVIEW_QUEUED: no hagas mas cambios. Usa finish_task para aterrizar esta version.`
+          : verificationResult.content;
         result = {
           toolCallId: toolId,
-          content: verificationResult.content,
+          content: reviewMessage,
           ok: verificationResult.ok,
           payload: verificationResult.ok
-            ? buildToolOutputPayload(verificationResult.content)
-            : buildToolErrorPayload(verificationResult.content),
+            ? buildToolOutputPayload(reviewMessage)
+            : buildToolErrorPayload(reviewMessage),
         };
       } else {
         try {

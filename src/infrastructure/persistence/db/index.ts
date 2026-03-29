@@ -9,6 +9,8 @@ export {
   resetRalphitoRepositories,
   type ExecutionJobRecord,
   type ExecutionJobStatus,
+  type ExecutionReviewRecord,
+  type ExecutionReviewStatus,
   type ExecutionResultRecord,
   type ExecutionResultStatus,
   type RalphitoRepositories,

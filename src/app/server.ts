@@ -20,6 +20,8 @@ import type { IToolCallingProvider } from '../core/domain/gateway.types.js';
 import { RUNTIME_LLM_WAITING_FILE_NAME } from '../core/domain/constants.js';
 
 import { AgentRegistryService } from '../core/services/AgentRegistry.js';
+import { ExecutionJobScheduler } from '../core/services/ExecutionJobScheduler.js';
+import { ReviewScheduler } from '../core/services/ReviewScheduler.js';
 import { buildProviderCapabilityHealth, getProviderCatalogStatus, PROVIDER_MATRIX } from '../gateway/providers/providerCatalog.js';
 import { createAttemptDiagnostic, formatAttemptSummary, toDiagnosticErrorMessage } from '../gateway/providers/providerDiagnostics.js';
 import { listConfiguredCodexProfiles } from '../gateway/providers/providerProfiles.js';
@@ -41,6 +43,8 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 initializeRalphitoDatabase();
 AgentRegistryService.sync();
+const executionJobScheduler = new ExecutionJobScheduler();
+const reviewScheduler = new ReviewScheduler();
 
 const app = express();
 app.use(express.json());
@@ -721,6 +725,8 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3006;
 
 function bootstrap() {
   console.log('🔄 Iniciando secuencia de arranque del Gateway...');
+  executionJobScheduler.start();
+  reviewScheduler.start();
 
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 LLM Gateway escuchando en http://0.0.0.0:${PORT}`);
@@ -741,8 +747,21 @@ function bootstrap() {
   });
 
   server.on('error', (error) => {
+    executionJobScheduler.stop();
+    reviewScheduler.stop();
     console.error('❌ Error fatal en el socket del servidor Gateway:', error instanceof Error ? error.message : String(error));
     process.exit(1);
+  });
+
+  process.once('SIGINT', () => {
+    executionJobScheduler.stop();
+    reviewScheduler.stop();
+    server.close();
+  });
+  process.once('SIGTERM', () => {
+    executionJobScheduler.stop();
+    reviewScheduler.stop();
+    server.close();
   });
 }
 

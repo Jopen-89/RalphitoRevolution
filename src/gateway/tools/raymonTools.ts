@@ -7,6 +7,7 @@ import { invokeAgentInChatThread } from '../../interfaces/telegram/agentInvocati
 import { BeadLifecycleService } from '../../core/services/BeadLifecycleService.js';
 import { RuntimeSessionLifecycleService } from '../../core/services/RuntimeSessionLifecycleService.js';
 import { normalizeBeadPriority } from '../../core/domain/bead.types.js';
+import { getRalphitoRepositories } from '../../infrastructure/persistence/db/index.js';
 
 const VALID_PROVIDERS = new Set<Provider>(['gemini', 'openai', 'opencode', 'codex']);
 
@@ -104,10 +105,8 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
         return {
           taskId: result.taskId,
           executionJobId: result.executionJobId,
-          sessionId: result.runtimeSessionId,
-          baseCommitHash: result.baseCommitHash,
-          worktreePath: result.worktreePath,
-          branchName: result.branchName,
+          status: result.status,
+          message: `Execution job ${result.executionJobId} encolada.`,
         };
       },
     },
@@ -223,7 +222,13 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
       execute: async (params: Record<string, unknown>) => {
         const sessionId = requireString(params.sessionId, 'sessionId');
         const result = await orchestrator.resume(sessionId);
-        return result;
+        const job = getRalphitoRepositories().executionJobs.getByRuntimeSessionId(sessionId);
+        return {
+          ...result,
+          sessionId,
+          taskId: job?.taskId || null,
+          executionJobId: job?.id || null,
+        };
       },
     },
     {
@@ -295,8 +300,11 @@ export function createRaymonTools(context: RaymonToolContext = {}): Tool[] {
           runtimeSessionId: sessionId,
           reason: CANCELLED_BY_RAYMON_SUMMARY,
         });
+        const job = getRalphitoRepositories().executionJobs.getByRuntimeSessionId(sessionId);
 
         return {
+          taskId: job?.taskId || null,
+          executionJobId: job?.id || null,
           success: result.runtimeStopped,
           sessionId,
           killed: result.killed,
@@ -335,7 +343,7 @@ export function createRaymonToolDefinitions(): ToolDefinition[] {
   return [
     {
       name: 'spawn_session',
-      description: 'Lanza una sesión de Ralphito para una task persistida.',
+      description: 'Encola una ejecución de Ralphito para una task persistida.',
       parameters: {
         type: 'object',
         properties: {
