@@ -16,6 +16,11 @@ import { GitService } from './gitService.js';
 
 const DEFAULT_COMMIT_MESSAGE = 'Auto-sync from agent session';
 const TYPESCRIPT_EXTENSIONS = new Set(['.ts', '.tsx']);
+const LANDING_IGNORED_UNTRACKED_PREFIXES = ['.ralphito-'];
+const LANDING_IGNORED_UNTRACKED_FILES = new Set([
+  '.agent-loop.log',
+  'node_modules',
+]);
 
 interface LandingResult {
   success: boolean;
@@ -29,6 +34,20 @@ interface PackageJsonShape {
 
 function unique(values: string[]) {
   return [...new Set(values.filter(Boolean))];
+}
+
+function normalizeGitRelativePath(filePath: string) {
+  return filePath.replace(/\\/g, '/').replace(/\/+$/, '');
+}
+
+function shouldIgnoreLandingUntrackedFile(filePath: string) {
+  const normalized = normalizeGitRelativePath(filePath);
+  if (LANDING_IGNORED_UNTRACKED_FILES.has(normalized)) return true;
+  return LANDING_IGNORED_UNTRACKED_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function filterLandingUntrackedFiles(filePaths: string[]) {
+  return filePaths.filter((filePath) => !shouldIgnoreLandingUntrackedFile(filePath));
 }
 
 function hasTypeScriptFiles(filePaths: string[]) {
@@ -161,7 +180,11 @@ async function maybeRunVisualQa(runner: CommandRunner, worktreePath: string, run
 
 async function collectRelevantFiles(git: GitService) {
   const snapshot = await git.status();
-  const workingTreeFiles = unique([...snapshot.stagedFiles, ...snapshot.unstagedFiles, ...snapshot.untrackedFiles]);
+  const workingTreeFiles = unique([
+    ...snapshot.stagedFiles,
+    ...snapshot.unstagedFiles,
+    ...filterLandingUntrackedFiles(snapshot.untrackedFiles),
+  ]);
   if (workingTreeFiles.length > 0) return workingTreeFiles;
 
   if (!snapshot.branch) return [];
@@ -180,13 +203,14 @@ export async function finishTaskLanding(worktreePath: string): Promise<LandingRe
     await git.ensureRemoteBranchRefExists();
 
     const initialSnapshot = await git.status();
+    const initialUntrackedFiles = filterLandingUntrackedFiles(initialSnapshot.untrackedFiles);
     const relevantFiles = await collectRelevantFiles(git);
 
     if (initialSnapshot.unstagedFiles.length > 0) {
       return { success: false, message: 'Unstaged changes detected. Stage or commit them before running finish_task.' };
     }
 
-    if (initialSnapshot.untrackedFiles.length > 0) {
+    if (initialUntrackedFiles.length > 0) {
       return { success: false, message: 'Untracked files detected. Stage or remove them before running finish_task.' };
     }
 
@@ -203,7 +227,8 @@ export async function finishTaskLanding(worktreePath: string): Promise<LandingRe
     }
 
     const postCommitSnapshot = await git.status();
-    if (postCommitSnapshot.unstagedFiles.length > 0 || postCommitSnapshot.untrackedFiles.length > 0) {
+    const postCommitUntrackedFiles = filterLandingUntrackedFiles(postCommitSnapshot.untrackedFiles);
+    if (postCommitSnapshot.unstagedFiles.length > 0 || postCommitUntrackedFiles.length > 0) {
       return { success: false, message: 'Worktree became dirty after commit. Resolve it before finalizing.' };
     }
 

@@ -1,11 +1,14 @@
 import fs from 'fs';
 import { spawn } from 'child_process';
+import { createRequire } from 'module';
 import path from 'path';
 import type { Provider } from '../domain/gateway.types.js';
 import { getRalphitoDatabasePath } from '../../infrastructure/persistence/db/index.js';
 import { CommandRunner } from '../../infrastructure/runtime/commandRunner.js';
 import { getRuntimeExitCodeFilePath } from './runtimeFiles.js';
 import { resolveCodexProfileConfig } from '../../gateway/providers/providerProfiles.js';
+
+const require = createRequire(import.meta.url);
 
 function shellEscape(str: string) {
   if (!str.includes("'")) return `'${str}'`;
@@ -22,6 +25,26 @@ function wrapTrackedCommand(command: string) {
       `${command}; status=$?; printf "%s\\n" "$status" > "$RALPHITO_RUNTIME_EXIT_FILE"; exit "$status"`,
     ),
   ].join(' ');
+}
+
+export function resolveTsxLoaderImportPath() {
+  const candidates = [
+    process.env.RALPHITO_REPO_ROOT?.trim(),
+    process.cwd(),
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    try {
+      const packageJsonPath = require.resolve('tsx/package.json', {
+        paths: [path.resolve(candidate)],
+      });
+      return path.join(path.dirname(packageJsonPath), 'dist', 'loader.mjs');
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return 'tsx';
 }
 
 function toStringEnv(env: NodeJS.ProcessEnv, extra: Record<string, string>) {
@@ -42,6 +65,7 @@ function toStringEnv(env: NodeJS.ProcessEnv, extra: Record<string, string>) {
 export interface BuildRuntimeEnvironmentInput {
   runtimeSessionId: string;
   worktreePath: string;
+  repoRoot?: string;
   projectId: string;
   executionHarness?: string;
   executionProfile?: string | null;
@@ -58,7 +82,14 @@ export function buildRuntimeLaunchCommand(agent: string, model: string | null) {
       return ['codex', '--full-auto', '--no-alt-screen', ...(model ? ['-m', model] : [])].join(' ');
     case 'opencode':
       return wrapTrackedCommand(
-        [process.execPath, '--import', 'tsx', 'src/core/engine/cli.ts', 'agent-loop', '"$RALPHITO_RUNTIME_SESSION_ID"'].join(' '),
+        [
+          shellEscape(process.execPath),
+          '--import',
+          shellEscape(resolveTsxLoaderImportPath()),
+          shellEscape('src/core/engine/cli.ts'),
+          'agent-loop',
+          '"$RALPHITO_RUNTIME_SESSION_ID"',
+        ].join(' '),
       );
     default:
       throw new Error(`Agent no soportado por Ralphito Engine: ${agent}`);
@@ -69,6 +100,7 @@ export function buildRuntimeEnvironment(
   input: BuildRuntimeEnvironmentInput,
   env: NodeJS.ProcessEnv = process.env,
 ) {
+  const repoRoot = input.repoRoot?.trim() || env.RALPHITO_REPO_ROOT?.trim() || process.cwd();
   const codexProfileEnv = input.executionHarness === 'codex'
     ? resolveCodexProfileConfig(input.executionProfile || undefined, env)?.env || {}
     : {};
@@ -77,6 +109,7 @@ export function buildRuntimeEnvironment(
     ...codexProfileEnv,
     CI: '1',
     RALPHITO_DB_PATH: getRalphitoDatabasePath(),
+    RALPHITO_REPO_ROOT: repoRoot,
     RALPHITO_RUNTIME_SESSION_ID: input.runtimeSessionId,
     RALPHITO_RUNTIME_EXIT_FILE: getRuntimeExitCodeFilePath(input.worktreePath),
     RALPHITO_ENGINE_MANAGED: '1',

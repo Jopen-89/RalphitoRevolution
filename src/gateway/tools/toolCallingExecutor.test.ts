@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import type { IToolCallingProvider, Message, ToolDefinition } from '../../core/domain/gateway.types.js';
 import { executeToolCallLoop } from './toolCallingExecutor.js';
+import { extractVerificationCommandFromBead } from './toolCallingExecutor.js';
 
 const TEST_TOOLS: ToolDefinition[] = [
   {
@@ -228,6 +229,20 @@ test('submit_for_review usa bead snapshot del worktree si existe', async () => {
     assert.equal(executionResult.toolResults[0]?.ok, false);
     assert.doesNotMatch(executionResult.toolResults[0]?.content || '', /Bead file not found/);
     assert.match(executionResult.toolResults[0]?.content || '', /worktree/);
+  } finally {
+    rmSync(tmpDir, { force: true, recursive: true });
+  }
+});
+
+test('extractVerificationCommandFromBead falls back to tsc when lint is missing', () => {
+  const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'rr-tool-calling-fallback-'));
+
+  try {
+    writeFileSync(path.join(tmpDir, 'package.json'), JSON.stringify({ name: 'tmp', scripts: {} }, null, 2), 'utf8');
+    writeFileSync(path.join(tmpDir, 'tsconfig.json'), JSON.stringify({ compilerOptions: { noEmit: true } }, null, 2), 'utf8');
+
+    const command = extractVerificationCommandFromBead('# Bead without explicit verification\n', tmpDir);
+    assert.equal(command, 'npx tsc --noEmit');
   } finally {
     rmSync(tmpDir, { force: true, recursive: true });
   }

@@ -99,6 +99,7 @@ export async function resumeRuntimeSession(
       buildRuntimeEnvironment({
         runtimeSessionId,
         worktreePath: session.worktreePath,
+        repoRoot: project.path,
         projectId: project.id,
         executionHarness: sessionFile.agent,
         executionProfile: sessionFile.executionProfile || null,

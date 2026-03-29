@@ -78,12 +78,32 @@ function buildRequiredToolReminder(requiredToolNames: string[]) {
   ].join(' ');
 }
 
-function extractVerificationCommandFromBead(beadContent: string): string {
+function resolveFallbackVerificationCommand(worktreePath: string): string {
+  const packageJsonPath = path.join(worktreePath, 'package.json');
+  if (existsSync(packageJsonPath)) {
+    try {
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { scripts?: Record<string, string> };
+      if (packageJson.scripts?.lint) return 'npm run lint';
+      if (packageJson.scripts?.test) return 'npm test';
+    } catch {
+      // ignore malformed package.json and continue with file-based fallback
+    }
+  }
+
+  if (existsSync(path.join(worktreePath, 'tsconfig.json'))) {
+    return 'npx tsc --noEmit';
+  }
+
+  return 'git status --short';
+}
+
+export function extractVerificationCommandFromBead(beadContent: string, worktreePath: string): string {
   const match = beadContent.match(/## VERIFICATION_COMMAND\s*\n`([^`]+)`/);
   const explicitCommand = match?.[1]?.trim();
   if (explicitCommand) return explicitCommand;
-  console.log('[submit_for_review] No VERIFICATION_COMMAND in Bead, using fallback: npm run lint');
-  return 'npm run lint';
+  const fallbackCommand = resolveFallbackVerificationCommand(worktreePath);
+  console.log(`[submit_for_review] No VERIFICATION_COMMAND in Bead, using fallback: ${fallbackCommand}`);
+  return fallbackCommand;
 }
 
 interface VerificationResult {
@@ -124,7 +144,7 @@ function runVerificationFromWorktree(worktreePath: string): VerificationResult {
   }
 
   const beadContent = readFileSync(beadFilePath, 'utf8');
-  const verificationCommand = extractVerificationCommandFromBead(beadContent);
+  const verificationCommand = extractVerificationCommandFromBead(beadContent, worktreePath);
 
   console.log(`[submit_for_review] Running verification: ${verificationCommand} in ${worktreePath}`);
 

@@ -1,6 +1,6 @@
 import { execFileSync } from 'child_process';
 import Database from 'better-sqlite3';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import test from 'node:test';
@@ -41,6 +41,8 @@ function createGitRepo() {
   runGit(repoRoot, ['config', 'user.name', 'Codex']);
   runGit(repoRoot, ['config', 'user.email', 'codex@example.com']);
 
+  mkdirSync(path.join(repoRoot, 'node_modules', 'fixture'), { recursive: true });
+  writeFileSync(path.join(repoRoot, 'node_modules', 'fixture', 'index.js'), 'export {};\n', 'utf8');
   writeFileSync(path.join(repoRoot, 'seed.txt'), 'seed\n', 'utf8');
   runGit(repoRoot, ['add', 'seed.txt']);
   runGit(repoRoot, ['commit', '-m', 'seed']);
@@ -148,9 +150,12 @@ test('WorktreeManager crea y desmonta worktree propio', async () => {
   try {
     const manager = new WorktreeManager(repoRoot, worktreeRoot);
     const workspacePath = await manager.createWorkspace('rr-2', headCommit);
+    const nodeModulesPath = path.join(workspacePath, 'node_modules');
 
     assert.equal(existsSync(workspacePath), true);
     assert.equal(readFileSync(path.join(workspacePath, 'seed.txt'), 'utf8'), 'seed\n');
+    assert.equal(lstatSync(nodeModulesPath).isSymbolicLink(), true);
+    assert.equal(readlinkSync(nodeModulesPath), path.join(repoRoot, 'node_modules'));
 
     assert.equal(await manager.teardownWorkspace('rr-2'), true);
     assert.equal(existsSync(workspacePath), false);

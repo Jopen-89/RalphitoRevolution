@@ -272,6 +272,7 @@ export class SessionSupervisor {
         buildRuntimeEnvironment({
           runtimeSessionId,
           worktreePath,
+          repoRoot: project.path,
           projectId: project.id,
           executionHarness,
           executionProfile,

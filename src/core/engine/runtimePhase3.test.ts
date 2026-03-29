@@ -575,7 +575,7 @@ test('ExecutorLoop ignora artifacts runtime legitimos al validar landing', async
       async run(_command: string, args: string[]) {
         if (args[0] === 'status') {
           return {
-            stdout: '?? .ralphito-runtime-exit-code\n?? .ralphito-session.json\n',
+            stdout: '?? .agent-loop.log\n?? .ralphito-runtime-exit-code\n?? .ralphito-session.json\n?? node_modules\n',
             stderr: '',
           };
         }
