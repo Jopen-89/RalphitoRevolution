@@ -674,7 +674,8 @@ export class ExecutionPipelineService {
     }
 
     const finishedAt = new Date().toISOString();
-    const nextJobStatus = existing.status === 'review' && input.status === 'done'
+    const isReviewer = existing.agentId === 'juez';
+    const nextJobStatus = input.status === 'done' && !isReviewer
       ? 'review'
       : input.status;
     const job = repos.executionJobs.updateStatus({

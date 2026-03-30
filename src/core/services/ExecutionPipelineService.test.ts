@@ -146,8 +146,8 @@ test('ExecutionPipelineService persiste job running y result terminal', async ()
     const storedJob = repos.executionJobs.getById(job!.id);
     const storedResult = repos.executionResults.getByExecutionJobId(job!.id);
 
-    assert.equal(recorded.job.status, 'done');
-    assert.equal(storedJob?.status, 'done');
+    assert.equal(recorded.job.status, 'review');
+    assert.equal(storedJob?.status, 'review');
     assert.equal(storedJob?.providerProfile, 'jopen');
     assert.equal(storedJob?.toolMode, 'allowed');
     assert.deepEqual(storedJob?.allowedTools, ['finish_task', 'submit_for_review']);
